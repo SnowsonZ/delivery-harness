@@ -185,6 +185,11 @@ def run_target(target: Target, copy_root: Path) -> dict:
     return {"name": target.name, "total": len(mutants), "killed": killed, "survivors": survivors}
 
 
+def below_baseline(score: float, previous: float | None) -> bool:
+    """基线按四位小数存储，比较前按同样精度取整（否则 43/45 会被判为低于 0.9556）。"""
+    return previous is not None and round(score, 4) < previous
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = parser.add_mutually_exclusive_group()
@@ -218,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  ✗ {result['error']}")
         for survivor in result["survivors"]:
             print(f"  存活 {survivor}")
-        if args.check and previous is not None and score + 1e-9 < previous:
+        if args.check and below_baseline(score, previous):
             failed = True
             print(f"  ✗ 得分低于基线 {previous:.0%}")
         result["score"] = round(score, 4)

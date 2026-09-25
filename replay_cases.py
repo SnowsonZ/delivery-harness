@@ -125,8 +125,8 @@ CASES: list[Case] = [
         ("test_properties.CostThresholdProperties", "test_daily_report"),
     ),
     Case(
-        "V080-R17",
-        "generate_overview 绕过 cost_thresholds 自行取分位",
+        "H0925-1",
+        "generate_overview 绕过 cost_thresholds 自行取分位（R17 的回归测试曾守不住）",
         "scripts/daily_report.py",
         "    thresholds = cost_thresholds(amounts)",
         "    thresholds = [amounts[int(len(amounts) * q)] for q in (0.5, 0.75, 0.9)] if len(amounts) >= 8 else [0.0] * 3",
@@ -141,8 +141,8 @@ CASES: list[Case] = [
         ("swift-policy",),
     ),
     Case(
-        "V080-R8",
-        "写入器绕过 widgetRunningListed 自行过滤",
+        "H0925-2",
+        "写入器绕过 widgetRunningListed 自行过滤（V080-R8）",
         "native/WidgetSnapshotWriter.swift",
         "            widgetRunningListed(origin: $0.origin, state: $0.state, openAvailable: $0.openAvailable)",
         "            inboxNotifyEligible(origin: $0.origin, unread: $0.unread)",
@@ -157,12 +157,23 @@ CASES: list[Case] = [
         ("swift-policy",),
     ),
     Case(
-        "V080-R15",
-        "写入器内联 hideTitles 判断",
+        "H0925-2",
+        "写入器内联 hideTitles 判断（V080-R15）",
         "native/WidgetSnapshotWriter.swift",
         "                project: text.project,\n                state: row.state, at: max(row.activityAt ?? 0, row.eventAt)\n            )\n        }",
         '                project: hideTitles ? "" : row.project,\n                state: row.state, at: max(row.activityAt ?? 0, row.eventAt)\n            )\n        }',
         ("test_architecture",),
+    ),
+    Case(
+        "H0925-5",
+        "证据检查只认 git trailer（Defect 与 Co-Authored-By 隔空行即被忽略）",
+        "harness/common.py",
+        '    message = git("log", "-1", "--format=%B", sha, cwd=cwd)',
+        '    message = git("log", "-1", "--format=%(trailers:only,unfold)", sha, cwd=cwd)',
+        (
+            "test_harness.EvidenceTest.test_defect_before_co_author_paragraph_is_recognized",
+            "test_harness.RiskTest.test_r1_claim_before_co_author_paragraph_is_recognized",
+        ),
     ),
     Case(
         "V080-R10",

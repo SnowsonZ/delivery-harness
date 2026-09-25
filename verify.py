@@ -107,6 +107,8 @@ def build_checks(strict: bool = False) -> list[Check]:
         Check("tools", ("quick", "default", "full"), func=check_tools),
         Check("lint", ("quick", "default", "full"), command=[py, "-m", "ruff", "check", "scripts", "tests", "harness"]),
         Check("hygiene", ("quick", "default", "full"), command=[py, "harness/hygiene.py", "--tracked"]),
+        # 熵治理棘轮（harness/quality.py）：复杂度超标函数数与超长文件数只降不升。
+        Check("quality", ("default", "full"), command=[py, "harness/quality.py"]),
         # 规格验收编号 ↔ 测试映射（harness/acceptance.py）：引用失效或新增无测试条目即失败。
         Check("acceptance", ("quick", "default", "full"), command=[py, "harness/acceptance.py"]),
         Check(

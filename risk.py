@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from common import (
     ROOT,
+    added_line_count,
     changed_files,
     commit_field,
     git,
@@ -79,6 +80,14 @@ def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd
             FileRisk(path, status, 2, f"改动已有测试（删改 {removed} 行）"),
             f"改动已有测试：`{path}`（删改 {removed} 行），判定器被修改须由评审方确认",
         )
+    shrinking = (
+        status == "M"
+        and path_matches(path, risk.get("shrink_only", []))
+        and not added_line_count(base, head, path, cwd)
+        and removed_line_count(base, head, path, cwd)
+    )
+    if shrinking:
+        return FileRisk(path, status, 0, "只能缩减的清单被缩减"), None
     pattern = path_matches(path, risk["r3"])
     if pattern:
         return FileRisk(path, status, 3, f"命中 R3 规则 `{pattern}`"), None

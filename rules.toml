@@ -72,6 +72,8 @@ r0 = [
     "README.zh-CN.md",
 ]
 tests = ["tests/**"]
+# 只能缩减的清单：只删不增时按 R0（关闭缺口是期望的方向）；有新增行仍按上面的规则判定。
+shrink_only = ["harness/acceptance-gaps.txt"]
 # 黄金快照：任何改动都意味着行为变化，不能算 R1。
 golden = ["tests/golden/**"]
 

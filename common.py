@@ -137,12 +137,21 @@ def commit_field(sha: str, key: str, cwd: Path | str = ROOT) -> list[str]:
     return pattern.findall(message)
 
 
-def removed_line_count(base: str, head: str, path: str, cwd: Path | str = ROOT) -> int:
-    """base...head 中某文件被删除或改写的行数（numstat 的删除列）。"""
+def _numstat(base: str, head: str, path: str, column: int, cwd: Path | str) -> int:
     raw = git("diff", "--numstat", "--no-renames", f"{base}...{head}", "--", path, cwd=cwd)
     total = 0
     for line in raw.splitlines():
         parts = line.split("\t")
-        if len(parts) >= 2 and parts[1].isdigit():
-            total += int(parts[1])
+        if len(parts) >= 2 and parts[column].isdigit():
+            total += int(parts[column])
     return total
+
+
+def removed_line_count(base: str, head: str, path: str, cwd: Path | str = ROOT) -> int:
+    """base...head 中某文件被删除或改写的行数（numstat 的删除列）。"""
+    return _numstat(base, head, path, 1, cwd)
+
+
+def added_line_count(base: str, head: str, path: str, cwd: Path | str = ROOT) -> int:
+    """base...head 中某文件新增的行数（numstat 的新增列）。"""
+    return _numstat(base, head, path, 0, cwd)
