@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (
     ROOT,
     changed_files,
+    commit_field,
     git,
     load_rules,
     path_matches,
@@ -93,8 +94,7 @@ def commits_claim_r1(base: str, head: str, cwd: Path) -> bool:
     if not shas:
         return False
     for sha in shas:
-        values = git("log", "-1", "--format=%(trailers:key=Risk,valueonly)", sha, cwd=cwd).split()
-        if "R1" not in values:
+        if "R1" not in commit_field(sha, "Risk", cwd):
             return False
     return True
 

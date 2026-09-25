@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import ROOT, clean_git_env, git, path_matches
+from common import ROOT, clean_git_env, commit_field, git, path_matches
 
 ID_PATTERN = r"[A-Z][A-Z0-9]*-[A-Z]*\d+"
 TRAILER_RE = re.compile(rf"^({ID_PATTERN})(?:\s+(doc))?\s*$")
@@ -64,9 +64,8 @@ def defect_commits(base: str, head: str, cwd: Path = ROOT) -> dict[str, DefectEv
     found: dict[str, DefectEvidence] = {}
     shas = git("rev-list", "--reverse", f"{base}..{head}", cwd=cwd).split()
     for sha in shas:
-        values = git("log", "-1", "--format=%(trailers:key=Defect,valueonly,separator=%x1f)", sha, cwd=cwd)
         subject = git("log", "-1", "--format=%s", sha, cwd=cwd)
-        for value in filter(None, (item.strip() for item in values.split("\x1f"))):
+        for value in commit_field(sha, "Defect", cwd):
             match = TRAILER_RE.match(value)
             if not match:
                 found.setdefault(value, DefectEvidence(value)).problems.append(

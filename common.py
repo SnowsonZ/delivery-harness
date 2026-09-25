@@ -127,6 +127,16 @@ def parse_added_lines(diff: str) -> dict[str, list[tuple[int, str]]]:
     return result
 
 
+def commit_field(sha: str, key: str, cwd: Path | str = ROOT) -> list[str]:
+    """提交说明中所有 `Key: value` 行的值。
+
+    不用 git 的 trailer 解析：git 只认最后一段，`Defect:` 与 `Co-Authored-By:` 之间隔一个空行
+    就会被静默忽略，证据检查随之形同虚设（2026-09-25 实际踩到）。"""
+    message = git("log", "-1", "--format=%B", sha, cwd=cwd)
+    pattern = re.compile(rf"^{re.escape(key)}:[ \t]*(.+?)[ \t]*$", flags=re.MULTILINE)
+    return pattern.findall(message)
+
+
 def removed_line_count(base: str, head: str, path: str, cwd: Path | str = ROOT) -> int:
     """base...head 中某文件被删除或改写的行数（numstat 的删除列）。"""
     raw = git("diff", "--numstat", "--no-renames", f"{base}...{head}", "--", path, cwd=cwd)
