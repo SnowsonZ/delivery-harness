@@ -39,7 +39,14 @@ COMMAND_RULES: list[tuple[str, str]] = [
     (r"\bgit\s+update-ref\b[^;&|]*(refs/heads/main|refs/tags/)", "直接改写 main 或 tag 引用"),
     (r"\bgit\s+(commit|push|merge|rebase|am)\b[^;&|]*\s--no-verify\b", "--no-verify 跳过 git 守卫"),
     (r"\bgit\s+(commit|merge)\b[^;&|]*\s-[a-zA-Z]*n[a-zA-Z]*(\s|$)", "-n（--no-verify）跳过 git 守卫"),
-    (r"core\.hooksPath", "修改 core.hooksPath 会绕过 git 守卫"),
+    (
+        # 只拦设置或取消；`git config --get` 等只读查询放行（此前任何提及都拦，误伤自检）。
+        (
+            r"(?i)-c\s*core\.hookspath=|\bgit\s+config\b(?![^;&|]*--(get|get-all|get-regexp|list|show-origin)\b)"
+            r"[^;&|]*core\.hookspath"
+        ),
+        "修改 core.hooksPath 会绕过 git 守卫",
+    ),
     (r"\bHARNESS_(ALLOW_[A-Z]+|SKIP_VERIFY)\s*=", "覆盖变量只供人使用，Agent 不能自行放开守卫"),
     (r"\bgit\s+reset\s+[^;&|]*--hard\b", "git reset --hard 会丢弃未提交的改动（v0.8.0 X1 的修复就这样丢失）；先提交或 stash"),
     (r"\bgit\s+clean\b(?=[^;&|]*\s-\w*[xX])(?![^;&|]*-e\s+scratch/iterm-probe-venv)", "git clean -x 会删除 scratch/iterm-probe-venv（AGENTS.md）；加 -e scratch/iterm-probe-venv"),
