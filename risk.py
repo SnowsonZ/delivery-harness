@@ -64,6 +64,8 @@ class RiskReport:
 def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd: Path) -> tuple[FileRisk, str | None]:
     risk = rules["risk"]
     if path_matches(path, risk["golden"]):
+        if status == "A":
+            return FileRisk(path, status, 0, "新增黄金快照（新增测试）"), None
         return FileRisk(path, status, 2, "黄金快照改动 = 行为变化"), f"黄金快照改动：`{path}`"
     if path_matches(path, risk["tests"]):
         if status == "A":
@@ -107,8 +109,11 @@ def classify(base: str, head: str = "HEAD", cwd: Path = ROOT, rules: dict | None
         report.files.append(file_risk)
         if flag:
             report.flags.append(flag)
-        if file_risk.level == 3:
-            report.flags.append(f"护栏或高风险路径：`{path}`（{file_risk.reason}）")
+    guarded = [item.path for item in report.files if item.level == 3]
+    if guarded:
+        shown = "、".join(f"`{path}`" for path in guarded[:8])
+        more = f" 等 {len(guarded)} 个" if len(guarded) > 8 else ""
+        report.flags.append(f"改动护栏、CI、发布或高风险路径（R3，需用户批准）：{shown}{more}")
     report.level = max((item.level for item in report.files), default=0)
     report.claimed_r1 = commits_claim_r1(base, head, cwd)
     if report.claimed_r1:
