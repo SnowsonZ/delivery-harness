@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -24,6 +25,22 @@ import hygiene
 from common import ROOT, ZERO_SHA, git, load_rules
 
 HOOKS_DIR = ".githooks"
+
+
+def trusted_rules(repo: Path) -> dict:
+    """守卫规则以 origin/main 上的版本为准（评审 PR7-R3）。
+
+    工作区里的 harness/rules.toml 执行者可写：改掉 protected_branches 就能让本机守卫失效。
+    origin/main 受服务端 ruleset 保护，改它必须经 PR；取不到（尚未合入、没有 origin）时退回工作区版本。"""
+    shown = subprocess.run(
+        ["git", "show", "origin/main:harness/rules.toml"], cwd=repo, capture_output=True, text=True, check=False
+    )
+    if shown.returncode != 0:
+        return load_rules()
+    local = repo / "harness" / "rules.toml"
+    if local.is_file() and local.read_text(encoding="utf-8") != shown.stdout:
+        print("harness：工作区的 harness/rules.toml 与 origin/main 不一致，git 守卫按 origin/main 的规则执行。", file=sys.stderr)
+    return tomllib.loads(shown.stdout)
 
 
 def _allowed(name: str) -> bool:
@@ -118,7 +135,7 @@ def _run_verify(repo: Path, *args: str) -> int:
 
 
 def cmd_pre_commit(repo: Path) -> int:
-    rules = load_rules()
+    rules = trusted_rules(repo)
     problems = []
     branch = current_branch(repo)
     if branch in rules["guard"]["protected_branches"] and not _allowed("HARNESS_ALLOW_MAIN"):
@@ -148,7 +165,7 @@ def push_hygiene_violations(lines: list[str], repo: Path, rules: dict) -> list[s
 
 
 def cmd_pre_push(repo: Path, stdin: str) -> int:
-    rules = load_rules()
+    rules = trusted_rules(repo)
     lines = stdin.splitlines()
     if _report("推送", pre_push_violations(lines, repo, rules) or push_hygiene_violations(lines, repo, rules)):
         return 1
@@ -158,7 +175,7 @@ def cmd_pre_push(repo: Path, stdin: str) -> int:
 def cmd_reference_transaction(repo: Path, state: str, stdin: str) -> int:
     if state != "prepared":
         return 0
-    return _report("引用更新", ref_transaction_violations(stdin.splitlines(), repo, load_rules()))
+    return _report("引用更新", ref_transaction_violations(stdin.splitlines(), repo, trusted_rules(repo)))
 
 
 def hooks_path(cwd: Path = ROOT) -> str:
