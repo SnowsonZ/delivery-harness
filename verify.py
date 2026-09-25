@@ -2,7 +2,7 @@
 
     bin/verify              默认档：工具版本、lint、仓库卫生、Python 测试、Swift 测试（仅 macOS）
     bin/verify --quick      快速档：工具版本、lint、仓库卫生（pre-commit 用）
-    bin/verify --full       完整档：默认档 + 较慢的检查
+    bin/verify --full       完整档：默认档 + 事故回放（注入历史缺陷，对应测试必须失败）
     bin/verify --strict     任何被跳过的检查都算失败（macOS CI 用，防止 Swift 检查被静默跳过）
 
 终端只打印每项结论；完整输出写到 build/verify/<检查名>.log，汇总写到 build/verify/summary.json。
@@ -100,8 +100,9 @@ def _is_macos() -> bool:
     return sys.platform == "darwin" and shutil.which("xcrun") is not None
 
 
-def build_checks() -> list[Check]:
+def build_checks(strict: bool = False) -> list[Check]:
     py = sys.executable
+    replay = [py, "harness/replay.py", *(["--strict"] if strict else [])]
     return [
         Check("tools", ("quick", "default", "full"), func=check_tools),
         Check("lint", ("quick", "default", "full"), command=[py, "-m", "ruff", "check", "scripts", "tests", "harness"]),
@@ -128,6 +129,8 @@ def build_checks() -> list[Check]:
             requires="macos",
             why_skipped="非 macOS，Swift 检查由 macOS CI 负责",
         ),
+        # 事故回放：注入历史缺陷，对应测试必须失败（harness/replay_cases.py）。
+        Check("replay", ("full",), command=replay),
     ]
 
 
@@ -193,13 +196,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     tier_name = args.tier or "default"
 
-    checks = [check for check in build_checks() if tier_name in check.tiers]
+    checks = [check for check in build_checks(args.strict) if tier_name in check.tiers]
     if args.only:
         wanted = set(args.only.split(","))
-        unknown = wanted - {check.name for check in build_checks()}
+        unknown = wanted - {check.name for check in build_checks(args.strict)}
         if unknown:
             parser.error(f"未知检查：{', '.join(sorted(unknown))}")
-        checks = [check for check in build_checks() if check.name in wanted]
+        checks = [check for check in build_checks(args.strict) if check.name in wanted]
     skipped_by_user = {name for name in args.skip.split(",") if name}
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
