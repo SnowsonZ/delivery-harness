@@ -85,6 +85,14 @@ def check_tools() -> tuple[bool, str]:
         )
     else:
         lines.append(f"ruff {have} ✓")
+    # 每个开发与 Agent 执行环境都必须装上 git 守卫；CI 是全新检出，不需要。
+    if os.environ.get("CI") != "true":
+        hooks = git("config", "--local", "--get", "core.hooksPath", check=False)
+        if hooks != ".githooks":
+            ok = False
+            lines.append(f"git 守卫未安装（core.hooksPath = {hooks or '未设置'}）；执行 `python3 harness/git_guard.py install`")
+        else:
+            lines.append("git 守卫已安装 ✓")
     return ok, "\n".join(lines)
 
 

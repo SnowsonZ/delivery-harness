@@ -74,3 +74,12 @@ r0 = [
 tests = ["tests/**"]
 # 黄金快照：任何改动都意味着行为变化，不能算 R1。
 golden = ["tests/golden/**"]
+
+[guard]
+# git 层守卫（.githooks → harness/git_guard.py）。以下操作被拒绝，除非人显式设置覆盖变量：
+#   在保护分支上提交、推送保护分支      HARNESS_ALLOW_MAIN=1
+#   推送 tag（发版由用户执行）          HARNESS_ALLOW_TAG=1
+#   本地改写或删除保护分支、移动或删除 tag、强制推送   HARNESS_ALLOW_REWRITE=1
+#   pre-push 前跳过 verify              HARNESS_SKIP_VERIFY=1
+# Agent 层守卫会拒绝设置这些变量的命令：覆盖只属于人。
+protected_branches = ["main"]
