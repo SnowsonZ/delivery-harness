@@ -159,6 +159,27 @@ def _exists_at(rev: str, path: str, cwd: Path) -> bool:
     return completed.returncode == 0
 
 
+def _reverse_apply_fix(evidence: DefectEvidence, worktree: Path, cwd: Path) -> bool:
+    """只反向应用该编号提交对代码文件的改动（不动其他提交的改动）；冲突返回 False。"""
+    for sha, _ in reversed(evidence.commits):
+        # 零上下文：相邻行被后续提交改过时也能只退回这次修复的行。
+        patch = git("diff", "--binary", "-U0", f"{sha}^", sha, "--", *evidence.code_files, cwd=cwd, check=False)
+        if not patch.strip():
+            continue
+        applied = subprocess.run(
+            ["git", "apply", "-R", "--unidiff-zero", "--whitespace=nowarn", "-"],
+            cwd=worktree,
+            input=patch + "\n",
+            capture_output=True,
+            text=True,
+            env=clean_git_env(),
+            check=False,
+        )
+        if applied.returncode != 0:
+            return False
+    return True
+
+
 def verify_fail_before_fix(evidence: DefectEvidence, head: str, cwd: Path = ROOT) -> None:
     if not evidence.python_tests:
         return
@@ -172,18 +193,25 @@ def verify_fail_before_fix(evidence: DefectEvidence, head: str, cwd: Path = ROOT
         evidence.after = after
         if after != "pass":
             evidence.problems.append(f"head 上引用该编号的测试未通过（{after_summary}）")
-        for path in evidence.code_files:
-            target = worktree / path
-            if before_fix and _exists_at(before_fix, path, cwd):
-                git("checkout", before_fix, "--", path, cwd=worktree, isolate=True)
-            elif target.exists():
-                target.unlink()
+        if not _reverse_apply_fix(evidence, worktree, cwd):
+            # 修复与后续提交改了同一处，无法单独退回：退回整文件，失败原因可能来自无关提交（PR7-R5）。
+            git("checkout", "--force", head, "--", ".", cwd=worktree, isolate=True)
+            for path in evidence.code_files:
+                target = worktree / path
+                if before_fix and _exists_at(before_fix, path, cwd):
+                    git("checkout", before_fix, "--", path, cwd=worktree, isolate=True)
+                elif target.exists():
+                    target.unlink()
+            evidence.warnings.append("修复与后续提交改动了同一处，只能整文件退回；修复前的失败可能来自无关改动，需人工确认")
         before, before_summary = _run_python_tests(worktree, evidence.python_tests)
         evidence.before = before
         if before == "pass":
             evidence.problems.append("把修复退回后测试仍然通过：测试没有检查到这个缺陷")
         elif before == "error":
-            evidence.warnings.append(f"修复退回后测试以错误（而非断言失败）结束，需人工确认：{before_summary}")
+            # 出错（如 import 失败）证明不了测试在检查这个缺陷（PR7-R4）：应让修复前以断言失败结束。
+            evidence.problems.append(
+                f"修复退回后测试以出错而非断言失败结束，不能证明测试检查了该缺陷（{before_summary}）"
+            )
     finally:
         git("worktree", "remove", "--force", str(worktree), cwd=cwd, check=False, isolate=True)
         shutil.rmtree(temp, ignore_errors=True)
@@ -204,6 +232,11 @@ def analyse(base: str, head: str, ids: list[str] | None = None, run_tests: bool 
             continue
         collect_files(evidence, cwd)
         if evidence.doc_only:
+            if evidence.code_files:
+                # doc 类修复免于测试核对，所以必须真的只改文档（PR7-R1：否则可借此让代码改动免检）。
+                evidence.problems.append(
+                    "标为 doc 类修复却改了代码：" + "、".join(f"`{path}`" for path in evidence.code_files)
+                )
             continue
         if not evidence.code_files:
             evidence.problems.append("提交只改了文档或测试，没有代码改动（声称已修但代码未变）")
