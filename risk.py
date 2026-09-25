@@ -124,6 +124,12 @@ def classify(base: str, head: str = "HEAD", cwd: Path = ROOT, rules: dict | None
         more = f" 等 {len(guarded)} 个" if len(guarded) > 8 else ""
         report.flags.append(f"改动护栏、CI、发布或高风险路径（R3，需用户批准）：{shown}{more}")
     report.level = max((item.level for item in report.files), default=0)
+    appended = [item.path for item in report.files if item.reason == "只在已有测试文件中追加"]
+    if appended:
+        report.notes.append(
+            "追加到已有测试文件：" + "、".join(f"`{path}`" for path in appended)
+            + "。已有测试另按 base 版本在 head 代码上运行（`harness/base_tests.py`），追加的代码影响不到判定（PR7-R2）"
+        )
     report.claimed_r1 = commits_claim_r1(base, head, cwd)
     if report.claimed_r1:
         r2_files = [item for item in report.files if item.level == 2]
