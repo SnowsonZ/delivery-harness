@@ -265,6 +265,14 @@ CASES: list[Case] = [
         ("test_harness_guard.CommandGuardTest.test_curl_writes_in_any_argument_order",),
     ),
     Case(
+        "H0926-3",
+        "verify 的检查子进程继承钩子注入的 GIT_DIR（linked worktree 中指向真实仓库）",
+        "harness/verify.py",
+        '                env=clean_git_env({"PYTHONDONTWRITEBYTECODE": "1"}),',
+        '                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},',
+        ("test_harness.VerifyTest.test_checks_do_not_inherit_hook_git_dir",),
+    ),
+    Case(
         "V080-R10",
         "通知路径处理后 URL 仍留在队列（被重放）",
         "native/InboxPolicy.swift",
