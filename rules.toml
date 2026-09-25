@@ -1,0 +1,76 @@
+# 可验证交付 harness 的规则（docs/plans/verifiable-delivery.md）。
+# 改动本文件、harness/ 下任何代码或 .githooks/ 都属于 R3（护栏本身），必须由用户批准。
+
+[hygiene]
+# 已跟踪文件或暂存区命中即失败（v0.8.0 R1：真实快照与编译产物进入公开仓库）。
+forbidden = [
+    "scratch/**",
+    "build/**",
+    "widget/**",
+    "**/*.o",
+    "**/*.sqlite",
+    "**/*.sqlite-wal",
+    "**/*.sqlite-shm",
+    "**/snapshot.json",
+    ".zcode/**",
+    ".agents/**",
+    ".venv/**",
+    "**/__pycache__/**",
+    "**/*.pyc",
+    "**/.DS_Store",
+]
+max_file_kb = 1024
+# 新增行命中即失败：凭据。
+secret_patterns = [
+    'ghp_[A-Za-z0-9]{30,}',
+    'github_pat_[A-Za-z0-9_]{40,}',
+    'sk-[A-Za-z0-9_-]{32,}',
+    'AKIA[0-9A-Z]{16}',
+    'xox[baprs]-[A-Za-z0-9-]{10,}',
+    '-----BEGIN [A-Z ]*PRIVATE KEY-----',
+]
+# 新增行命中即失败：本机真实路径（隐私）。夹具请用占位用户名。
+home_path_pattern = '/Users/(?!(x|you|me|user|name|example|test|someone)/)[A-Za-z0-9._-]+/'
+
+[risk]
+# 按改动路径取最高等级；未命中任何规则的路径按 R2 处理。
+# R3：护栏、CI 与发布、报告迁移与重写、隐私、用户配置安装、运行时入口。
+r3 = [
+    ".github/**",
+    ".githooks/**",
+    ".claude/**",
+    ".opencode/**",
+    "harness/**",
+    "bin/**",
+    "requirements*.txt",
+    "scripts/build_inbox_app.py",
+    "scripts/migrations.py",
+    "scripts/capture_hook.py",
+    "scripts/session_binding.py",
+    "native/WidgetSnapshotWriter.swift",
+    "native/Shared/WidgetSnapshot.swift",
+    "ruff.toml",
+    ".gitignore",
+]
+# R2：产品代码与现役合同。
+r2 = [
+    "scripts/**",
+    "native/**",
+    "docs/specs/**",
+    "AGENTS.md",
+    "LICENSE",
+]
+# R0：说明性文档。测试目录单独判定（只新增为 R0，改动或删除已有测试升为 R2 并标记）。
+r0 = [
+    "docs/plans/**",
+    "docs/research/**",
+    "docs/review/**",
+    "docs/decisions/**",
+    "docs/templates/**",
+    "docs/images/**",
+    "README.md",
+    "README.zh-CN.md",
+]
+tests = ["tests/**"]
+# 黄金快照：任何改动都意味着行为变化，不能算 R1。
+golden = ["tests/golden/**"]
