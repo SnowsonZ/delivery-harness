@@ -7,7 +7,7 @@
 - PR 没有改动或删除已有测试、也没有改黄金快照时：base 测试必须全部通过，否则失败。
 - PR 有这类改动（risk.py 已标为 R2，交评审）时：base 测试预期可能失败，只报告结果。
 
-    python3 harness/base_tests.py --base origin/main [--head HEAD]
+    python3 harness/base_tests.py --base origin/main [--head HEAD] [--repo 路径]
 """
 
 from __future__ import annotations
@@ -61,8 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", default="HEAD")
+    parser.add_argument("--repo", type=Path, default=ROOT, help="要检查的仓库（默认本仓库）")
     args = parser.parse_args(argv)
-    ok, enforced, summary = run(args.base, args.head)
+    ok, enforced, summary = run(args.base, args.head, cwd=args.repo)
     if ok:
         print(f"✓ base 版本的已有测试在 head 代码上全部通过（{summary}）")
         return 0
