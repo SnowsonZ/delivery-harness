@@ -201,6 +201,22 @@ CASES: list[Case] = [
         ("test_harness.BaseTestsTest.test_new_tests_referenced_in_specs_are_not_a_regression",),
     ),
     Case(
+        "H0926-5",
+        "reference-transaction 把 pack-refs 删除散文件当作删 tag 拒绝",
+        "harness/git_guard.py",
+        "        if new == ZERO_SHA and old != ZERO_SHA and _packing_loose_ref(ref, old, cwd):",
+        "        if False:",
+        ("test_harness_guard.GitGuardTest.test_packing_refs_is_not_a_tag_deletion",),
+    ),
+    Case(
+        "H0926-5",
+        "只凭 packed-refs 放行，指定旧值的 update-ref -d 可删掉 tag",
+        "harness/git_guard.py",
+        '    return _transaction_subcommand() == "pack-refs"',
+        "    return True",
+        ("test_harness_guard.GitGuardTest.test_packing_refs_is_not_a_tag_deletion",),
+    ),
+    Case(
         "PR7-R3",
         "git 守卫读工作区的规则文件",
         "harness/git_guard.py",

@@ -62,6 +62,44 @@ def _exists(sha: str, cwd: Path) -> bool:
     return subprocess.run(["git", "cat-file", "-e", sha], cwd=cwd, capture_output=True, check=False).returncode == 0
 
 
+# git 全局选项中带参数的几个：跳过它们才能读到子命令。
+_GIT_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+
+
+def _transaction_subcommand() -> str | None:
+    """发起本次引用事务的 git 子命令（沿父进程向上找第一个 git 进程）；找不到返回 None。"""
+    pid = os.getppid()
+    for _ in range(6):
+        shown = subprocess.run(["ps", "-ww", "-o", "ppid=,args=", "-p", str(pid)], capture_output=True, text=True, check=False)
+        fields = shown.stdout.strip().split(None, 1)
+        if len(fields) != 2:
+            return None
+        parent, args = fields
+        argv = args.split()
+        if argv and os.path.basename(argv[0]) == "git":
+            rest = iter(argv[1:])
+            for arg in rest:
+                if arg in _GIT_OPTIONS_WITH_VALUE:
+                    next(rest, None)
+                elif not arg.startswith("-"):
+                    return arg
+            return None
+        pid = int(parent)
+    return None
+
+
+def _packing_loose_ref(ref: str, old: str, cwd: Path) -> bool:
+    """pack-refs 删除散文件：同名同值的条目已写进 packed-refs（H0926-5）。
+
+    指定旧值的 `update-ref -d` 在钩子里形态相同，所以还要求发起事务的正是 pack-refs。
+    """
+    common = git("rev-parse", "--git-common-dir", cwd=cwd, check=False)
+    packed = (cwd / common / "packed-refs") if common else None
+    if not packed or not packed.is_file() or f"{old} {ref}" not in packed.read_text().splitlines():
+        return False
+    return _transaction_subcommand() == "pack-refs"
+
+
 def ref_transaction_violations(lines: list[str], cwd: Path, rules: dict) -> list[str]:
     """reference-transaction 的 prepared 阶段：返回应拒绝的更新。"""
     if _allowed("HARNESS_ALLOW_REWRITE"):
@@ -75,6 +113,8 @@ def ref_transaction_violations(lines: list[str], cwd: Path, rules: dict) -> list
         if old == ZERO_SHA and (ref.startswith("refs/tags/") or _protected(ref, rules)):
             # 删除 tag、不带旧值的 update-ref 等操作传来的旧值是全 0；prepared 阶段引用尚未改动，查当前值。
             old = git("rev-parse", "--verify", "--quiet", ref, cwd=cwd, check=False) or ZERO_SHA
+        if new == ZERO_SHA and old != ZERO_SHA and _packing_loose_ref(ref, old, cwd):
+            continue  # 散文件并入 packed-refs，引用本身不变
         if ref.startswith("refs/tags/") and old != ZERO_SHA and old != new:
             action = "删除" if new == ZERO_SHA else "移动"
             problems.append(f"{action}已有 tag {ref}（已发布的 tag 不能改；推 tag 会触发发布）")
