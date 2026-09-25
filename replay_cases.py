@@ -141,6 +141,20 @@ CASES: list[Case] = [
         ("swift-policy",),
     ),
     Case(
+        "H0925-4",
+        "合并不降级时三类合计沿用现有报告，某类上升时与 model 明细不一致",
+        "scripts/daily_report.py",
+        '        merged_record["input_tokens"] = int(record.get("input_tokens") or 0) + diff["fresh_input"]\n'
+        '        merged_record["cache_tokens"] = int(record.get("cache_tokens") or 0) + diff["cache_read"]\n'
+        '        merged_record["output_tokens"] = int(record.get("output_tokens") or 0) + diff["output"]\n'
+        '        merged_record["total_tokens"] = _task_total(merged_record)',
+        '        merged_record["input_tokens"] = int(old.get("input_tokens") or 0)\n'
+        '        merged_record["cache_tokens"] = int(old.get("cache_tokens") or 0)\n'
+        '        merged_record["output_tokens"] = int(old.get("output_tokens") or 0)\n'
+        '        merged_record["total_tokens"] = _task_total(old)',
+        ("test_properties.KnownDefectTest", "test_properties.MergeNoDowngradeProperties"),
+    ),
+    Case(
         "H0925-2",
         "写入器绕过 widgetRunningListed 自行过滤（V080-R8）",
         "native/WidgetSnapshotWriter.swift",
