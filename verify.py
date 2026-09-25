@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import ROOT, git
+from common import ROOT, clean_git_env, git
 
 LOG_DIR = ROOT / "build" / "verify"
 DEV_REQUIREMENTS = ROOT / "requirements-dev.txt"
@@ -164,7 +164,9 @@ def run_check(check: Check) -> Result:
                 cwd=ROOT,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+                # 钩子会注入 GIT_DIR 等变量；linked worktree 里它是指向真实仓库的绝对路径，
+                # 检查里的临时 git 仓库会被它带偏（H0926-3），所以子进程不继承这些变量。
+                env=clean_git_env({"PYTHONDONTWRITEBYTECODE": "1"}),
                 check=False,
             )
         code = completed.returncode

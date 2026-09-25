@@ -18,13 +18,22 @@ ZERO_SHA = "0" * 40
 
 # git 在执行钩子时会注入这些变量；对其他仓库或工作树调用 git 时必须清掉，
 # 否则命令会落到钩子所在的仓库上。
+# 与 `git rev-parse --local-env-vars` 一致：这些变量把 git 命令绑定到某个具体仓库。
 _GIT_LOCAL_ENV = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
     "GIT_DIR",
     "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
     "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
     "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
     "GIT_COMMON_DIR",
 )
 

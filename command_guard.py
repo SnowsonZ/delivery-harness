@@ -89,6 +89,7 @@ PROTECTED_FOR_IMPLEMENTER = [
     ".claude/**",
     ".opencode/**",
     ".pi/**",
+    ".zcode/**",
     "requirements-dev.txt",
     "ruff.toml",
 ]

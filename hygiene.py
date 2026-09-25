@@ -42,7 +42,8 @@ def check_paths(paths: list[str], rules: dict) -> list[Violation]:
     violations = []
     for path in paths:
         pattern = path_matches(path, rules["hygiene"]["forbidden"])
-        if pattern:
+        # allowed 是逐个列出的入库例外（如 Zcode 的项目守卫配置），不接受通配。
+        if pattern and path not in rules["hygiene"].get("allowed", []):
             violations.append(Violation(path, "禁止路径", f"命中 {pattern}；本机数据与产物不入库"))
     return violations
 

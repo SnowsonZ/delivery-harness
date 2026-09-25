@@ -19,6 +19,9 @@ forbidden = [
     "**/*.pyc",
     "**/.DS_Store",
 ]
+# 命中 forbidden 但允许入库的具体文件（逐个列出，不用通配）。
+# .zcode/ 下是 Zcode 的运行数据，只有项目级守卫配置入库（docs/specs/delivery-harness.md §4）。
+allowed = [".zcode/config.json"]
 max_file_kb = 1024
 # 新增行命中即失败：凭据。
 secret_patterns = [
@@ -41,6 +44,7 @@ r3 = [
     ".claude/**",
     ".opencode/**",
     ".pi/**",
+    ".zcode/**",
     "harness/**",
     "bin/**",
     "requirements*.txt",
