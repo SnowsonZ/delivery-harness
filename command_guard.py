@@ -5,7 +5,7 @@ Agent 提供最早的反馈，并阻止 Agent 自己设置只属于人的覆盖�
 
 输入格式（stdin）：
   --format claude   Claude Code / Codex PreToolUse 载荷：{"tool_name": ..., "tool_input": {...}}
-  --format json     {"command": "..."} 或 {"file_path": "..."}（OpenCode 插件用）
+  --format json     {"command": "..."}、{"file_path": "..."} 或 {"tool_name": "..."}（OpenCode 插件用）
   --format plain    整段 stdin 就是命令
 拒绝时退出码 2，理由写 stderr（Claude Code 会把它反馈给模型）；放行退出码 0。
 
@@ -76,6 +76,11 @@ COMMAND_RULES: list[tuple[str, str]] = [
         "GitHub API 写操作（改 ref、写文件、删资源）会绕过分支保护与评审；需要时交给用户",
     ),
 ]
+# 合并 PR 不归 Agent（用户 2026-09-25 决定 D4）：R0/R1 由仓库 auto-merge 在门禁全绿后合并，R2 以上由用户合并。
+MERGE_REASON = "合并 PR：R0/R1 由仓库 auto-merge 合并，R2 及以上由用户合并，Agent 不自行合并（方案 §13 D4）"
+COMMAND_RULES.append((r"\bgh\s+pr\s+merge\b", MERGE_REASON))
+# 按工具名拒绝的 MCP 等非命令工具（如 GitHub MCP 的 merge_pull_request、enable_pr_auto_merge）。
+TOOL_RULES: list[tuple[str, str]] = [(r"(?i)(^|[_.])(merge_pull_request|enable_pr_auto_merge|merge_pr)$", MERGE_REASON)]
 # 执行者（--role implementer）不能编辑的路径：判定器与护栏由评审方维护。
 PROTECTED_FOR_IMPLEMENTER = [
     ".github/**",
@@ -88,6 +93,11 @@ PROTECTED_FOR_IMPLEMENTER = [
 ]
 
 _COMPILED = [(re.compile(pattern), reason) for pattern, reason in COMMAND_RULES]
+_TOOLS = [(re.compile(pattern), reason) for pattern, reason in TOOL_RULES]
+
+
+def check_tool(name: str) -> list[str]:
+    return [reason for pattern, reason in _TOOLS if pattern.search(name)]
 
 
 def check_command(command: str) -> list[str]:
@@ -133,6 +143,9 @@ def evaluate(payload: dict, role: str = "designer", root: Path | None = None) ->
     root = root or Path.cwd()
     command, path = extract(payload)
     reasons = []
+    tool = payload.get("tool_name")
+    if isinstance(tool, str):
+        reasons += check_tool(tool)
     if command:
         reasons += check_command(command)
     if path:
