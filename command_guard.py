@@ -94,6 +94,10 @@ PROTECTED_FOR_IMPLEMENTER = [
     "ruff.toml",
 ]
 
+# 受保护目录里执行方按规范必须更新的数据文件（逐个列出，H0926-2）。其单调性由 CI 兜底：
+# 缺口清单只能缩减，新增条目 risk.py 判 R3（rules.toml [risk] shrink_only）。
+IMPLEMENTER_EDITABLE = ["harness/acceptance-gaps.txt"]
+
 _COMPILED = [(re.compile(pattern), reason) for pattern, reason in COMMAND_RULES]
 _TOOLS = [(re.compile(pattern), reason) for pattern, reason in TOOL_RULES]
 
@@ -124,7 +128,7 @@ def check_edit(path: str, role: str, root: Path) -> list[str]:
         return []
     relative = _relative(path, root)
     pattern = path_matches(relative, PROTECTED_FOR_IMPLEMENTER)
-    if pattern:
+    if pattern and relative not in IMPLEMENTER_EDITABLE:
         return [f"执行者不能编辑判定器与护栏（{relative} 命中 {pattern}）；需要改动请升级给评审方"]
     return []
 

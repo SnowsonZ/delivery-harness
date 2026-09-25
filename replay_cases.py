@@ -273,6 +273,14 @@ CASES: list[Case] = [
         ("test_harness.VerifyTest.test_checks_do_not_inherit_hook_git_dir",),
     ),
     Case(
+        "H0926-2",
+        "执行方守卫把缺口清单也一并禁改，规范要求的删行做不了",
+        "harness/command_guard.py",
+        "    if pattern and relative not in IMPLEMENTER_EDITABLE:",
+        "    if pattern:",
+        ("test_harness_guard.CommandGuardTest.test_implementer_may_shrink_gap_list_but_not_edit_other_verifiers",),
+    ),
+    Case(
         "V080-R10",
         "通知路径处理后 URL 仍留在队列（被重放）",
         "native/InboxPolicy.swift",
