@@ -62,7 +62,16 @@ COMMAND_RULES: list[tuple[str, str]] = [
         (
             r"(?i)\bgh\s+api\b[^;&|]*\s(-X\s*|--method[\s=]+)(POST|PUT|PATCH|DELETE)\b"
             r"|\bgh\s+api\b[^;&|]*\s(-f|-F|--field|--raw-field|--input)(\s|=)"
-            r"|\bcurl\b[^;&|]*api\.github\.com[^;&|]*\s(-X\s*(POST|PUT|PATCH|DELETE)|-d|--data\S*)\b"
+        ),
+        "GitHub API 写操作（改 ref、写文件、删资源）会绕过分支保护与评审；需要时交给用户",
+    ),
+    (
+        # curl：与 api.github.com 同一条命令、任意位置出现写方法或请求体即拦，不依赖参数顺序（评审 PR7-R9）。
+        # 选项区分大小写（-D 是只读的 dump-header），方法名不区分。
+        (
+            r"\bcurl\b(?=[^;&|]*api\.github\.com)"
+            r"(?=[^;&|]*\s(-X\s*|--request[\s=]+)(?i:POST|PUT|PATCH|DELETE)\b"
+            r"|[^;&|]*\s(-[dFT]\S*|--data\S*|--form\S*|--upload-file|--json)(\s|=|$))"
         ),
         "GitHub API 写操作（改 ref、写文件、删资源）会绕过分支保护与评审；需要时交给用户",
     ),
