@@ -6,6 +6,8 @@
 
 - PR 没有改动或删除已有测试、也没有改黄金快照时：base 测试必须全部通过，否则失败。
 - PR 有这类改动（risk.py 已标为 R2，交评审）时：base 测试预期可能失败，只报告结果。
+- 测试 import 的是 head 的产品代码，产品模块可在 import 时篡改 unittest（PR7-R7）：测试经
+  `base_tests_runner.py` 运行，框架被篡改时一律失败，不论是否有意改动了测试。
 
     python3 harness/base_tests.py --base origin/main [--head HEAD] [--repo 路径]
 """
@@ -25,10 +27,12 @@ import risk
 from common import ROOT, clean_git_env, git
 
 INTENDED = ("改动已有测试", "删除已有测试", "黄金快照改动")
+RUNNER = Path(__file__).resolve().parent / "base_tests_runner.py"
+TAMPERED = 3
 
 
 def run(base: str, head: str = "HEAD", cwd: Path = ROOT) -> tuple[bool, bool, str]:
-    """返回 (base 测试是否通过, 是否强制要求通过, 摘要)。"""
+    """返回 (base 测试是否通过, 是否强制要求通过, 摘要)。测试框架被篡改时强制要求通过。"""
     intended = [flag for flag in risk.classify(base, head, cwd).flags if flag.startswith(INTENDED)]
     temp = Path(tempfile.mkdtemp(prefix="base-tests-"))
     worktree = temp / "wt"
@@ -42,7 +46,7 @@ def run(base: str, head: str = "HEAD", cwd: Path = ROOT) -> tuple[bool, bool, st
         if base_files:
             git("checkout", base, "--", "tests", cwd=worktree, isolate=True)
         completed = subprocess.run(
-            [sys.executable, "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-s", "tests"],
+            [sys.executable, "-W", "error::ResourceWarning", str(RUNNER)],
             cwd=worktree,
             capture_output=True,
             text=True,
@@ -54,7 +58,7 @@ def run(base: str, head: str = "HEAD", cwd: Path = ROOT) -> tuple[bool, bool, st
         shutil.rmtree(temp, ignore_errors=True)
     lines = completed.stderr.strip().splitlines()
     summary = lines[-1] if lines else ""
-    return completed.returncode == 0, not intended, summary
+    return completed.returncode == 0, not intended or completed.returncode == TAMPERED, summary
 
 
 def main(argv: list[str] | None = None) -> int:

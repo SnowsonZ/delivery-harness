@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (
     ROOT,
     added_line_count,
+    added_lines,
     changed_files,
     commit_field,
     git,
@@ -39,6 +41,8 @@ POLICY = {
     3: "必须由用户批准后合并",
 }
 CODE_PATTERNS = ["scripts/**", "native/**"]
+# 产品代码不该引用测试框架：在 import 时替换断言即可让已有测试失效（评审 PR7-R7）。
+TEST_FRAMEWORK = re.compile(r"\b(unittest|TestCase|pytest|XCTest)\b")
 
 
 @dataclass
@@ -124,6 +128,16 @@ def classify(base: str, head: str = "HEAD", cwd: Path = ROOT, rules: dict | None
         more = f" 等 {len(guarded)} 个" if len(guarded) > 8 else ""
         report.flags.append(f"改动护栏、CI、发布或高风险路径（R3，需用户批准）：{shown}{more}")
     report.level = max((item.level for item in report.files), default=0)
+    touching = sorted(
+        path
+        for path, lines in added_lines(base, head, cwd).items()
+        if path_matches(path, CODE_PATTERNS) and any(TEST_FRAMEWORK.search(text) for _, text in lines)
+    )
+    if touching:
+        report.flags.append(
+            "产品代码新增了对测试框架的引用（可能在 import 时让已有测试失效，PR7-R7）："
+            + "、".join(f"`{path}`" for path in touching)
+        )
     appended = [item.path for item in report.files if item.reason == "只在已有测试文件中追加"]
     if appended:
         report.notes.append(
