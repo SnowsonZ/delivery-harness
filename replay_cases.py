@@ -188,9 +188,17 @@ CASES: list[Case] = [
         "PR7-R2",
         "已有测试不按 base 版本运行（追加的 monkeypatch 生效）",
         "harness/base_tests.py",
-        '            git("checkout", base, "--", "tests", cwd=worktree, isolate=True)',
+        "            _restore_base(judged, base, worktree, cwd)",
         "            pass",
         ("test_harness.BaseTestsTest",),
+    ),
+    Case(
+        "H0926-4",
+        "base_tests 只还原 tests/，head 规格引用新测试时 base 的验收映射测试误判失败",
+        "harness/base_tests.py",
+        'JUDGE_INPUTS = ("tests", "docs/specs", "harness/acceptance-gaps.txt")',
+        'JUDGE_INPUTS = ("tests",)',
+        ("test_harness.BaseTestsTest.test_new_tests_referenced_in_specs_are_not_a_regression",),
     ),
     Case(
         "PR7-R3",
