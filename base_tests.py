@@ -8,6 +8,8 @@
 - PR 有这类改动（risk.py 已标为 R2，交评审）时：base 测试预期可能失败，只报告结果。
 - 测试 import 的是 head 的产品代码，产品模块可在 import 时篡改 unittest（PR7-R7）：测试经
   `base_tests_runner.py` 运行，框架被篡改时一律失败，不论是否有意改动了测试。
+- 测试读取的验收数据（`docs/specs/`、`harness/acceptance-gaps.txt`）一并换回 base 版本（H0926-4）：
+  head 在验收表里引用新测试是补测试的正常做法，与 base 测试放在一起会被误判为失败。
 
     python3 harness/base_tests.py --base origin/main [--head HEAD] [--repo 路径]
 """
@@ -28,6 +30,21 @@ from common import ROOT, clean_git_env, git
 
 INTENDED = ("改动已有测试", "删除已有测试", "黄金快照改动")
 RUNNER = Path(__file__).resolve().parent / "base_tests_runner.py"
+# 判定器的输入整体按 base 版本：测试本身，以及测试读取的验收数据。只还原 tests/ 时，
+# head 在规格验收表里引用新测试（补测试的正常做法）会让 base 的验收映射测试失败（H0926-4）。
+JUDGE_INPUTS = ("tests", "docs/specs", "harness/acceptance-gaps.txt")
+
+
+def _restore_base(judged: str, base: str, worktree: Path, cwd: Path) -> None:
+    """worktree 中的 judged（目录或文件）换成 base 版本：head 新增的删除，其余检出 base。"""
+    base_files = set(git("ls-tree", "-r", "--name-only", base, "--", judged, cwd=cwd).splitlines())
+    target = worktree / judged
+    candidates = sorted(target.rglob("*")) if target.is_dir() else [target]
+    for path in candidates:
+        if path.is_file() and path.relative_to(worktree).as_posix() not in base_files:
+            path.unlink()
+    if base_files:
+        git("checkout", base, "--", judged, cwd=worktree, isolate=True)
 TAMPERED = 3
 
 
@@ -38,13 +55,8 @@ def run(base: str, head: str = "HEAD", cwd: Path = ROOT) -> tuple[bool, bool, st
     worktree = temp / "wt"
     try:
         git("worktree", "add", "--detach", str(worktree), head, cwd=cwd, isolate=True)
-        base_files = set(git("ls-tree", "-r", "--name-only", base, "--", "tests", cwd=cwd).splitlines())
-        for path in sorted((worktree / "tests").rglob("*")):
-            rel = path.relative_to(worktree).as_posix()
-            if path.is_file() and rel not in base_files:
-                path.unlink()
-        if base_files:
-            git("checkout", base, "--", "tests", cwd=worktree, isolate=True)
+        for judged in JUDGE_INPUTS:
+            _restore_base(judged, base, worktree, cwd)
         completed = subprocess.run(
             [sys.executable, "-W", "error::ResourceWarning", str(RUNNER)],
             cwd=worktree,
