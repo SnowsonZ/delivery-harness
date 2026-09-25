@@ -47,7 +47,8 @@ COMMAND_RULES: list[tuple[str, str]] = [
         ),
         "修改 core.hooksPath 会绕过 git 守卫",
     ),
-    (r"\bHARNESS_(ALLOW_[A-Z]+|SKIP_VERIFY)\s*=", "覆盖变量只供人使用，Agent 不能自行放开守卫"),
+    # 覆盖变量：出现变量名或其后半截即拒（拼接如 ${P}_ALLOW_TAG 也能命中；评审 PR7-R6）。
+    (r"HARNESS_|_ALLOW_(MAIN|TAG|REWRITE)\b|_SKIP_VERIFY\b", "覆盖变量只供人使用，Agent 不能自行放开守卫"),
     (r"\bgit\s+reset\s+[^;&|]*--hard\b", "git reset --hard 会丢弃未提交的改动（v0.8.0 X1 的修复就这样丢失）；先提交或 stash"),
     (r"\bgit\s+clean\b(?=[^;&|]*\s-\w*[xX])(?![^;&|]*-e\s+scratch/iterm-probe-venv)", "git clean -x 会删除 scratch/iterm-probe-venv（AGENTS.md）；加 -e scratch/iterm-probe-venv"),
     (
@@ -55,7 +56,16 @@ COMMAND_RULES: list[tuple[str, str]] = [
         "递归删除工作区以外的路径（临时目录 /tmp 除外）",
     ),
     (r"\bgh\s+release\b", "gh release：发版由用户执行"),
-    (r"\bgh\s+(run|repo)\s+delete\b|\bgh\s+api\b[^;&|]*-X\s*DELETE", "删除 CI 记录或远端资源会销毁证据"),
+    (r"\bgh\s+(run|repo)\s+delete\b", "删除 CI 记录或远端资源会销毁证据"),
+    (
+        # gh api / curl 的写请求可绕过分支保护：PATCH 改远端 ref 即服务端强推，PUT contents 直写 main（评审 PR7-R6）。
+        (
+            r"(?i)\bgh\s+api\b[^;&|]*\s(-X\s*|--method[\s=]+)(POST|PUT|PATCH|DELETE)\b"
+            r"|\bgh\s+api\b[^;&|]*\s(-f|-F|--field|--raw-field|--input)(\s|=)"
+            r"|\bcurl\b[^;&|]*api\.github\.com[^;&|]*\s(-X\s*(POST|PUT|PATCH|DELETE)|-d|--data\S*)\b"
+        ),
+        "GitHub API 写操作（改 ref、写文件、删资源）会绕过分支保护与评审；需要时交给用户",
+    ),
 ]
 # 执行者（--role implementer）不能编辑的路径：判定器与护栏由评审方维护。
 PROTECTED_FOR_IMPLEMENTER = [
@@ -73,7 +83,9 @@ _COMPILED = [(re.compile(pattern), reason) for pattern, reason in COMMAND_RULES]
 
 def check_command(command: str) -> list[str]:
     normalized = " " + re.sub(r"\s+", " ", command.strip()) + " "
-    return [reason for pattern, reason in _COMPILED if pattern.search(normalized)]
+    # 再检查一遍去掉引号与反斜杠的形式：`"HARNESS"'_ALLOW_TAG'`、`HAR\\NESS_...` 这类拆写（PR7-R6）。
+    unquoted = re.sub(r"[\"'\\]", "", normalized)
+    return [reason for pattern, reason in _COMPILED if pattern.search(normalized) or pattern.search(unquoted)]
 
 
 def _relative(path: str, root: Path) -> str:
