@@ -107,6 +107,8 @@ def build_checks(strict: bool = False) -> list[Check]:
         Check("tools", ("quick", "default", "full"), func=check_tools),
         Check("lint", ("quick", "default", "full"), command=[py, "-m", "ruff", "check", "scripts", "tests", "harness"]),
         Check("hygiene", ("quick", "default", "full"), command=[py, "harness/hygiene.py", "--tracked"]),
+        # 规格验收编号 ↔ 测试映射（harness/acceptance.py）：引用失效或新增无测试条目即失败。
+        Check("acceptance", ("quick", "default", "full"), command=[py, "harness/acceptance.py"]),
         Check(
             "python-tests",
             ("default", "full"),
@@ -126,6 +128,15 @@ def build_checks(strict: bool = False) -> list[Check]:
             ("default", "full"),
             shell="mkdir -p build && xcrun swiftc -parse-as-library native/ProcessRunner.swift "
             "tests/ProcessRunnerTests.swift -o build/runner-tests && ./build/runner-tests",
+            requires="macos",
+            why_skipped="非 macOS，Swift 检查由 macOS CI 负责",
+        ),
+        Check(
+            "zcode-selftest",
+            ("default", "full"),
+            # AGENTS.md 要求的无 UI 自检（身份比对、搜索框结构、点击状态机、run loop），此前 CI 只编译未运行。
+            shell="mkdir -p build && xcrun swiftc native/ZcodeFocus.swift -o build/zcode-focus "
+            "&& build/zcode-focus --self-test",
             requires="macos",
             why_skipped="非 macOS，Swift 检查由 macOS CI 负责",
         ),
@@ -218,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
         results.append(result)
         mark = {"pass": "✓", "fail": "✗", "skip": "-"}[result.status]
         extra = f"  {result.note}" if result.note else ""
-        print(f"{mark} {result.name:<13} {result.seconds:5.1f}s{extra}", flush=True)
+        print(f"{mark} {result.name:<15} {result.seconds:5.1f}s{extra}", flush=True)
         for line in result.tail:
             print(f"    │ {line}")
         if result.tail:

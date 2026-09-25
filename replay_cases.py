@@ -201,7 +201,7 @@ DEFERRED: dict[str, str] = {
     "V080-R16": "plist 值与命名：由 macOS CI「Assert widget extension」每次运行覆盖",
     "V080-R18": "CI 断言写错：断言本身随主 workflow 每次运行",
     "V080-X2": "自述与事实不符：流程约定（PR 模板、harness job summary 生成证据），无法由测试证明",
-    "V080-X5": "无预算的试错：预算写入任务模板（P4），暂无自动计数",
+    "V080-X5": "无预算的试错：预算写在 docs/templates/task.md，超限升级；暂无自动计数",
 }
 
 BASELINE = [f"V080-R{number}" for number in range(1, 20)] + [f"V080-X{number}" for number in range(1, 7)]
