@@ -188,6 +188,22 @@ CASES: list[Case] = [
         ("swift-policy",),
     ),
     Case(
+        "H0926-7",
+        "InboxRow 会话 ID 属性名与 convertFromSnakeCase 的键对不上，今日 token 恒为空",
+        "native/InboxModels.swift",
+        "    let sessionId: String?",
+        "    let sessionID: String?",
+        ("test_swift_models.SwiftDecodablePropertyNamingTest.test_no_consecutive_uppercase_properties_without_coding_keys",),
+    ),
+    Case(
+        "H0926-8",
+        "最近任务签名不含今日用量，用量加载完不重写快照",
+        "native/InboxPolicy.swift",
+        '            return "\\(item.id):\\(item.revision):\\(item.state):\\(tokens):\\(cost)"',
+        '            return "\\(item.id):\\(item.revision):\\(item.state)"',
+        ("swift-policy",),
+    ),
+    Case(
         "H0925-2",
         "写入器内联 hideTitles 判断（V080-R15）",
         "native/WidgetSnapshotWriter.swift",
