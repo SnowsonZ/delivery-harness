@@ -8,10 +8,12 @@
 对每个编号检查：
   1. 有带该编号的提交；非 doc 类修复必须改了代码（只改文档或测试 = 声称已修但代码未变，v0.8.0 X1）
   2. tests/ 下有引用该编号的测试（Python 按方法定位，Swift 列出位置）
-  3. 在临时工作树里：head 上这些 Python 测试通过；把该编号提交改过的代码文件退回修复前，测试必须失败
-     （修复前失败才能证明测试真的在检查这个缺陷，v0.8.0 X4）
+  3. 在临时工作树里：head 上这些测试通过；把该编号提交改过的代码文件退回修复前，测试必须失败
+     （修复前失败才能证明测试真的在检查这个缺陷，v0.8.0 X4）。Python 按方法运行；Swift 按引用它的
+     verify 检查整组编译运行（只在 macOS，--swift；编译失败算出错，运行失败算失败）
 
     python3 harness/evidence.py --base origin/main [--head HEAD] [--ids A,B] [--markdown out.md]
+                                [--swift]
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import verify
 from common import ROOT, clean_git_env, commit_field, git, path_matches
 
 ID_PATTERN = r"[A-Z][A-Z0-9]*-[A-Z]*\d+"
@@ -180,8 +183,49 @@ def _reverse_apply_fix(evidence: DefectEvidence, worktree: Path, cwd: Path) -> b
     return True
 
 
-def verify_fail_before_fix(evidence: DefectEvidence, head: str, cwd: Path = ROOT) -> None:
-    if not evidence.python_tests:
+def swift_suites(refs: list[str], checks: list[tuple[str, str]] | None = None) -> dict[str, str]:
+    """引用该编号的 Swift 测试文件 -> 编译并运行它的 verify 检查 {名称: shell}。"""
+    if checks is None:
+        checks = [(check.name, check.shell) for check in verify.build_checks() if check.requires == "macos" and check.shell]
+    files = {ref.rsplit(":", 1)[0] for ref in refs}
+    return {name: shell for name, shell in checks if any(path in shell for path in files)}
+
+
+def _run_swift_suites(worktree: Path, suites: dict[str, str]) -> list[tuple[str, str]]:
+    """每组先编译后运行：编译失败算出错（证明不了测试在检查缺陷），运行失败算失败。"""
+    results = []
+    for name, shell in suites.items():
+        compile_part, _, run_part = shell.rpartition("&&")
+        env = clean_git_env()
+        compiled = subprocess.run(compile_part, shell=True, cwd=worktree, capture_output=True, text=True, env=env, check=False)
+        if compiled.returncode != 0:
+            results.append(("error", f"{name} 编译失败"))
+            continue
+        ran = subprocess.run(run_part, shell=True, cwd=worktree, capture_output=True, text=True, env=env, check=False)
+        results.append(("pass", f"{name} 通过") if ran.returncode == 0 else ("fail", f"{name} 失败"))
+    return results
+
+
+def _after(results: list[tuple[str, str]]) -> str:
+    """修复后：全部通过才算通过；有出错按出错。"""
+    kinds = {kind for kind, _ in results}
+    return "error" if "error" in kinds else "fail" if "fail" in kinds else "pass"
+
+
+def _before(results: list[tuple[str, str]]) -> str:
+    """修复前：有测试以断言失败结束即证明检查到了缺陷；只有出错按出错。"""
+    kinds = {kind for kind, _ in results}
+    return "fail" if "fail" in kinds else "error" if "error" in kinds else "pass"
+
+
+def _run_all(evidence: DefectEvidence, worktree: Path, suites: dict[str, str]) -> list[tuple[str, str]]:
+    results = [_run_python_tests(worktree, evidence.python_tests)] if evidence.python_tests else []
+    return results + _run_swift_suites(worktree, suites)
+
+
+def verify_fail_before_fix(evidence: DefectEvidence, head: str, cwd: Path = ROOT, swift: bool = False) -> None:
+    suites = swift_suites(evidence.swift_refs) if swift and evidence.swift_refs else {}
+    if not evidence.python_tests and not suites:
         return
     first_sha = evidence.commits[0][0]
     before_fix = git("rev-parse", f"{first_sha}^", cwd=cwd, check=False) or None
@@ -189,10 +233,10 @@ def verify_fail_before_fix(evidence: DefectEvidence, head: str, cwd: Path = ROOT
     worktree = temp / "wt"
     try:
         git("worktree", "add", "--detach", str(worktree), head, cwd=cwd, isolate=True)
-        after, after_summary = _run_python_tests(worktree, evidence.python_tests)
-        evidence.after = after
-        if after != "pass":
-            evidence.problems.append(f"head 上引用该编号的测试未通过（{after_summary}）")
+        after_results = _run_all(evidence, worktree, suites)
+        evidence.after = _after(after_results)
+        if evidence.after != "pass":
+            evidence.problems.append(f"head 上引用该编号的测试未通过（{'；'.join(summary for _, summary in after_results)}）")
         if not _reverse_apply_fix(evidence, worktree, cwd):
             # 修复与后续提交改了同一处，无法单独退回：退回整文件，失败原因可能来自无关提交（PR7-R5）。
             git("checkout", "--force", head, "--", ".", cwd=worktree, isolate=True)
@@ -203,12 +247,13 @@ def verify_fail_before_fix(evidence: DefectEvidence, head: str, cwd: Path = ROOT
                 elif target.exists():
                     target.unlink()
             evidence.warnings.append("修复与后续提交改动了同一处，只能整文件退回；修复前的失败可能来自无关改动，需人工确认")
-        before, before_summary = _run_python_tests(worktree, evidence.python_tests)
-        evidence.before = before
-        if before == "pass":
+        before_results = _run_all(evidence, worktree, suites)
+        evidence.before = _before(before_results)
+        before_summary = "；".join(summary for _, summary in before_results)
+        if evidence.before == "pass":
             evidence.problems.append("把修复退回后测试仍然通过：测试没有检查到这个缺陷")
-        elif before == "error":
-            # 出错（如 import 失败）证明不了测试在检查这个缺陷（PR7-R4）：应让修复前以断言失败结束。
+        elif evidence.before == "error":
+            # 出错（如 import 失败、Swift 编译失败）证明不了测试在检查这个缺陷（PR7-R4）：应让修复前以断言失败结束。
             evidence.problems.append(
                 f"修复退回后测试以出错而非断言失败结束，不能证明测试检查了该缺陷（{before_summary}）"
             )
@@ -217,7 +262,15 @@ def verify_fail_before_fix(evidence: DefectEvidence, head: str, cwd: Path = ROOT
         shutil.rmtree(temp, ignore_errors=True)
 
 
-def analyse(base: str, head: str, ids: list[str] | None = None, run_tests: bool = True, cwd: Path = ROOT):
+def analyse(
+    base: str,
+    head: str,
+    ids: list[str] | None = None,
+    run_tests: bool = True,
+    cwd: Path = ROOT,
+    swift: bool = False,
+):
+    """swift：同时编译运行引用该编号的 Swift 测试（macOS）。Python 与 Swift 一起判断：有测试以断言失败结束即为证据。"""
     evidences = defect_commits(base, head, cwd)
     if ids:
         for defect in ids:
@@ -245,10 +298,10 @@ def analyse(base: str, head: str, ids: list[str] | None = None, run_tests: bool 
         if not evidence.python_tests and not evidence.swift_refs:
             evidence.problems.append(f"tests/ 中没有引用 {evidence.defect} 的测试")
             continue
-        if evidence.swift_refs and not evidence.python_tests:
-            evidence.warnings.append("只有 Swift 测试引用该编号，修复前失败检查需在 macOS 上进行")
+        if evidence.swift_refs and not swift:
+            evidence.warnings.append("Swift 测试的修复前失败检查在 macOS CI 的 build job 中进行（evidence.py --swift）")
         if run_tests:
-            verify_fail_before_fix(evidence, head, cwd)
+            verify_fail_before_fix(evidence, head, cwd, swift=swift)
     return evidences
 
 
@@ -291,10 +344,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ids", help="只检查这些编号（逗号分隔）；列出的编号没有提交也算失败")
     parser.add_argument("--no-run", action="store_true", help="不运行测试，只检查提交与测试引用")
     parser.add_argument("--markdown", help="把证据表写入该文件（CI 写入 job summary）")
+    parser.add_argument("--swift", action="store_true", help="同时编译运行引用编号的 Swift 测试（需 macOS）")
     args = parser.parse_args(argv)
 
     ids = [item for item in (args.ids or "").split(",") if item]
-    evidences = analyse(args.base, args.head, ids or None, run_tests=not args.no_run)
+    evidences = analyse(
+        args.base, args.head, ids or None, run_tests=not args.no_run, swift=args.swift
+    )
     report = render_markdown(evidences, args.base, args.head)
     print(report)
     if args.markdown:
