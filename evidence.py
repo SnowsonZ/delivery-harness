@@ -52,6 +52,7 @@ class DefectEvidence:
     after: str = ""  # 修复后测试结果
     problems: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    withdrawn_by: str = ""  # 后续提交用 `Defect-Withdrawn: <编号>` 撤销了这个编号
 
     @property
     def ok(self) -> bool:
@@ -78,6 +79,13 @@ def defect_commits(base: str, head: str, cwd: Path = ROOT) -> dict[str, DefectEv
             evidence = found.setdefault(match.group(1), DefectEvidence(match.group(1)))
             evidence.doc_only = evidence.doc_only or bool(match.group(2))
             evidence.commits.append((sha, subject))
+            evidence.withdrawn_by = ""  # 撤销后又重新声明：以最后一次为准
+        # 编号写错了（例如给补回归护栏的提交写了 Defect）：不改写已推送历史，在后续提交里撤销（任务 003 的 PR #35）。
+        # 只能撤销本范围内更早声明过的编号；撤销会写进证据摘要，评审可见。
+        for value in commit_field(sha, "Defect-Withdrawn", cwd):
+            evidence = found.get(value.strip())
+            if evidence is not None and evidence.commits:
+                evidence.withdrawn_by = sha
     return found
 
 
@@ -255,7 +263,9 @@ def verify_fail_before_fix(evidence: DefectEvidence, head: str, cwd: Path = ROOT
         elif evidence.before == "error":
             # 出错（如 import 失败、Swift 编译失败）证明不了测试在检查这个缺陷（PR7-R4）：应让修复前以断言失败结束。
             evidence.problems.append(
-                f"修复退回后测试以出错而非断言失败结束，不能证明测试检查了该缺陷（{before_summary}）"
+                f"修复退回后测试以出错而非断言失败结束，不能证明测试检查了该缺陷（{before_summary}）。"
+                "常见原因是被测函数随修复才出现：先用不带 Defect 的提交抽出可测位置、保持旧行为，"
+                "再在带 Defect 的提交里改行为，让修复前以断言失败结束（规范 §2「修复提交」）"
             )
     finally:
         git("worktree", "remove", "--force", str(worktree), cwd=cwd, check=False, isolate=True)
@@ -279,6 +289,9 @@ def analyse(
     tests_dir = cwd / "tests"
     for evidence in evidences.values():
         if evidence.problems and not evidence.commits:
+            continue
+        if evidence.withdrawn_by:
+            evidence.warnings.append(f"已由 `{evidence.withdrawn_by[:7]}` 撤销（Defect-Withdrawn），不核对修复证据")
             continue
         if not evidence.commits:
             evidence.problems.append(f"{base}..{head} 中没有带 `Defect: {evidence.defect}` 的提交")
@@ -324,7 +337,7 @@ def render_markdown(evidences: dict[str, DefectEvidence], base: str, head: str, 
         else:
             files = "<br>".join(f"`{p}` +{a} −{r}" for p, (a, r) in evidence.code_files.items()) or "—"
         tests = "<br>".join(f"`{t}`" for t in evidence.python_tests + evidence.swift_refs) or "—"
-        verdict = "✅" if evidence.ok else "❌"
+        verdict = "已撤销" if evidence.withdrawn_by else ("✅" if evidence.ok else "❌")
         lines.append(
             f"| {evidence.defect} | {commits} | {files} | {tests} | {label[evidence.before]} "
             f"| {label[evidence.after]} | {verdict} |"
