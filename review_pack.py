@@ -25,7 +25,9 @@ VERIFY_SUMMARY = ROOT / "build" / "verify" / "summary.json"
 
 
 def touched_acceptance(base: str, head: str, cwd: Path = ROOT) -> list[acceptance.Item]:
-    """新增行里出现的验收编号（规格表新增或修改、测试里新标注的编号）。"""
+    """本次改动涉及的验收编号：规格里新增或修改的验收表行，以及测试里新标注的编号。
+
+    规格正文里提到编号（如「见 IN14」）不算：大面积改规格时会把整篇涉及的编号都列出来（E8）。"""
     items, _ = acceptance.check(cwd)
     by_id = {item.id: item for item in items}
     found: dict[str, acceptance.Item] = {}
@@ -33,7 +35,12 @@ def touched_acceptance(base: str, head: str, cwd: Path = ROOT) -> list[acceptanc
         if not path.startswith(("docs/specs/", "tests/")):
             continue
         for _, text in lines:
-            for token in re.findall(r"(?<![\w-])([A-Z]{1,3}\d+)(?![\w-])", text):
+            if path.startswith("docs/specs/"):
+                row = re.match(r"\s*\|\s*([A-Z]{1,3}\d+)\s*\|", text)
+                tokens = [row.group(1)] if row else []
+            else:
+                tokens = re.findall(r"(?<![\w-])([A-Z]{1,3}\d+)(?![\w-])", text)
+            for token in tokens:
                 if token in by_id:
                     found[token] = by_id[token]
     return sorted(found.values(), key=lambda item: (item.spec, item.line))
