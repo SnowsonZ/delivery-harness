@@ -179,6 +179,15 @@ CASES: list[Case] = [
         ("swift-policy",),
     ),
     Case(
+        # 调用处漏传 todayUsage 由编译拦住（update 的参数没有默认值，macOS CI 编译 App）；这里回放查找恒为空。
+        "V080-R9",
+        "最近任务的今日用量查找恒为空（今日 token 未传入写入器的表现）",
+        "native/InboxPolicy.swift",
+        "    mapping[usageMapKey(provider: provider, sessionID: sessionID)] ?? (tokens: nil, cost: nil)",
+        "    (tokens: nil, cost: nil)",
+        ("swift-policy",),
+    ),
+    Case(
         "H0925-2",
         "写入器内联 hideTitles 判断（V080-R15）",
         "native/WidgetSnapshotWriter.swift",
@@ -365,7 +374,6 @@ GUARDED: dict[str, tuple[str, ...]] = {
 DEFERRED: dict[str, str] = {
     "V080-R5": "CI 编译命令缺文件：已由结构消除（verify 与 CI 共用同一条 Swift 编译命令）",
     "V080-R6": "Zcode 逐请求对账：需要本机真实数据回放（unknown 占比阈值），数据不入库",
-    "V080-R9": "今日 token 未传入写入器：需要快照端到端测试（macOS），待补",
     "V080-R14": "组件条目逐条 Link：界面行为，真机 UI 验收",
     "V080-R16": "plist 值与命名：由 macOS CI「Assert widget extension」每次运行覆盖",
     "V080-R18": "CI 断言写错：断言本身随主 workflow 每次运行",
