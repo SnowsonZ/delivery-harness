@@ -75,4 +75,4 @@
 
 - 新增或删除 harness 组件时，同步更新本文件的「组成」与「原则与落点」。
 - 本目录由评审方维护，执行方不能编辑（唯一例外：`acceptance-gaps.txt` 只能删行）；改动属于 R3，由用户批准。
-- 报告有实质更新时，评审方重新导出快照，覆盖 `docs/research/2026-09-23-agent-delivery-theory.md` 并更新其中的导出日期与版本；导出时去掉「落地交接说明」一节，它单独保存在 `docs/plans/2026-09-25-harness-rollout-handoff.md`。
+- 报告有实质更新时，评审方重新导出快照，覆盖 `docs/research/2026-09-23-agent-delivery-theory.md` 并更新其中的导出日期与版本。
