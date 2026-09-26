@@ -17,11 +17,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import shell_structure
 from common import path_matches
 
 # (模式, 理由)。按整条命令匹配，`&&`、`;`、管道串起来的命令同样生效。
@@ -30,7 +32,8 @@ COMMAND_RULES: list[tuple[str, str]] = [
         r"\bgit\s+filter-(repo|branch)\b|(^|[;&|(]|&&)\s*(\S*/)?git-filter-repo\b",
         "改写历史（v0.8.0 曾因此改写 main 与 18 个 tag）",
     ),
-    (r"\bgit\s+push\b[^;&|]*\s(--force(-with-lease)?(=\S*)?|-f)(\s|$)", "强制推送：已推送的历史不改写"),
+    # 结尾用「后面不是词字符」而非空白：解释器代码里常紧跟引号或括号（os.system('git push --force')）。
+    (r"\bgit\s+push\b[^;&|]*\s(--force(-with-lease)?(=\S*)?|-f)(?![\w-])", "强制推送：已推送的历史不改写"),
     (r"\bgit\s+push\b[^;&|]*\s\+\S+", "强制推送（+refspec）：已推送的历史不改写"),
     (r"\bgit\s+push\b[^;&|]*\s--(mirror|all|tags)\b", "批量推送（--mirror/--all/--tags）"),
     (r"\bgit\s+push\b[^;&|]*\s(\S*:)?(refs/heads/)?main(\s|$)", "直接推送 main：请推功能分支并开 PR"),
@@ -107,6 +110,17 @@ def check_tool(name: str) -> list[str]:
 
 
 def check_command(command: str) -> list[str]:
+    """按命令结构判断：只检查真正会执行的命令及其参数，echo、grep、提交说明、提示词里的文字不算（方案 §13 E3）。"""
+    try:
+        reasons = shell_structure.check(command, check_command_text)
+    except ValueError:  # 引号不配对等无法解析：退回字符串规则（宁可误报）
+        reasons = check_command_text(command)
+    return list(dict.fromkeys(reasons))
+
+
+def check_command_text(command: str) -> list[str]:
+    """字符串规则：整段文本里出现危险字样即拒。只用于会执行代码的文本（解释器代码、交给 shell 的 stdin）
+    与无法解析的命令。"""
     normalized = " " + re.sub(r"\s+", " ", command.strip()) + " "
     # 再检查一遍去掉引号与反斜杠的形式：`"HARNESS"'_ALLOW_TAG'`、`HAR\\NESS_...` 这类拆写（PR7-R6）。
     unquoted = re.sub(r"[\"'\\]", "", normalized)
@@ -140,7 +154,7 @@ def extract(payload: dict) -> tuple[str | None, str | None]:
         return None, None
     command = tool_input.get("command") or tool_input.get("cmd")
     if isinstance(command, list):
-        command = " ".join(str(part) for part in command)
+        command = shlex.join(str(part) for part in command)  # 保留参数边界（bash -lc "…" 的整段）
     path = tool_input.get("file_path") or tool_input.get("filePath") or tool_input.get("path")
     return (command if isinstance(command, str) else None), (path if isinstance(path, str) else None)
 
