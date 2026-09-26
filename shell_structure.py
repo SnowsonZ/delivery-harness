@@ -52,27 +52,37 @@ TextRules = Callable[[str], list[str]]
 
 
 def check(command: str, text_rules: TextRules) -> list[str]:
-    body, substitutions = _strip_heredocs_and_substitutions(command)
+    body, substitutions, heredocs = _strip_heredocs_and_substitutions(command)
     reasons: list[str] = []
     for inner in substitutions:
         reasons += check(inner, text_rules)
-    stdin_exec = False
-    for words in _simple_commands(body):
+    for words, stdin in _simple_commands(body):
         found, executes_stdin = _check_simple(words, text_rules)
         reasons += found
-        stdin_exec = stdin_exec or executes_stdin
-    if stdin_exec:  # 交给 shell 或解释器执行的 stdin（管道、heredoc）看不到结构，整段按字符串规则判断
-        reasons += text_rules(command)
+        if not executes_stdin:
+            continue
+        # 交给 shell 或解释器执行的 stdin 看不到结构，按字符串规则判断：heredoc 与 here-string 只看被执行的那段，
+        # 管道与来源不明时整段判断（上游是什么看不清）。
+        if stdin[0] == "heredoc" and stdin[1] < len(heredocs):
+            reasons += text_rules(heredocs[stdin[1]])
+        elif stdin[0] == "herestring":
+            reasons += text_rules(stdin[1])
+        else:
+            reasons += text_rules(command)
     return reasons
 
 
-def _strip_heredocs_and_substitutions(command: str) -> tuple[str, list[str]]:
-    """去掉 heredoc 正文（数据；若交给 shell 执行，由 stdin_exec 整段兜底），取出 $(...) 与反引号里的命令。"""
-    lines, kept, pending = command.split("\n"), [], []
+def _strip_heredocs_and_substitutions(command: str) -> tuple[str, list[str], list[str]]:
+    """去掉 heredoc 正文（按出现顺序另存，交给 shell 或解释器执行时单独判断），取出 $(...) 与反引号里的命令。"""
+    lines, kept, pending, heredocs, current = command.split("\n"), [], [], [], []
     for line in lines:
         if pending:
             if line.strip() == pending[0]:
                 pending.pop(0)
+                heredocs.append("\n".join(current))
+                current = []
+            else:
+                current.append(line)
             continue
         kept.append(line)
         pending = [match.group(3) for match in HEREDOC.finditer(line)]
@@ -95,28 +105,38 @@ def _strip_heredocs_and_substitutions(command: str) -> tuple[str, list[str]]:
         substitutions.append(body[start + 2 : end])
         index = start + 2
     substitutions += re.findall(r"`([^`]*)`", body)
-    return body, substitutions
+    return body, substitutions, heredocs
 
 
-def _simple_commands(text: str) -> list[list[str]]:
+def _simple_commands(text: str) -> list[tuple[list[str], tuple]]:
+    """拆成简单命令，并记下各自 stdin 的来源：("heredoc", 序号)、("herestring", 文本)、("pipe",) 或 (None,)。"""
     lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>\n")
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
-    commands, current, skip_next = [], [], False
-    for token in lexer:
-        if skip_next:
-            skip_next = False
-            continue
+    commands, current, stdin, heredoc_index = [], [], (None,), 0
+    tokens = list(lexer)
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
         if token and set(token) <= SEPARATOR_CHARS:
             if current:
-                commands.append(current)
+                commands.append((current, stdin))
             current = []
-        elif token and set(token) <= set("<>&"):  # 重定向：下一个词是文件名或 heredoc 分隔符
-            skip_next = True
+            stdin = ("pipe",) if token in ("|", "|&") else (None,)
+        elif token in ("<<", "<<-"):  # heredoc：下一个词是分隔符，正文按出现顺序对应
+            stdin = ("heredoc", heredoc_index)
+            heredoc_index += 1
+            index += 1
+        elif token == "<<<":  # here-string：下一个词就是 stdin 的内容
+            stdin = ("herestring", tokens[index + 1] if index + 1 < len(tokens) else "")
+            index += 1
+        elif token and set(token) <= set("<>&"):  # 其他重定向：下一个词是文件名
+            index += 1
         else:
             current.append(token)
+        index += 1
     if current:
-        commands.append(current)
+        commands.append((current, stdin))
     return commands
 
 
@@ -247,9 +267,7 @@ def _git(args: list[str]) -> list[str]:
         if any(arg == "refs/heads/main" or arg.startswith("refs/tags/") for arg in rest):
             reasons.append(UPDATE_REF)
     elif sub == "config":
-        read_only = ("--get", "--get-all", "--get-regexp", "--list", "-l", "--show-origin", "--show-scope", "--name-only")
-        if any(arg.lower() == "core.hookspath" for arg in rest) and not any(arg in read_only for arg in rest):
-            reasons.append(HOOKS_PATH)
+        reasons += _git_config(rest)
     elif sub == "reset":
         if "--hard" in rest:
             reasons.append(RESET_HARD)
@@ -260,6 +278,18 @@ def _git(args: list[str]) -> list[str]:
     if sub == "commit":
         reasons += _git_commit_short(rest)
     return reasons
+
+
+def _git_config(rest: list[str]) -> list[str]:
+    """只拦设置与取消 core.hooksPath；`git config core.hooksPath`（不带值）与 --get 等是读取。"""
+    keys = [index for index, arg in enumerate(rest) if arg.lower() == "core.hookspath"]
+    if not keys:
+        return []
+    modifying = ("--unset", "--unset-all", "--add", "--replace-all", "--rename-section", "--remove-section", "--edit", "-e")
+    value_follows = any(not arg.startswith("-") for arg in rest[keys[0] + 1 :])
+    if any(arg in modifying for arg in rest) or value_follows:
+        return [HOOKS_PATH]
+    return []
 
 
 def _git_push(rest: list[str]) -> list[str]:
