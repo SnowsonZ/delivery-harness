@@ -82,8 +82,21 @@ COMMAND_RULES: list[tuple[str, str]] = [
 # 合并 PR 不归 Agent（用户 2026-09-25 决定 D4）：R0/R1 由仓库 auto-merge 在门禁全绿后合并，R2 以上由用户合并。
 MERGE_REASON = "合并 PR：R0/R1 由仓库 auto-merge 合并，R2 及以上由用户合并，Agent 不自行合并（方案 §13 D4）"
 COMMAND_RULES.append((r"\bgh\s+pr\s+merge\b", MERGE_REASON))
+# 批准也不归 Agent（D3）：ruleset 要求非推送者批准最后一次推送，Agent 批准就等于替用户放行。
+APPROVE_REASON = "批准 PR：合并前须由非推送者批准；R0/R1 由 auto-merge 的 App 批准，R2 及以上由用户批准，Agent 不批准（方案 §13 D3）"
+COMMAND_RULES.append((r"\bgh\s+pr\s+review\b[^;&|]*\s(-a|--approve)(\s|=|$)", APPROVE_REASON))
 # 按工具名拒绝的 MCP 等非命令工具（如 GitHub MCP 的 merge_pull_request、enable_pr_auto_merge）。
-TOOL_RULES: list[tuple[str, str]] = [(r"(?i)(^|[_.])(merge_pull_request|enable_pr_auto_merge|merge_pr)$", MERGE_REASON)]
+TOOL_RULES: list[tuple[str, str]] = [
+    (r"(?i)(^|[_.])(merge_pull_request|enable_pr_auto_merge|merge_pr)$", MERGE_REASON),
+    # MCP 的评审工具按名字看不出是批准还是评论，一律拒绝；Agent 的评审意见写进报告或用 gh pr comment。
+    (
+        (
+            r"(?i)(^|[_.])(pull_request_review_write|create_pull_request_review|create_and_submit_pull_request_review"
+            r"|submit_pending_pull_request_review|approve_pull_request|approve_pr)$"
+        ),
+        APPROVE_REASON,
+    ),
+]
 # 执行者（--role implementer）不能编辑的路径：判定器与护栏由评审方维护。
 PROTECTED_FOR_IMPLEMENTER = [
     ".github/**",

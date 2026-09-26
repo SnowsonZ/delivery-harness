@@ -36,6 +36,7 @@ RELEASE = "gh release：发版由用户执行"
 DELETE_REMOTE = "删除 CI 记录或远端资源会销毁证据"
 API_WRITE = "GitHub API 写操作（改 ref、写文件、删资源）会绕过分支保护与评审；需要时交给用户"
 MERGE = "合并 PR：R0/R1 由仓库 auto-merge 合并，R2 及以上由用户合并，Agent 不自行合并（方案 §13 D4）"
+APPROVE = "批准 PR：合并前须由非推送者批准；R0/R1 由 auto-merge 的 App 批准，R2 及以上由用户批准，Agent 不批准（方案 §13 D3）"
 
 SEPARATOR_CHARS = set(";&|()\n")
 KEYWORDS = {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "for", "case", "esac", "!", "{", "}", "time"}
@@ -370,6 +371,8 @@ def _gh(args: list[str]) -> list[str]:
         return [DELETE_REMOTE]
     if sub == "pr" and action == "merge":
         return [MERGE]
+    if sub == "pr" and action == "review" and any(arg in ("-a", "--approve") or arg.startswith("--approve=") for arg in args):
+        return [APPROVE]
     if sub == "api":
         method = _method(args, ("-X", "--method"), ("-X", "--method="))
         fields = any(
