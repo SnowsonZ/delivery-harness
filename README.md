@@ -15,6 +15,7 @@
 ## 理念来源
 
 - 调研报告《低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践》（2026-09-23）：入库快照 [docs/research/2026-09-23-agent-delivery-theory.md](../docs/research/2026-09-23-agent-delivery-theory.md)，编辑源为 [Claude 文档](https://claude.ai/code/artifact/487213ef-a1a8-44fd-9399-2e37f91c8b0c)。先读它的「核心结论」和「3.2 八条设计原则」。
+- 开工时的落地计划：[2026-09-25 落地交接说明](../docs/plans/2026-09-25-harness-rollout-handoff.md)（原为报告最后一节：基线、失败分类、可验证性地图、P0–P6 路线），历史文档。
 - 落到本仓库的方案与决定：[可验证交付方案](../docs/plans/verifiable-delivery.md)（§1 目标、§2「可验证」的操作定义、§10 决定记录）。
 - 本项目自己的失败样本：v0.8.0 交付中的 R1–R19 与 X1–X6，分类见 [2026-09-25 基线评审](../docs/review/2026-09-25-harness-baseline.md)。每条护栏都对应其中至少一种失败。
 
@@ -74,4 +75,4 @@
 
 - 新增或删除 harness 组件时，同步更新本文件的「组成」与「原则与落点」。
 - 本目录由评审方维护，执行方不能编辑（唯一例外：`acceptance-gaps.txt` 只能删行）；改动属于 R3，由用户批准。
-- 报告有实质更新时，评审方重新导出快照，覆盖 `docs/research/2026-09-23-agent-delivery-theory.md` 并更新其中的导出日期与版本。
+- 报告有实质更新时，评审方重新导出快照，覆盖 `docs/research/2026-09-23-agent-delivery-theory.md` 并更新其中的导出日期与版本；导出时去掉「落地交接说明」一节，它单独保存在 `docs/plans/2026-09-25-harness-rollout-handoff.md`。
