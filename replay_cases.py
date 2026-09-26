@@ -327,6 +327,14 @@ CASES: list[Case] = [
         ("test_harness_guard.CommandGuardTest.test_implementer_may_shrink_gap_list_but_not_edit_other_verifiers",),
     ),
     Case(
+        "H0926-5",
+        "只读的 gh api graphql 查询因 -f 传参被当成写请求拒绝",
+        "harness/shell_structure.py",
+        '        if action == "graphql" and _graphql_read_only(args):',
+        "        if False:",
+        ("test_harness_guard.CommandGuardTest.test_remote_writes_and_split_override_variables",),
+    ),
+    Case(
         "V080-R10",
         "通知路径处理后 URL 仍留在队列（被重放）",
         "native/InboxPolicy.swift",

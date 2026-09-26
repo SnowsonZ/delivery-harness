@@ -381,9 +381,18 @@ def _gh(args: list[str]) -> list[str]:
             or re.match(r"-[fF].", arg)
             for arg in args
         )
+        if action == "graphql" and _graphql_read_only(args):
+            return []  # GraphQL 查询本身就用 POST 与 -f 传参，只有 mutation 才写
         if method in WRITE_METHODS or fields:
             return [API_WRITE]
     return []
+
+
+def _graphql_read_only(args: list[str]) -> bool:
+    """`gh api graphql` 只在参数都内联、且没有 mutation 时算只读；--input 与 -F x=@文件 看不到内容，按写处理。"""
+    if any(arg == "--input" or arg.startswith("--input=") or "=@" in arg for arg in args):
+        return False
+    return not any(re.search(r"(?i)\bmutation\b", arg) for arg in args)
 
 
 def _curl(args: list[str]) -> list[str]:
