@@ -59,6 +59,18 @@ TARGETS = [
         ("test_properties.MergeNoDowngradeProperties", "test_daily_report"),
     ),
     Target("模型规范名", "scripts/model_names.py", ("canonical",), ("test_model_names",)),
+    Target(
+        "金额计算",
+        "scripts/usage_cost.py",
+        ("price_for_day", "model_cost", "cost_for_models", "merge_cost", "convert_display"),
+        ("test_usage_cost",),
+    ),
+    Target(
+        "用量汇总",
+        "scripts/usage_report.py",
+        ("period_bounds", "previous_anchor", "_merge_models", "_dimension_rows"),
+        ("test_usage_report", "test_golden"),
+    ),
 ]
 
 SWAPS = {
