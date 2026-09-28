@@ -51,7 +51,8 @@
 | `quality.py`、`quality-baseline.json` | 熵治理：复杂度与体量只降不升 |
 | `hygiene.py` | 禁止提交的路径、超大文件、凭据、本机真实路径 |
 | `risk.py`、`r1_checks.py` | 按改动路径判定 R0–R3；任务书按头部类别判定，模板与待办清单为 R2；声明 R1 时另核对签名不变、无新依赖与迁移、不超规模 |
-| `policy.py`、`autonomy.toml` | 合并路由：风险、类别自治等级、误差预算、规模逐条判定并写理由；K3 三抽一抽审；放权只改 `autonomy.toml`（R3） |
+| `policy.py`、`autonomy.toml` | 合并路由：风险、类别自治等级、误差预算、规模、任务 PR 的运行记录逐条判定并写理由；K3 三抽一抽审；放权只改 `autonomy.toml`（R3） |
+| `run_check.py` | 任务 PR 的 CI 侧复核：`Task:` 归属、运行记录格式与一致性、CI 轮次对预算 |
 | `release_check.py` | 发版前核对版本号与 tag |
 | `metrics.py` | 交付度量，与 v0.8.0 基线并列 |
 | `review_pack.py` | 评审证据包：把机器结论汇成一页 |

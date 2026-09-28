@@ -8,12 +8,14 @@
               main 上该任务书声明的类别须与机器判定一致，否则按「未分类」处理
   3. 预算     该类最近 window 次合并中的 escape 议题不超过 max_escapes；PR 不带 budget-exceeded 标签
   4. 规模     增删行数（不计黄金快照与运行记录）不超过 autonomy.toml [size] max_lines
-读不到标签或议题时按不满足处理（宁可转人审）。停机不在这里：用 Actions → auto-merge → Disable workflow
-（docs/specs/delivery-harness.md §8）。运行记录检查待派发脚本上线后加入（设计 P5）。
+  5. 运行记录 实现某份任务书的 PR（run_check.py）：提交都带 `Task:`、有格式完整且 exit 为 ok 的运行记录、
+              已完成的 build 轮次不超过任务书 budget.ci_rounds；不是在实现任务书的 PR 不要求
+读不到标签、议题或 build 运行时按不满足处理（宁可转人审）。停机不在这里：用 Actions → auto-merge →
+Disable workflow（docs/specs/delivery-harness.md §8）。
 
 K3 按 PR 编号哈希每 audit_every 个抽 1 个，合并后由工作流开 audit 议题。
 
-    python3 harness/policy.py --base origin/main --head <sha> --pr <编号> [--github]
+    python3 harness/policy.py --base origin/main --head <sha> --pr <编号> --branch <分支> [--github]
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import r1_checks
 import risk
+import run_check
 import taskbook
 from common import ROOT, commit_field, git, path_matches
 
@@ -51,6 +54,7 @@ class Facts:
     labels: set[str] | None = field(default_factory=set)  # None = 读取失败
     escapes: int | None = 0  # 该类窗口内的逃逸数；None = 读取失败
     window: int = 0  # 窗口内实际找到的合并数
+    run_findings: list | None = None  # run_check 的结果；None = 不是在实现任务书
 
 
 @dataclass
@@ -119,6 +123,13 @@ def decide(facts: Facts, autonomy: dict) -> list[Rule]:
     limit = autonomy.get("size", {}).get("max_lines", 400)
     ok = facts.changed_lines <= limit
     rules.append(Rule("规模", ok, f"增删 {facts.changed_lines} 行，阈值 {limit}" + ("" if ok else "：请拆分")))
+
+    if facts.run_findings is None:
+        rules.append(Rule("运行记录", True, "不是在实现任务书的 PR，不要求"))
+    else:
+        failed = [item for item in facts.run_findings if not item.ok]
+        reason = "；".join(f"{item.name}：{item.reason}" for item in (failed or facts.run_findings))
+        rules.append(Rule("运行记录", not failed, reason))
     return rules
 
 
@@ -178,7 +189,17 @@ def escapes_in_window(klass: str, window: int, gh=_gh) -> tuple[int, int]:
     return len(numbers & blamed), len(numbers)
 
 
-def gather(base: str, head: str, pr: int | None, cwd: Path = ROOT, autonomy: dict | None = None, gh=_gh) -> Facts:
+def branch_rounds(branch: str, gh=_gh) -> int | None:
+    try:
+        runs = json.loads(gh("run", "list", "--workflow", "build", "--branch", branch, "--limit", "100",
+                             "--json", "headSha,status,event"))
+    except (RuntimeError, json.JSONDecodeError, OSError):
+        return None
+    return run_check.ci_rounds([run for run in runs if run.get("event") == "pull_request"])
+
+
+def gather(base: str, head: str, pr: int | None, cwd: Path = ROOT, autonomy: dict | None = None, gh=_gh,
+           branch: str = "") -> Facts:
     autonomy = autonomy or r1_checks.load_autonomy()
     report = risk.classify(base, head, cwd)
     shas = git("rev-list", f"{base}..{head}", cwd=cwd).split()
@@ -195,6 +216,8 @@ def gather(base: str, head: str, pr: int | None, cwd: Path = ROOT, autonomy: dic
             facts.escapes, facts.window = escapes_in_window(facts.machine_class, config.get("window", 20), gh)
     except (RuntimeError, json.JSONDecodeError, KeyError, OSError):
         facts.labels, facts.escapes = None, None
+    if run_check.scope(base, head, branch, cwd) is not None:
+        facts.run_findings = run_check.check(base, head, branch, cwd, rounds=branch_rounds(branch, gh))
     return facts
 
 
@@ -203,10 +226,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--pr", type=int)
+    parser.add_argument("--branch", default="", help="PR 的分支名（运行记录与 CI 轮次复核用）")
     parser.add_argument("--github", action="store_true", help="写 GITHUB_STEP_SUMMARY 与 GITHUB_OUTPUT")
     args = parser.parse_args(argv)
     autonomy = r1_checks.load_autonomy()
-    facts = gather(args.base, args.head, args.pr, autonomy=autonomy)
+    facts = gather(args.base, args.head, args.pr, autonomy=autonomy, branch=args.branch)
     rules = decide(facts, autonomy)
     auto = all(rule.ok for rule in rules)
     every = autonomy.get("classes", {}).get(facts.machine_class, {}).get("audit_every", 0)

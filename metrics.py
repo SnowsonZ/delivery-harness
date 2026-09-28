@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import evidence
 import risk
+import run_check
 from common import ROOT, added_lines, git
 from replay_cases import CASES, DEFERRED, GUARDED
 
@@ -64,6 +65,7 @@ def github_runs(branch: str) -> dict | None:
         return None
     return {
         "runs": len(runs),
+        "rounds": run_check.ci_rounds(runs),
         "failed": sum(1 for run in runs if run.get("conclusion") == "failure"),
     }
 
@@ -86,9 +88,15 @@ def collect(base: str, head: str = "HEAD", use_github: bool = False, cwd: Path =
     }
     if use_github:
         # PR 事件检出的是合并提交（HEAD 游离），分支名取 CI 提供的变量。
-        runs = github_runs(os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or branch)
+        branch = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or branch
+        runs = github_runs(branch)
         data["CI 运行"] = runs["runs"] if runs else "不可用"
         data["CI 失败轮次"] = runs["failed"] if runs else "不可用"
+        target = run_check.scope(base, head, branch, cwd)
+        if target is not None and target.taskbook:
+            # 与任务书预算比对（B7）；本次运行尚未完成，不计入。超预算时合并路由不自动合并。
+            finding = run_check.check_ci(runs["rounds"] if runs else None, target.header)
+            data["CI 轮次 / 预算"] = ("" if finding.ok else "⚠️ ") + finding.reason
     return data
 
 
