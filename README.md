@@ -16,7 +16,8 @@
 
 - 调研报告《低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践》（2026-09-23）：入库快照 [docs/research/2026-09-23-agent-delivery-theory.md](../docs/research/2026-09-23-agent-delivery-theory.md)，编辑源为 [Claude 文档](https://claude.ai/code/artifact/487213ef-a1a8-44fd-9399-2e37f91c8b0c)。先读它的「核心结论」和「3.2 八条设计原则」。
 - 开工时的落地计划：[2026-09-25 落地交接说明](../docs/plans/2026-09-25-harness-rollout-handoff.md)（原为报告最后一节：基线、失败分类、可验证性地图、P0–P6 路线），历史文档。
-- 目标态设计：[Agent-Notification 可验证交付 Harness 目标态设计](https://claude.ai/code/artifact/a7646759-f838-49a8-aa1a-175b329ea1ed)（2026-09-27，第十七节为 2026-09-28 的决定；第十六节为分阶段实施路线，阶段一 P1 合同、P2 合并路由、P3 回放强制与守卫小修已落地）。
+- 目标态设计：[Agent-Notification 可验证交付 Harness 目标态设计](https://claude.ai/code/artifact/a7646759-f838-49a8-aa1a-175b329ea1ed)（2026-09-27，第十七节为 2026-09-28 的决定，第十六节为分阶段实施路线）。
+- **现状（2026-09-29）**：阶段一（P1–P3）与阶段二（P4–P8）全部落地；成熟度为 M1 完整、M2 的机制基本建齐但准入数据未满足；下一阶段是阶段三「放权」，以真实使用积累数据。对照报告与设计的逐项复核见 [2026-09-29 现状复核](../docs/review/2026-09-29-harness-status.md)。
 - 落到本仓库的方案与决定：[可验证交付方案](../docs/plans/verifiable-delivery.md)（§1 目标、§2「可验证」的操作定义、§10 决定记录）。
 - 本项目自己的失败样本：v0.8.0 交付中的 R1–R19 与 X1–X6，分类见 [2026-09-25 基线评审](../docs/review/2026-09-25-harness-baseline.md)。每条护栏都对应其中至少一种失败。
 
