@@ -126,9 +126,15 @@ def state_dir(root: Path = ROOT) -> Path:
     return (common if common.is_absolute() else root / common).resolve() / "dispatch"
 
 
+def main_checkout(root: Path) -> Path:
+    """主工作目录（git 公共目录的上级）：从任何 worktree 启动都得到同一个仓库名与槽位位置。"""
+    return state_dir(root).parent.parent
+
+
 def slot_path(root: Path, config: Config, index: int) -> Path:
-    base = config.slot_root or root.parent
-    return base / f"{root.name}-slot-{index}"
+    main = main_checkout(root)
+    base = config.slot_root or main.parent
+    return base / f"{main.name}-slot-{index}"
 
 
 def _alive(pid: int) -> bool:
