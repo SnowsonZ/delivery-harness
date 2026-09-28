@@ -33,7 +33,7 @@
 | 5. 小批量、可回滚 | 一个任务一个 PR，按 R0–R3 分级；回滚方式写进任务书 |
 | 6. 状态外置、上下文从简 | 任务书（机器可读的 YAML 头部）与模板（`docs/templates/`）、[待办清单](../docs/plans/backlog.md)、决定记录；中断后从文件恢复 |
 | 7. 自治度按「任务类别 × 风险」 | `policy.py` 按 `autonomy.toml` 的类别自治等级与误差预算路由：满足条件的 R0/R1 由 App 批准后自动合并，超预算自动停该类，其余请用户评审；停机用 Disable workflow（规范 §8） |
-| 8. 每次失败都沉淀为 harness 改进 | 缺陷编号全局唯一，修复带 `Defect:` 与回归测试；`replay_cases.py` 事故回放集；变异与质量基线只升不降；每周周报与错误分析把异常沉淀为待办 |
+| 8. 每次失败都沉淀为 harness 改进 | 缺陷编号全局唯一，修复带 `Defect:` 与回归测试；`replay_cases.py` 事故回放集；变异与质量基线只升不降（质量含 Swift），文档断链由 `docs_check.py` 拦下；每周周报与错误分析把异常沉淀为待办 |
 
 ## 组成
 
@@ -48,7 +48,8 @@
 | `base_tests.py`、`base_tests_runner.py` | 已有测试按 base 版本在新代码上运行，防止执行方改测试迁就代码 |
 | `replay.py`、`replay_cases.py` | 事故回放：把历史缺陷注入代码副本，对应检查必须失败 |
 | `mutate.py`、`mutation-baseline.json` | 关键函数的变异测试，得分只升不降 |
-| `quality.py`、`quality-baseline.json` | 熵治理：复杂度与体量只降不升 |
+| `quality.py`、`quality-baseline.json` | 熵治理：Python 复杂度（ruff C901）与体量、Swift 超长文件、超长函数与嵌套过深函数（标准库轻量解析）只降不升 |
+| `docs_check.py` | 文档熵治理：已跟踪 Markdown 的相对链接断链即失败；未完成状态超过 30 天未更新的文档只报告 |
 | `hygiene.py` | 禁止提交的路径、超大文件、凭据、本机真实路径 |
 | `risk.py`、`r1_checks.py` | 按改动路径判定 R0–R3；任务书按头部类别判定，模板与待办清单为 R2；声明 R1 时另核对签名不变、无新依赖与迁移、不超规模 |
 | `policy.py`、`autonomy.toml` | 合并路由：风险、类别自治等级、误差预算、规模、任务 PR 的运行记录逐条判定并写理由；K3 三抽一抽审；放权只改 `autonomy.toml`（R3） |
