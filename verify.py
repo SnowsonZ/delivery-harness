@@ -1,6 +1,6 @@
 """统一验证入口：本机、云端、CI 用同一条命令、同一组检查。
 
-    bin/verify              默认档：工具版本、lint、仓库卫生、Python 测试、Swift 测试（仅 macOS）
+    bin/verify              默认档：工具版本、lint、仓库卫生、质量棘轮、文档链接、Python 测试、Swift 测试（仅 macOS）
     bin/verify --quick      快速档：工具版本、lint、仓库卫生（pre-commit 用）
     bin/verify --full       完整档：默认档 + 事故回放（注入历史缺陷，对应测试必须失败）
     bin/verify --strict     任何被跳过的检查都算失败（macOS CI 用，防止 Swift 检查被静默跳过）
@@ -109,6 +109,8 @@ def build_checks(strict: bool = False) -> list[Check]:
         Check("hygiene", ("quick", "default", "full"), command=[py, "harness/hygiene.py", "--tracked"]),
         # 熵治理棘轮（harness/quality.py）：复杂度超标函数数与超长文件数只降不升。
         Check("quality", ("default", "full"), command=[py, "harness/quality.py"]),
+        # 文档熵治理（harness/docs_check.py）：已跟踪 Markdown 的相对链接断链即失败；陈旧状态只报告。
+        Check("docs", ("default", "full"), command=[py, "harness/docs_check.py"]),
         # 规格验收编号 ↔ 测试映射（harness/acceptance.py）：引用失效或新增无测试条目即失败。
         Check("acceptance", ("quick", "default", "full"), command=[py, "harness/acceptance.py"]),
         # 任务书准入（harness/taskbook.py）：头部、类别与风险、验收挂规格编号、步骤交叉核对。
