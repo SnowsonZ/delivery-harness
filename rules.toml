@@ -74,6 +74,7 @@ r0 = [
     "docs/review/**",
     "docs/decisions/**",
     "docs/images/**",
+    "docs/runs/**",
     "README.md",
     "README.zh-CN.md",
 ]
@@ -121,6 +122,12 @@ architecture_paths = [
 python = ["scripts/**"]
 native = ["native/**"]
 cli = ["bin/session-manager"]
+
+[dispatch]
+# 派发脚本（harness/dispatch.py，bin/dispatch）：仓库同级的固定槽位数、卡死判定与等待 CI 的上限。
+slots = 3
+stall_minutes = 15
+ci_timeout_minutes = 60
 
 [guard]
 # git 层守卫（.githooks → harness/git_guard.py）。以下操作被拒绝，除非人显式设置覆盖变量：
