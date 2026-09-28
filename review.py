@@ -42,7 +42,7 @@ PROMPT = Path(__file__).resolve().parent / "review_prompt.md"
 EVALS = ROOT / "evals" / "review"
 VERDICTS = ("通过", "不通过", "需用户验收")
 OTHER = {"claude-code": "codex", "codex": "claude-code"}
-REVIEWERS = ("pi", "codex", "claude-code")
+REVIEWERS = ("opencode", "pi", "codex", "claude-code")
 LABEL = "needs-independent-review"
 
 
@@ -156,8 +156,38 @@ class PiReviewer(Reviewer):
         return text, model
 
 
+class OpenCodeReviewer(Reviewer):
+    """OpenCode 自带的 plan 代理只读（拒绝编辑与写入）；--pure 不加载插件（含 PR 自带的项目插件）。"""
+
+    name = "opencode"
+
+    def __init__(self, model: str | None = None):
+        self.model = model
+
+    def argv(self, prompt, workspace, output):
+        command = ["opencode", "run", "--pure", "--agent", "plan", "--format", "json", "--dir", str(workspace)]
+        if self.model:
+            command += ["-m", self.model]
+        return command + [prompt]
+
+    def read(self, stdout, output):
+        """取事件流里的全部文本片段（结论 JSON 在最后）；模型取配置值（事件里不报模型名）。"""
+        texts = []
+        for line in stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            part = event.get("part") or {}
+            if event.get("type") == "text" and part.get("type") == "text":
+                texts.append(part.get("text", ""))
+        return "\n".join(texts), self.model or ""
+
+
 def make_reviewer(name: str) -> Reviewer:
     config = load_rules().get("review", {})
+    if name == "opencode":
+        return OpenCodeReviewer(config.get("opencode_model"))
     if name == "pi":
         return PiReviewer(config.get("pi_model"))
     if name == "codex":
@@ -175,8 +205,10 @@ def run_reviewer(reviewer: Reviewer, workspace: Path, timeout: float) -> tuple[V
         env = dispatch_host.executor_env(dict(os.environ), {}, Path(tmp) / "gh")  # 没有 GitHub 凭据
         (Path(tmp) / "gh").mkdir()
         try:
+            # 标准输入必须关闭：opencode run 在标准输入是管道时会一直等它结束（2026-09-28 实测卡住的原因）。
             result = subprocess.run(reviewer.argv(prompt, workspace, output), cwd=workspace, env=env,
-                                    capture_output=True, text=True, timeout=timeout, check=False)
+                                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
+                                    check=False)
             text, model = reviewer.read(result.stdout, output)
             failure = "" if result.returncode == 0 else _failure_line(result.stdout + result.stderr, result.returncode)
         except subprocess.TimeoutExpired:
@@ -222,11 +254,30 @@ def checkout(workspace: Path, ref: str) -> None:
     git("clean", "-ffdxq", "-e", dispatch.VENV, cwd=workspace)
 
 
-def write_materials(workspace: Path, base: str, pr_text: str, task_text: str) -> None:
+def review_base(pr: dict, workspace: Path) -> str:
+    """评审的比较基点。已合并的 PR 用合并提交的第一个父提交：此时 head 已在 main 上，与 main 的合并基点
+    就是 head 本身，diff 为空（2026-09-28 对 #62 的首次试行即因此拿到空材料，被评审方指出）。"""
+    merge = (pr.get("mergeCommit") or {}).get("oid")
+    if pr.get("state") == "MERGED" and merge:
+        return git("rev-parse", f"{merge}^1", cwd=workspace)
+    return git("merge-base", "origin/main", "HEAD", cwd=workspace)
+
+
+def ci_summary(number: int, github) -> str:
+    """当前 head 的 CI 检查结论与链接（评审方据此核对 PR 描述中「CI 通过」的说法）。"""
+    try:
+        checks = json.loads(github._run(["gh", "pr", "checks", str(number), "--json", "name,state,link"]))
+    except (RuntimeError, json.JSONDecodeError):
+        return "读不到 CI 检查结果。"
+    return "\n".join(f"- {item['name']}：{item['state']}（{item['link']}）" for item in checks) or "没有 CI 检查。"
+
+
+def write_materials(workspace: Path, base: str, pr_text: str, task_text: str, ci_text: str = "") -> None:
     folder = workspace / "build" / "review"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "pr.md").write_text(pr_text, encoding="utf-8")
     (folder / "task.md").write_text(task_text or "无", encoding="utf-8")
+    (folder / "ci.md").write_text(ci_text or "（校准样本没有 CI 运行）", encoding="utf-8")
     diff = git("diff", "--no-color", f"{base}...HEAD", cwd=workspace)
     (folder / "diff.patch").write_text(diff[:200_000], encoding="utf-8")
     pack = subprocess.run([sys.executable, str(workspace / "harness" / "review_pack.py"), "--base", base, "--no-run"],
@@ -270,11 +321,12 @@ def render_comment(verdict: Verdict, reviewer: str, model: str, designer: str | 
 
 def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=None) -> int:
     github = github or dispatch.GitHub(root)
-    pr = json.loads(github._run(["gh", "pr", "view", str(number), "--json", "title,body,headRefName,headRefOid,baseRefName"]))
+    pr = json.loads(github._run(["gh", "pr", "view", str(number), "--json",
+                                 "title,body,headRefName,headRefOid,baseRefName,state,mergeCommit"]))
     workspace = review_workspace(root)
     git("fetch", "--quiet", "origin", f"pull/{number}/head", "main", cwd=workspace)
     checkout(workspace, pr["headRefOid"])
-    base = git("merge-base", "origin/main", "HEAD", cwd=workspace)
+    base = review_base(pr, workspace)
     designer = designer_of(base, "HEAD", pr["headRefName"], workspace)
     name = reviewer_name or load_rules().get("review", {}).get("reviewer") or OTHER.get(designer or "")
     if name is None:
@@ -285,7 +337,7 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
         return 2
     target = run_check.scope(base, "HEAD", pr["headRefName"], workspace)
     task_text = (workspace / target.taskbook).read_text(encoding="utf-8") if target and target.taskbook else ""
-    write_materials(workspace, base, f"# {pr['title']}\n\n{pr['body']}", task_text)
+    write_materials(workspace, base, f"# {pr['title']}\n\n{pr['body']}", task_text, ci_summary(number, github))
     verdict, model, seconds = run_reviewer(make_reviewer(name), workspace, load_rules().get("review", {}).get(
         "timeout_minutes", 30) * 60)
     if verdict.failure:

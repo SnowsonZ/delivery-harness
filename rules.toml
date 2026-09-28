@@ -133,9 +133,10 @@ ci_timeout_minutes = 60
 
 [review]
 # 独立评审（harness/review.py）：默认评审方与各评审方的模型、超时。
-# 用户 2026-09-28 指定：默认由 Pi（glm-5.3）评审；Codex 可选（gpt-6-sol、max）。
+# 用户 2026-09-28 指定：默认由 OpenCode（glm-5.3，只读的 plan 代理）评审，避开执行方 Pi；Pi、Codex（gpt-6-sol、max）可选。
 # 换评审方、模型或推理强度后须在校准集上重跑 TPR、TNR 再比较（设计 8.3）。
-reviewer = "pi"
+reviewer = "opencode"
+opencode_model = "zai-coding-plan/glm-5.3"
 pi_model = "zai-coding-cn/glm-5.3"
 codex_model = "gpt-6-sol"
 codex_reasoning_effort = "max"

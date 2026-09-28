@@ -19,7 +19,7 @@
     bin/dispatch run docs/plans/task-005-x.md [--resume] [--model M]
     bin/dispatch status
     bin/dispatch stop --all
-    bin/dispatch review <PR> [--reviewer pi|codex|claude-code]   独立评审（harness/review.py）
+    bin/dispatch review <PR> [--reviewer opencode|pi|codex|claude-code]   独立评审（harness/review.py）
 """
 
 from __future__ import annotations
@@ -580,7 +580,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--model", help="执行方模型（默认用 Pi 当前设置）")
     review = sub.add_parser("review", help="独立评审一个 PR（非设计方，只读）")
     review.add_argument("pr", type=int)
-    review.add_argument("--reviewer", choices=["pi", "codex", "claude-code"])
+    review.add_argument("--reviewer", choices=["opencode", "pi", "codex", "claude-code"])
     sub.add_parser("status", help="查看槽位")
     stop = sub.add_parser("stop", help="停机：终止所有正在运行的执行方")
     stop.add_argument("--all", action="store_true", required=True)

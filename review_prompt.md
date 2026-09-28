@@ -6,6 +6,8 @@
 - `build/review/task.md`：任务书（没有任务书时写明「无」）
 - `build/review/diff.patch`：相对合并基点的完整改动
 - `build/review/pack.md`：机器生成的证据包（风险等级、修复证据的提交与测试映射、涉及的验收编号）
+- `build/review/ci.md`：当前 head 的 CI 检查结论与链接（核对 PR 描述中「CI 通过」一类说法以它为准）
+- 材料为空或与 PR 描述明显不符时，结论为「需用户验收」并在发现里写明，不要在空材料上给出通过
 - 评审清单：`docs/templates/review-checklist.md`；仓库规则：`AGENTS.md`、`docs/specs/delivery-harness.md`
 
 ## 怎么评
