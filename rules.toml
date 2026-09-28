@@ -49,6 +49,7 @@ r3 = [
     ".codex/**",
     "harness/**",
     "bin/**",
+    "evals/review/samples.json",
     "requirements*.txt",
     "scripts/build_inbox_app.py",
     "scripts/migrations.py",
@@ -75,6 +76,7 @@ r0 = [
     "docs/decisions/**",
     "docs/images/**",
     "docs/runs/**",
+    "evals/review/results/**",
     "README.md",
     "README.zh-CN.md",
 ]
@@ -128,6 +130,16 @@ cli = ["bin/session-manager"]
 slots = 3
 stall_minutes = 15
 ci_timeout_minutes = 60
+
+[review]
+# 独立评审（harness/review.py）：默认评审方与各评审方的模型、超时。
+# 用户 2026-09-28 指定：默认由 Pi（glm-5.3）评审；Codex 可选（gpt-6-sol、max）。
+# 换评审方、模型或推理强度后须在校准集上重跑 TPR、TNR 再比较（设计 8.3）。
+reviewer = "pi"
+pi_model = "zai-coding-cn/glm-5.3"
+codex_model = "gpt-6-sol"
+codex_reasoning_effort = "max"
+timeout_minutes = 30
 
 [guard]
 # git 层守卫（.githooks → harness/git_guard.py）。以下操作被拒绝，除非人显式设置覆盖变量：

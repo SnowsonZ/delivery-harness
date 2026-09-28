@@ -4,6 +4,8 @@
 机器再核对一遍，即使绕过派发脚本手工派发，缺记录或超预算也会被发现：
 
   适用     分支是 task/<名字> 且 docs/plans/task-<名字>.md 存在，或任一提交带 `Task:`（实现某份任务书的 PR）
+  自行实现 任务书就在本 PR 中新增或修改：设计方自己实现（用户 2026-09-28 决定，方案 B），不经派发脚本，
+           不要求运行记录与 CI 轮次（这类 PR 本就不自动合并），仍要求每个提交带 `Task:`
   归属     范围内每个非合并提交都带 `Task: <该任务书的编号>`
   运行记录 新增了 docs/runs/<任务书名>/<序号>.json；序号最大的一份格式完整、task/class/branch 与任务书一致、
            exit 为 ok，提示词文件存在且 sha256 与记录一致
@@ -50,28 +52,37 @@ class Finding:
 class Scope:
     taskbook: str  # docs/plans/task-<名字>.md
     header: dict
+    in_pr: bool = False  # 任务书随本 PR 新增或修改：设计方自行实现
 
 
 def scope(base: str, head: str, branch: str, cwd: Path = ROOT) -> Scope | None:
-    """这个 PR 是否在实现某份任务书；任务书从 cwd（auto-merge 中是 main）读取。"""
+    """这个 PR 是否在实现某份任务书。任务书先从 cwd（auto-merge 中是 main）读取；随本 PR 提交、main 上还没有的，
+    从 head 读取。"""
     shas = git("rev-list", "--no-merges", f"{base}..{head}", cwd=cwd).split()
     ids = {value.strip() for sha in shas for value in commit_field(sha, "Task", cwd)}
     candidates = []
     if branch.startswith("task/"):
         candidates.append(f"docs/plans/task-{branch.removeprefix('task/')}.md")
+    changed = {path: status for status, path in changed_files(base, head, cwd)}
     for task_id in sorted(ids):
         match = re.fullmatch(r"T(\d+)", task_id)
         if match:
+            prefix = f"docs/plans/task-{int(match[1]):03d}-"
             candidates += sorted(p.relative_to(cwd).as_posix()
                                  for p in (cwd / "docs" / "plans").glob(f"task-{int(match[1]):03d}-*.md"))
+            candidates += sorted(path for path in changed if path.startswith(prefix) and path.endswith(".md"))
     for rel in candidates:
-        path = cwd / rel
-        if path.is_file():
-            try:
-                header, _ = taskbook.parse_header(path.read_text(encoding="utf-8"))
-            except taskbook.HeaderError:
-                continue
-            return Scope(rel, header)
+        in_pr = changed.get(rel) in ("A", "M")
+        text = git("show", f"{head}:{rel}", cwd=cwd, check=False) if in_pr else ""
+        if not text and (cwd / rel).is_file():
+            text = (cwd / rel).read_text(encoding="utf-8")
+        if not text:
+            continue
+        try:
+            header, _ = taskbook.parse_header(text)
+        except taskbook.HeaderError:
+            continue
+        return Scope(rel, header, in_pr)
     if ids:  # 带了 Task: 却找不到任务书：按适用处理，归属检查会报出来
         return Scope("", {"task": min(ids)})
     return None
@@ -147,7 +158,10 @@ def check(base: str, head: str, branch: str, cwd: Path = ROOT, rounds: int | Non
     task_id = target.header.get("task", "")
     findings = [check_trailers(base, head, task_id, cwd)]
     if not target.taskbook:
-        findings.append(Finding("任务书", False, f"`Task: {task_id}` 在 {cwd.name} 上找不到对应的任务书"))
+        findings.append(Finding("任务书", False, f"`Task: {task_id}` 找不到对应的任务书"))
+        return findings
+    if target.in_pr:
+        findings.append(Finding("运行记录", True, f"任务书 `{target.taskbook}` 随本 PR 提交：设计方自行实现，不要求运行记录"))
         return findings
     findings.append(check_record(base, head, target, branch, cwd))
     if with_ci:
