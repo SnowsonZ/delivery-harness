@@ -32,7 +32,14 @@ OVERRIDE = "覆盖变量只供人使用，Agent 不能自行放开守卫"
 RESET_HARD = "git reset --hard 会丢弃未提交的改动（v0.8.0 X1 的修复就这样丢失）；先提交或 stash"
 CLEAN_X = "git clean -x 会删除 scratch/iterm-probe-venv（AGENTS.md）；加 -e scratch/iterm-probe-venv"
 RM_OUTSIDE = "递归删除工作区以外的路径（临时目录 /tmp 除外）"
-RELEASE = "gh release：发版由用户执行"
+RELEASE = "gh release（list、view 以外）：发版由用户执行"
+ISSUE_DELETE = "删除议题会销毁逃逸、抽审与升级登记；已关闭的议题照样计数"
+LABEL_ERASE = "撤下或删改 escape、audit、escalation、budget-exceeded、class:K* 标签会让误差预算与升级登记失真"
+ISSUE_IMPLEMENTER = "执行者不能关闭、重开或改动议题（含标签）：逃逸、抽审与升级登记由设计评审方处理"
+# 登记用的标签（设计 14.3）：任何 Agent 都不能撤下或删改。
+PROTECTED_LABELS = re.compile(r"(^|,)\s*(escape|audit|escalation|budget-exceeded|class:K\d)\s*(,|$)")
+READ_ONLY_RELEASE = {"list", "view"}
+IMPLEMENTER_ISSUE_ACTIONS = {"close", "reopen", "edit", "transfer", "lock", "unlock", "pin", "unpin", "delete"}
 DELETE_REMOTE = "删除 CI 记录或远端资源会销毁证据"
 API_WRITE = "GitHub API 写操作（改 ref、写文件、删资源）会绕过分支保护与评审；需要时交给用户"
 MERGE = "合并 PR：R0/R1 由仓库 auto-merge 合并，R2 及以上由用户合并，Agent 不自行合并（方案 §13 D4）"
@@ -52,13 +59,13 @@ HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_][\w.-]*)\2")
 TextRules = Callable[[str], list[str]]
 
 
-def check(command: str, text_rules: TextRules) -> list[str]:
+def check(command: str, text_rules: TextRules, role: str = "designer") -> list[str]:
     body, substitutions, heredocs = _strip_heredocs_and_substitutions(command)
     reasons: list[str] = []
     for inner in substitutions:
-        reasons += check(inner, text_rules)
+        reasons += check(inner, text_rules, role)
     for words, stdin in _simple_commands(body):
-        found, executes_stdin = _check_simple(words, text_rules)
+        found, executes_stdin = _check_simple(words, text_rules, role)
         reasons += found
         if not executes_stdin:
             continue
@@ -160,7 +167,7 @@ def _check_assignments(words: list[str]) -> list[str]:
     return reasons
 
 
-def _check_simple(words: list[str], text_rules: TextRules) -> tuple[list[str], bool]:
+def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer") -> tuple[list[str], bool]:
     reasons: list[str] = []
     index = 0
     while index < len(words):
@@ -196,11 +203,11 @@ def _check_simple(words: list[str], text_rules: TextRules) -> tuple[list[str], b
     if program in DECLARERS:
         return reasons + _check_assignments([arg for arg in args if not arg.startswith("-")]), False
     if program == "eval":
-        return reasons + check(" ".join(args), text_rules), False
+        return reasons + check(" ".join(args), text_rules, role), False
     if program in SHELLS:
         code = _option_value(args, "c")
         if code is not None:
-            return reasons + check(code, text_rules), False
+            return reasons + check(code, text_rules, role), False
         return reasons, _reads_stdin(args)
     if program in INTERPRETERS or re.fullmatch(r"python3(\.\d+)?", program):
         code = _option_value(args, "c") if program.startswith("python") else _option_value(args, "e")
@@ -214,7 +221,7 @@ def _check_simple(words: list[str], text_rules: TextRules) -> tuple[list[str], b
     if program == "rm":
         return reasons + _rm(args), False
     if program == "gh":
-        return reasons + _gh(args), False
+        return reasons + _gh(args, role), False
     if program == "curl":
         return reasons + _curl(args), False
     return reasons, False
@@ -361,12 +368,45 @@ def _rm(args: list[str]) -> list[str]:
     return []
 
 
-def _gh(args: list[str]) -> list[str]:
+def _label_values(args: list[str], option: str) -> list[str]:
+    values = []
+    for index, arg in enumerate(args):
+        if arg == option and index + 1 < len(args):
+            values.append(args[index + 1])
+        elif arg.startswith(option + "="):
+            values.append(arg[len(option) + 1 :])
+    return values
+
+
+def _gh_issue_and_label(sub: str, action: str, positional: list[str], args: list[str], role: str) -> list[str]:
+    """议题与标签是逃逸、抽审、升级的登记（设计 14.3）：任何 Agent 不删议题、不撤登记标签；执行者不改议题。"""
+    reasons = []
+    if sub == "issue" and action == "delete":
+        reasons.append(ISSUE_DELETE)
+    if sub in ("issue", "pr") and action == "edit" and any(
+        PROTECTED_LABELS.search(value) for value in _label_values(args, "--remove-label")
+    ):
+        reasons.append(LABEL_ERASE)
+    if sub == "label" and action in ("delete", "edit") and any(PROTECTED_LABELS.search(word) for word in positional[2:]):
+        reasons.append(LABEL_ERASE)
+    if role == "implementer":
+        touches_labels = any(arg.startswith(("--add-label", "--remove-label")) for arg in args)
+        if (sub == "issue" and action in IMPLEMENTER_ISSUE_ACTIONS) or (sub == "pr" and action == "edit" and touches_labels) \
+                or (sub == "label" and action != "list"):
+            reasons.append(ISSUE_IMPLEMENTER)
+    return reasons
+
+
+def _gh(args: list[str], role: str = "designer") -> list[str]:
     positional = [arg for arg in args if not arg.startswith("-")]
     sub = positional[0] if positional else ""
     action = positional[1] if len(positional) > 1 else ""
     if sub == "release":
-        return [RELEASE]
+        return [] if action in READ_ONLY_RELEASE else [RELEASE]
+    if sub in ("issue", "pr", "label"):
+        found = _gh_issue_and_label(sub, action, positional, args, role)
+        if found:
+            return found
     if sub in ("run", "repo") and action == "delete":
         return [DELETE_REMOTE]
     if sub == "pr" and action == "merge":

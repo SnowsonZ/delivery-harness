@@ -12,6 +12,10 @@
      （修复前失败才能证明测试真的在检查这个缺陷，v0.8.0 X4）。Python 按方法运行；Swift 按引用它的
      verify 检查整组编译运行（只在 macOS，--swift；编译失败算出错，运行失败算失败）
 
+  4. 回放强制（审计 G2，设计 8.2）：非 doc 类、未撤销的编号，head 上的 harness/replay_cases.py 必须有其一：
+     注入用例（CASES）、守卫测试（GUARDED）、写明原因的暂缓项（DEFERRED）。回放用例是判定器，由评审方在同一
+     PR 中加入（执行方在 PR 里写明注入点）；是否真的失败由 `verify --full` 的回放检查核对。
+
     python3 harness/evidence.py --base origin/main [--head HEAD] [--ids A,B] [--markdown out.md]
                                 [--swift]
 """
@@ -30,6 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import replay_cases
 import verify
 from common import ROOT, clean_git_env, commit_field, git, path_matches
 
@@ -318,6 +323,39 @@ def analyse(
     return evidences
 
 
+def replay_coverage(evidences: dict[str, DefectEvidence], registry=None) -> dict[str, tuple[bool, str]]:
+    """每个需要回放的编号 → (是否满足, 说明)。doc 类与已撤销的编号不要求回放。"""
+    registry = registry or replay_cases
+    injected = {case.defect for case in registry.CASES}
+    coverage = {}
+    for defect, evidence in evidences.items():
+        if evidence.doc_only or evidence.withdrawn_by or not evidence.commits:
+            continue
+        if defect in injected:
+            coverage[defect] = (True, "注入用例")
+        elif defect in registry.GUARDED:
+            coverage[defect] = (True, "守卫测试：" + "、".join(f"`{test}`" for test in registry.GUARDED[defect]))
+        elif str(registry.DEFERRED.get(defect, "")).strip():
+            coverage[defect] = (True, f"暂缓：{registry.DEFERRED[defect]}")
+        else:
+            coverage[defect] = (
+                False,
+                (
+                    "harness/replay_cases.py 中没有注入用例、守卫测试或写明原因的暂缓项；"
+                    "执行方在 PR 里写明注入点，由评审方在本 PR 中加入"
+                ),
+            )
+    return coverage
+
+
+def render_replay(coverage: dict[str, tuple[bool, str]]) -> str:
+    if not coverage:
+        return ""
+    lines = ["#### 回放覆盖（每个非文档类 `Defect` 必须有回放）", "", "| 编号 | 结论 | 回放 |", "|---|---|---|"]
+    lines += [f"| {defect} | {'✅' if ok else '❌'} | {text} |" for defect, (ok, text) in coverage.items()]
+    return "\n".join(lines) + "\n"
+
+
 def render_markdown(evidences: dict[str, DefectEvidence], base: str, head: str, cwd: Path = ROOT) -> str:
     base_sha = git("rev-parse", "--short", base, cwd=cwd)
     head_sha = git("rev-parse", "--short", head, cwd=cwd)
@@ -364,12 +402,14 @@ def main(argv: list[str] | None = None) -> int:
     evidences = analyse(
         args.base, args.head, ids or None, run_tests=not args.no_run, swift=args.swift
     )
-    report = render_markdown(evidences, args.base, args.head)
+    coverage = replay_coverage(evidences)
+    report = render_markdown(evidences, args.base, args.head) + "\n" + render_replay(coverage)
     print(report)
     if args.markdown:
         with open(args.markdown, "a") as handle:
             handle.write(report + "\n")
-    return 0 if all(evidence.ok for evidence in evidences.values()) else 1
+    replayed = all(ok for ok, _ in coverage.values())
+    return 0 if replayed and all(evidence.ok for evidence in evidences.values()) else 1
 
 
 if __name__ == "__main__":

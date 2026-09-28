@@ -16,7 +16,7 @@
 
 - 调研报告《低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践》（2026-09-23）：入库快照 [docs/research/2026-09-23-agent-delivery-theory.md](../docs/research/2026-09-23-agent-delivery-theory.md)，编辑源为 [Claude 文档](https://claude.ai/code/artifact/487213ef-a1a8-44fd-9399-2e37f91c8b0c)。先读它的「核心结论」和「3.2 八条设计原则」。
 - 开工时的落地计划：[2026-09-25 落地交接说明](../docs/plans/2026-09-25-harness-rollout-handoff.md)（原为报告最后一节：基线、失败分类、可验证性地图、P0–P6 路线），历史文档。
-- 目标态设计：[Agent-Notification 可验证交付 Harness 目标态设计](https://claude.ai/code/artifact/a7646759-f838-49a8-aa1a-175b329ea1ed)（2026-09-27，第十七节为 2026-09-28 的决定；第十六节为分阶段实施路线，阶段一 P1 合同、P2 合并路由已落地）。
+- 目标态设计：[Agent-Notification 可验证交付 Harness 目标态设计](https://claude.ai/code/artifact/a7646759-f838-49a8-aa1a-175b329ea1ed)（2026-09-27，第十七节为 2026-09-28 的决定；第十六节为分阶段实施路线，阶段一 P1 合同、P2 合并路由、P3 回放强制与守卫小修已落地）。
 - 落到本仓库的方案与决定：[可验证交付方案](../docs/plans/verifiable-delivery.md)（§1 目标、§2「可验证」的操作定义、§10 决定记录）。
 - 本项目自己的失败样本：v0.8.0 交付中的 R1–R19 与 X1–X6，分类见 [2026-09-25 基线评审](../docs/review/2026-09-25-harness-baseline.md)。每条护栏都对应其中至少一种失败。
 
@@ -44,7 +44,7 @@
 | `verify.py` | 统一验证入口：lint、卫生、验收映射、Python 与 Swift 测试、回放 |
 | `acceptance.py`、`acceptance-gaps.txt` | 规格验收编号 ↔ 测试的映射；暂缺的登记在缺口清单，只能缩减 |
 | `taskbook.py`、`taskbook-exempt.txt` | 任务书准入：头部、类别与风险、验收挂规格编号（复用 `acceptance.py` 的解析）、章节、步骤交叉核对；历史任务登记豁免，清单只能缩减 |
-| `evidence.py` | 修复证据：退回带 `Defect:` 的提交，引用该编号的测试必须以断言失败结束，恢复后通过 |
+| `evidence.py` | 修复证据：退回带 `Defect:` 的提交，引用该编号的测试必须以断言失败结束，恢复后通过；每个非文档类编号须有回放（注入、守卫测试或写明原因的暂缓） |
 | `base_tests.py`、`base_tests_runner.py` | 已有测试按 base 版本在新代码上运行，防止执行方改测试迁就代码 |
 | `replay.py`、`replay_cases.py` | 事故回放：把历史缺陷注入代码副本，对应检查必须失败 |
 | `mutate.py`、`mutation-baseline.json` | 关键函数的变异测试，得分只升不降 |
@@ -60,7 +60,7 @@
 
 | 层 | 组成 | 挡住什么 |
 |---|---|---|
-| Agent 层 | `command_guard.py` + `shell_structure.py`，由各宿主的钩子调用：`.claude/settings.json`、`.codex/hooks.json`、`.opencode/plugin/`、`.pi/extensions/`、`.zcode/config.json` | 执行前拒绝改写历史、推 tag、强推 main、合并或批准 PR、设置覆盖变量；执行方不能编辑判定器 |
+| Agent 层 | `command_guard.py` + `shell_structure.py`，由各宿主的钩子调用：`.claude/settings.json`、`.codex/hooks.json`、`.opencode/plugin/`、`.pi/extensions/`、`.zcode/config.json` | 执行前拒绝改写历史、推 tag、强推 main、合并或批准 PR、设置覆盖变量、删除议题与撤登记标签；执行方不能编辑判定器、合同与运行记录，不能改动议题 |
 | git 层 | `git_guard.py` + `.githooks/`，规则读 origin/main 上的 `rules.toml` | 与用哪家 Agent 无关：保护分支上提交、改写、推送卫生 |
 | 服务端 | ruleset（`.github/rulesets/`）、`build.yml`、`auto-merge.yml`、单独的 Agent 账号与批准 App | 本机两层都被绕过时的兜底：必须经 PR、必需检查、非推送者批准 |
 
