@@ -55,7 +55,7 @@
 | `policy.py`、`autonomy.toml` | 合并路由：风险、类别自治等级、误差预算、规模、任务 PR 的运行记录逐条判定并写理由；K3 三抽一抽审；放权只改 `autonomy.toml`（R3） |
 | `run_check.py` | 任务 PR 的 CI 侧复核：`Task:` 归属、运行记录格式与一致性、CI 轮次对预算 |
 | `weekly.py` | 周报：交付指标、突增标红、误差预算与抽审进度、试跑记录汇总，写进「每周质量报告」议题 |
-| `review.py`、`review_prompt.md`（`bin/dispatch review`） | 独立评审：非设计方、只读、只看任务书与 diff 与证据包，结论评论到 PR；`calibrate` 在 `evals/review/` 校准集上统计 TPR、TNR |
+| `review.py`、`review_prompt.md`（`bin/dispatch review`，后台 `--watch`） | 独立评审：非设计方、只读、只看任务书与 diff 与证据包，结论评论到 PR；`calibrate` 在 `evals/review/` 校准集上统计 TPR、TNR |
 | `release_check.py` | 发版前核对版本号与 tag |
 | `metrics.py` | 交付度量，与 v0.8.0 基线并列 |
 | `review_pack.py` | 评审证据包：把机器结论汇成一页 |

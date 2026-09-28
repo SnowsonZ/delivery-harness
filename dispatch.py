@@ -20,6 +20,7 @@
     bin/dispatch status
     bin/dispatch stop --all
     bin/dispatch review <PR> [--reviewer opencode|pi|codex|claude-code]   独立评审（harness/review.py）
+    bin/dispatch review --pending | --watch [--interval 5]   评审全部待评审的 PR（后台常驻用 --watch）
 """
 
 from __future__ import annotations
@@ -579,8 +580,11 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--resume", action="store_true", help="从远端已有的任务分支继续")
     run.add_argument("--model", help="执行方模型（默认用 Pi 当前设置）")
     review = sub.add_parser("review", help="独立评审一个 PR（非设计方，只读）")
-    review.add_argument("pr", type=int)
+    review.add_argument("pr", type=int, nargs="?", help="评审这个 PR；不给时配合 --pending 或 --watch")
     review.add_argument("--reviewer", choices=["opencode", "pi", "codex", "claude-code"])
+    review.add_argument("--pending", action="store_true", help="评审全部待评审且 CI 已通过的 PR，然后退出")
+    review.add_argument("--watch", action="store_true", help="后台常驻：每隔 --interval 分钟评审一轮")
+    review.add_argument("--interval", type=float, default=5, help="--watch 的间隔（分钟）")
     sub.add_parser("status", help="查看槽位")
     stop = sub.add_parser("stop", help="停机：终止所有正在运行的执行方")
     stop.add_argument("--all", action="store_true", required=True)
@@ -590,6 +594,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "review":
         import review as review_module  # review 依赖本模块，按需导入
 
+        if args.watch:
+            return review_module.watch(args.interval, args.reviewer)
+        if args.pending:
+            reviewed = review_module.review_pending(args.reviewer)
+            print(f"已评审 {len(reviewed)} 个 PR" + (f"：{'、'.join(f'#{n}' for n in reviewed)}" if reviewed else ""))
+            return 0
+        if args.pr is None:
+            parser.error("review 需要 PR 编号，或 --pending、--watch")
         return review_module.review_pr(args.pr, args.reviewer)
     if args.command == "stop":
         return stop_all()

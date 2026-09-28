@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Queue
+from typing import ClassVar
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -81,6 +82,7 @@ def parse_output(text: str) -> Verdict:
 
 class Reviewer:
     name = ""
+    env: ClassVar[dict[str, str]] = {}  # 评审方专用的环境变量（如 OpenCode 的权限配置）
 
     def argv(self, prompt: str, workspace: Path, output: Path) -> list[str]:
         raise NotImplementedError
@@ -160,6 +162,12 @@ class OpenCodeReviewer(Reviewer):
     """OpenCode 自带的 plan 代理只读（拒绝编辑与写入）；--pure 不加载插件（含 PR 自带的项目插件）。"""
 
     name = "opencode"
+    # plan 代理只禁止编辑，不禁止 bash（2026-09-28 实测它在评审中运行了 PR 的测试与 gh）：这里关掉命令、
+    # 子代理、网页与写入类工具，只留读取与搜索。
+    env: ClassVar[dict[str, str]] = {"OPENCODE_CONFIG_CONTENT": json.dumps({
+        "permission": {"bash": "deny", "edit": "deny", "webfetch": "deny"},
+        "tools": {"bash": False, "task": False, "webfetch": False, "write": False, "edit": False, "patch": False},
+    })}
 
     def __init__(self, model: str | None = None):
         self.model = model
@@ -203,6 +211,7 @@ def run_reviewer(reviewer: Reviewer, workspace: Path, timeout: float) -> tuple[V
     with tempfile.TemporaryDirectory(prefix="review-") as tmp:
         output = Path(tmp) / "last.txt"
         env = dispatch_host.executor_env(dict(os.environ), {}, Path(tmp) / "gh")  # 没有 GitHub 凭据
+        env.update(reviewer.env)
         (Path(tmp) / "gh").mkdir()
         try:
             # 标准输入必须关闭：opencode run 在标准输入是管道时会一直等它结束（2026-09-28 实测卡住的原因）。
@@ -351,6 +360,73 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
     except RuntimeError:
         pass  # 没有该标签
     print(f"PR #{number}：{verdict.verdict}（{name}），已评论")
+    return 0
+
+
+# ---- 后台自动评审 ----
+
+REVIEW_MARK = "<!-- independent-review "
+DONE_CHECKS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
+
+
+def reviewed_heads(comments: list[dict]) -> set[str]:
+    heads = set()
+    for comment in comments:
+        body = comment.get("body", "")
+        if REVIEW_MARK in body:
+            try:
+                heads.add(json.loads(body.split(REVIEW_MARK, 1)[1].split(" -->", 1)[0])["head"])
+            except (ValueError, KeyError):
+                continue
+    return heads
+
+
+def pending_prs(github) -> list[int]:
+    """待评审：开着、带 needs-independent-review、CI 已全部完成且通过、当前 head 还没有独立评审结论。"""
+    found = json.loads(github._run(["gh", "pr", "list", "--state", "open", "--label", LABEL, "--limit", "50",
+                                    "--json", "number,headRefOid,comments"]))
+    pending = []
+    for pr in sorted(found, key=lambda item: item["number"]):
+        if pr["headRefOid"] in reviewed_heads(pr.get("comments", [])):
+            continue
+        try:
+            checks = json.loads(github._run(["gh", "pr", "checks", str(pr["number"]), "--json", "state"]))
+        except (RuntimeError, json.JSONDecodeError):
+            continue  # 检查未完成时 gh 以非零退出：下一轮再看
+        if checks and all(check.get("state") in DONE_CHECKS for check in checks):
+            pending.append(pr["number"])
+    return pending
+
+
+def review_pending(reviewer_name: str | None = None, root: Path = ROOT, github=None, review=None) -> list[int]:
+    """逐个评审（多个 OpenCode 同时运行会互相冲突，2026-09-28 实测）。返回评审过的 PR。"""
+    github = github or dispatch.GitHub(root)
+    review = review or review_pr
+    done = []
+    for number in pending_prs(github):
+        review(number, reviewer_name, root, github)
+        done.append(number)
+    return done
+
+
+def watch(interval_minutes: float = 5, reviewer_name: str | None = None, root: Path = ROOT, github=None,
+          review=None, sleep=time.sleep, rounds: int | None = None) -> int:
+    """后台常驻：每隔 interval 分钟评审一轮待评审的 PR；派发的停机标记存在时退出（规范 §8）。"""
+    stop_flag = dispatch.state_dir(root) / "stop"
+    count = 0
+    while rounds is None or count < rounds:
+        if stop_flag.exists():
+            print("停机标记存在，停止后台评审")
+            return 0
+        try:
+            reviewed = review_pending(reviewer_name, root, github, review)
+            if reviewed:
+                print(f"已评审：{'、'.join(f'#{number}' for number in reviewed)}", flush=True)
+        except RuntimeError as error:
+            print(f"本轮查询失败（{error}），下一轮重试", flush=True)
+        count += 1
+        if rounds is None or count < rounds:
+            sleep(interval_minutes * 60)
     return 0
 
 
