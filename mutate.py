@@ -6,6 +6,7 @@
     python3 harness/mutate.py                 运行全部目标，打印得分与存活变异
     python3 harness/mutate.py --check         与 harness/mutation-baseline.json 比较，任一目标得分下降即失败
     python3 harness/mutate.py --update        运行后写回基线（得分提高后执行，基线只升不降）
+    python3 harness/mutate.py --check --changed-since BASE   只运行 BASE...HEAD 改到其文件的目标（R1 的 PR）
 
 较慢（每个变异跑一次测试），不在每次提交时运行；由定期的 quality workflow 与人工触发。
 """
@@ -25,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from common import ROOT, clean_git_env
+from common import ROOT, changed_files, clean_git_env
 from replay import copy_worktree
 
 BASELINE = ROOT / "harness" / "mutation-baseline.json"
@@ -208,12 +209,19 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--check", action="store_true", help="得分低于基线即失败")
     mode.add_argument("--update", action="store_true", help="写回基线（只升不降）")
     parser.add_argument("--only", help="只运行这些目标（名称，逗号分隔）")
+    parser.add_argument("--changed-since", metavar="BASE", help="只运行 BASE...HEAD 改到其文件的目标")
     args = parser.parse_args(argv)
 
     targets = TARGETS
     if args.only:
         wanted = set(args.only.split(","))
         targets = [target for target in TARGETS if target.name in wanted]
+    if args.changed_since:
+        changed = {path for _, path in changed_files(args.changed_since)}
+        targets = [target for target in targets if target.file in changed]
+        if not targets:
+            print("改动未涉及变异目标的文件，无需核对")
+            return 0
     temp = Path(tempfile.mkdtemp(prefix="mutate-"))
     try:
         copy_root = temp / "repo"

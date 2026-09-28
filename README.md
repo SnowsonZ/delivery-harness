@@ -16,7 +16,7 @@
 
 - 调研报告《低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践》（2026-09-23）：入库快照 [docs/research/2026-09-23-agent-delivery-theory.md](../docs/research/2026-09-23-agent-delivery-theory.md)，编辑源为 [Claude 文档](https://claude.ai/code/artifact/487213ef-a1a8-44fd-9399-2e37f91c8b0c)。先读它的「核心结论」和「3.2 八条设计原则」。
 - 开工时的落地计划：[2026-09-25 落地交接说明](../docs/plans/2026-09-25-harness-rollout-handoff.md)（原为报告最后一节：基线、失败分类、可验证性地图、P0–P6 路线），历史文档。
-- 目标态设计：[Agent-Notification 可验证交付 Harness 目标态设计](https://claude.ai/code/artifact/a7646759-f838-49a8-aa1a-175b329ea1ed)（2026-09-27，第十七节为 2026-09-28 的决定；第十六节为分阶段实施路线，阶段一 P1 合同已落地）。
+- 目标态设计：[Agent-Notification 可验证交付 Harness 目标态设计](https://claude.ai/code/artifact/a7646759-f838-49a8-aa1a-175b329ea1ed)（2026-09-27，第十七节为 2026-09-28 的决定；第十六节为分阶段实施路线，阶段一 P1 合同、P2 合并路由已落地）。
 - 落到本仓库的方案与决定：[可验证交付方案](../docs/plans/verifiable-delivery.md)（§1 目标、§2「可验证」的操作定义、§10 决定记录）。
 - 本项目自己的失败样本：v0.8.0 交付中的 R1–R19 与 X1–X6，分类见 [2026-09-25 基线评审](../docs/review/2026-09-25-harness-baseline.md)。每条护栏都对应其中至少一种失败。
 
@@ -32,7 +32,7 @@
 | 4. 结构防护胜过提示词 | 三层护栏（见下）；执行方不能改判定器与合同（任务书、规格）；已有测试按 base 版本运行（`base_tests.py`）；判定器本身被检验（修复前必须失败、变异测试、事故回放） |
 | 5. 小批量、可回滚 | 一个任务一个 PR，按 R0–R3 分级；回滚方式写进任务书 |
 | 6. 状态外置、上下文从简 | 任务书（机器可读的 YAML 头部）与模板（`docs/templates/`）、[待办清单](../docs/plans/backlog.md)、决定记录；中断后从文件恢复 |
-| 7. 自治度按「任务类别 × 风险」 | `rules.toml` 的 `[risk]`：R0/R1 由 App 批准后自动合并，R2 以上自动请用户评审 |
+| 7. 自治度按「任务类别 × 风险」 | `policy.py` 按 `autonomy.toml` 的类别自治等级与误差预算路由：满足条件的 R0/R1 由 App 批准后自动合并，超预算自动停该类，其余请用户评审；停机用 Disable workflow（规范 §8） |
 | 8. 每次失败都沉淀为 harness 改进 | 缺陷编号全局唯一，修复带 `Defect:` 与回归测试；`replay_cases.py` 事故回放集；变异与质量基线只升不降 |
 
 ## 组成
@@ -50,7 +50,8 @@
 | `mutate.py`、`mutation-baseline.json` | 关键函数的变异测试，得分只升不降 |
 | `quality.py`、`quality-baseline.json` | 熵治理：复杂度与体量只降不升 |
 | `hygiene.py` | 禁止提交的路径、超大文件、凭据、本机真实路径 |
-| `risk.py` | 按改动路径判定 R0–R3；任务书按头部类别判定，模板与待办清单为 R2 |
+| `risk.py`、`r1_checks.py` | 按改动路径判定 R0–R3；任务书按头部类别判定，模板与待办清单为 R2；声明 R1 时另核对签名不变、无新依赖与迁移、不超规模 |
+| `policy.py`、`autonomy.toml` | 合并路由：风险、类别自治等级、误差预算、规模逐条判定并写理由；K3 三抽一抽审；放权只改 `autonomy.toml`（R3） |
 | `release_check.py` | 发版前核对版本号与 tag |
 | `metrics.py` | 交付度量，与 v0.8.0 基线并列 |
 | `review_pack.py` | 评审证据包：把机器结论汇成一页 |

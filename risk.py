@@ -9,7 +9,8 @@
 发版（K8）、architecture: true 的任务书按 R2，其余按 R0（准入由 CI 中的 verify 检查）。
 
 R1 需要同时满足：范围内每个提交都带 `Risk: R1` trailer；最高等级只来自产品代码路径；
-已有测试与黄金快照零改动。任何一条不满足都按 R2。
+已有测试与黄金快照零改动；以及 r1_checks.py 的加强判定（被改函数签名不变、无新依赖与迁移、
+不超规模阈值，2026-09-28 决定 2）。任何一条不满足都按 R2。变异得分不降由 build 的 harness job 核对。
 
     python3 harness/risk.py --base origin/main [--head HEAD] [--github]
 """
@@ -25,6 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import r1_checks
 import taskbook
 from common import (
     ROOT,
@@ -62,6 +64,7 @@ class RiskReport:
     files: list[FileRisk] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)
     claimed_r1: bool = False
+    r1_violations: list[str] = field(default_factory=list)
     level: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -175,11 +178,18 @@ def classify(base: str, head: str = "HEAD", cwd: Path = ROOT, rules: dict | None
     if report.claimed_r1:
         r2_files = [item for item in report.files if item.level == 2]
         only_code = all(path_matches(item.path, CODE_PATTERNS) for item in r2_files)
-        if report.level == 2 and only_code and not report.flags:
+        eligible = report.level == 2 and only_code and not report.flags
+        strengthened = r1_checks.violations(base, head, cwd) if eligible else []
+        if eligible and not strengthened:
             report.level = 1
-            report.notes.append("每个提交都声明 `Risk: R1`，且只改产品代码、已有测试与黄金快照零改动 → R1")
+            report.notes.append(
+                "每个提交都声明 `Risk: R1`，只改产品代码，已有测试与黄金快照零改动，被改函数签名不变，"
+                "无新依赖与迁移，不超规模阈值 → R1（变异得分由 build 的 harness job 核对）"
+            )
         else:
-            report.notes.append("提交声明了 `Risk: R1`，但机器核对不满足（见上方标记或非代码路径）→ 维持原等级")
+            report.r1_violations = strengthened
+            report.notes.append("提交声明了 `Risk: R1`，但机器核对不满足（见上方标记、非代码路径或下列理由）→ 维持原等级")
+            report.notes += [f"- {reason}" for reason in strengthened]
     return report
 
 
@@ -209,7 +219,10 @@ def main(argv: list[str] | None = None) -> int:
                 handle.write(text + "\n")
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
-                handle.write(f"risk={report.label}\nauto_merge={'true' if report.level <= 1 else 'false'}\n")
+                handle.write(
+                    f"risk={report.label}\nclaimed_r1={'true' if report.claimed_r1 else 'false'}\n"
+                    f"auto_merge={'true' if report.level <= 1 else 'false'}\n"
+                )
     return 0
 
 

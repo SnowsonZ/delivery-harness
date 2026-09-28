@@ -1,0 +1,60 @@
+# 自治等级与放权规则（目标态设计第十五节；门槛初值为 2026-09-28 决定 7，季度复核）。
+# 由 harness/policy.py 在 auto-merge 的判定步骤读取（main 上的版本）。
+# 只有用户能放权：改动本文件属 R3；升级 PR 须附周报中的证据（设计 15.2「升级所需证据」）。
+# 降级是自动的：误差预算超支、PR 带 budget-exceeded 标签时，policy.py 在下一次判定即时转用户评审。
+# 停机不靠本文件：Actions → auto-merge → Disable workflow（docs/specs/delivery-harness.md §8）。
+
+[size]
+# 增删行数（不计下列路径）超过阈值的 PR 不自动合并，转用户并提示拆分（设计 9.1）。
+max_lines = 400
+exclude = ["tests/golden/**", "docs/runs/**"]
+
+# 机器按路径、trailer 判定的类别（policy.py machine_class），不是任务书的声明。
+# level：L4 = 门禁全绿后自动合并；L3 及以下 = 用户评审。
+# window / max_escapes：该类最近 window 次合并中，escape 议题（带 class:<类别> 标签）超过 max_escapes 即停该类自动合并。
+[classes.K0]
+name = "合同（业务与缺陷类任务书）"
+level = "L4"
+window = 20
+max_escapes = 1
+
+[classes.K1]
+name = "说明与记录"
+level = "L4"
+window = 20
+max_escapes = 1
+
+[classes.K2]
+name = "补测试"
+level = "L4"
+window = 20
+max_escapes = 1
+
+[classes.K3]
+name = "行为不变重构（R1）"
+level = "L4"
+window = 10
+max_escapes = 0
+# 抽样审计（决定 2）：按 PR 编号哈希每 audit_every 个抽 1 个，合并后自动开 audit 议题。
+# 满 10 个抽审无问题后由用户在此降低比例（改大 audit_every）。
+audit_every = 3
+
+[classes.K4]
+name = "缺陷修复"
+level = "L3"
+
+[classes.K5]
+name = "功能与规格实现"
+level = "L3"
+
+[classes.K6]
+name = "界面与组件"
+level = "L3"
+
+[classes.K7]
+name = "护栏与流程"
+level = "L3"
+
+[classes.K8]
+name = "发版"
+level = "L2"
