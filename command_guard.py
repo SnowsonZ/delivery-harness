@@ -9,7 +9,8 @@ Agent 提供最早的反馈，并阻止 Agent 自己设置只属于人的覆盖�
   --format plain    整段 stdin 就是命令
 拒绝时退出码 2，理由写 stderr（Claude Code 会把它反馈给模型）；放行退出码 0。
 
---role implementer 另外禁止编辑判定器与护栏（CI、hooks、harness、Agent 配置）：执行者改不了判定器。
+--role implementer 另外禁止编辑判定器与护栏（CI、hooks、harness、Agent 配置）：执行者改不了判定器；
+也不能编辑合同（任务书与现役规格），需要改合同时写升级包。
 """
 
 from __future__ import annotations
@@ -115,6 +116,9 @@ PROTECTED_FOR_IMPLEMENTER = [
 # 缺口清单只能缩减，新增条目 risk.py 判 R3（rules.toml [risk] shrink_only）。
 IMPLEMENTER_EDITABLE = ["harness/acceptance-gaps.txt"]
 
+# 合同对执行方只读（设计文档 4.1）：任务书与现役规格是判定器的一部分。
+CONTRACTS_FOR_IMPLEMENTER = ["docs/plans/task-*.md", "docs/specs/**"]
+
 _COMPILED = [(re.compile(pattern), reason) for pattern, reason in COMMAND_RULES]
 _TOOLS = [(re.compile(pattern), reason) for pattern, reason in TOOL_RULES]
 
@@ -158,6 +162,9 @@ def check_edit(path: str, role: str, root: Path) -> list[str]:
     pattern = path_matches(relative, PROTECTED_FOR_IMPLEMENTER)
     if pattern and relative not in IMPLEMENTER_EDITABLE:
         return [f"执行者不能编辑判定器与护栏（{relative} 命中 {pattern}）；需要改动请升级给评审方"]
+    pattern = path_matches(relative, CONTRACTS_FOR_IMPLEMENTER)
+    if pattern:
+        return [f"执行者不能编辑合同（{relative} 命中 {pattern}）：任务书与规格由设计方维护，需要改时写升级包"]
     return []
 
 

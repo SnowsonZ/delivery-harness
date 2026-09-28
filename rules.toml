@@ -73,16 +73,54 @@ r0 = [
     "docs/research/**",
     "docs/review/**",
     "docs/decisions/**",
-    "docs/templates/**",
     "docs/images/**",
     "README.md",
     "README.zh-CN.md",
 ]
 tests = ["tests/**"]
+# 合同：模板与待办清单须经用户审（2026-09-28 决定 1），先于 r0 判定。
+contracts = [
+    "docs/templates/**",
+    "docs/plans/backlog.md",
+]
+# 任务书按类别判定（2026-09-28 决定 1，harness/taskbook.py）：K7、K8 与 architecture: true 的任务书、
+# 头部不合格或删除任务书为 R2；其余（业务修改、缺陷修复等）为 R0，准入由 CI 中的 verify 检查。
+# 类别写低不影响安全：实现 PR 仍按实际改动路径判级。
+taskbooks = ["docs/plans/task-*.md"]
 # 只能缩减的清单：只删不增时按 R0（关闭缺口是期望的方向）；有新增行仍按上面的规则判定。
-shrink_only = ["harness/acceptance-gaps.txt"]
+shrink_only = ["harness/acceptance-gaps.txt", "harness/taskbook-exempt.txt"]
 # 黄金快照：任何改动都意味着行为变化，不能算 R1。
 golden = ["tests/golden/**"]
+
+[taskbook]
+# 任务书准入检查（harness/taskbook.py）对「步骤与提交顺序」中列出的文件做交叉核对。
+# 触及这些路径的任务属护栏与流程类（K7）。
+guard_paths = [
+    ".github/**",
+    ".githooks/**",
+    ".claude/**",
+    ".opencode/**",
+    ".pi/**",
+    ".zcode/**",
+    ".codex/**",
+    "harness/**",
+    "bin/verify",
+    "bin/as-agent",
+    "bin/dispatch",
+    "ruff.toml",
+]
+# 架构级：数据迁移、新增依赖、公共接口（CLI 输出由黄金快照固定，快照格式）。
+architecture_paths = [
+    "scripts/migrations.py",
+    "requirements*.txt",
+    "tests/golden/**",
+    "native/Shared/WidgetSnapshot.swift",
+]
+# 模块：步骤涉及两个及以上模块即为架构级（「两个以上」含两个）。
+[taskbook.modules]
+python = ["scripts/**"]
+native = ["native/**"]
+cli = ["bin/session-manager"]
 
 [guard]
 # git 层守卫（.githooks → harness/git_guard.py）。以下操作被拒绝，除非人显式设置覆盖变量：

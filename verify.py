@@ -111,6 +111,8 @@ def build_checks(strict: bool = False) -> list[Check]:
         Check("quality", ("default", "full"), command=[py, "harness/quality.py"]),
         # 规格验收编号 ↔ 测试映射（harness/acceptance.py）：引用失效或新增无测试条目即失败。
         Check("acceptance", ("quick", "default", "full"), command=[py, "harness/acceptance.py"]),
+        # 任务书准入（harness/taskbook.py）：头部、类别与风险、验收挂规格编号、步骤交叉核对。
+        Check("taskbook", ("quick", "default", "full"), command=[py, "harness/taskbook.py"]),
         Check(
             "python-tests",
             ("default", "full"),

@@ -5,6 +5,9 @@
     R2  产品代码、现役规格、改动已有测试       评审方评审 + 用户看证据包后合并
     R3  护栏、CI 与发布、迁移、隐私、用户配置   必须由用户批准
 
+文档中，模板与待办清单是合同，按 R2；任务书按头部的类别判定（harness/taskbook.py）：护栏与流程（K7）、
+发版（K8）、architecture: true 的任务书按 R2，其余按 R0（准入由 CI 中的 verify 检查）。
+
 R1 需要同时满足：范围内每个提交都带 `Risk: R1` trailer；最高等级只来自产品代码路径；
 已有测试与黄金快照零改动。任何一条不满足都按 R2。
 
@@ -22,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import taskbook
 from common import (
     ROOT,
     added_line_count,
@@ -95,6 +99,11 @@ def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd
     pattern = path_matches(path, risk["r3"])
     if pattern:
         return FileRisk(path, status, 3, f"命中 R3 规则 `{pattern}`"), None
+    pattern = path_matches(path, risk.get("contracts", []))
+    if pattern:
+        return FileRisk(path, status, 2, f"模板与待办清单须经用户审（`{pattern}`）"), None
+    if path_matches(path, risk.get("taskbooks", [])):
+        return classify_taskbook(status, path, head, cwd), None
     pattern = path_matches(path, risk["r0"])
     if pattern:
         return FileRisk(path, status, 0, f"命中 R0 规则 `{pattern}`"), None
@@ -102,6 +111,24 @@ def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd
     if pattern:
         return FileRisk(path, status, 2, f"命中 R2 规则 `{pattern}`"), None
     return FileRisk(path, status, 2, "未归类路径按 R2"), None
+
+
+def classify_taskbook(status: str, path: str, head: str, cwd: Path) -> FileRisk:
+    """任务书按类别判级（2026-09-28 决定 1）。只读 head 上的文件内容，不执行 PR 的代码。"""
+    if status == "D":
+        return FileRisk(path, status, 2, "删除任务书")
+    try:
+        header, _ = taskbook.parse_header(git("show", f"{head}:{path}", cwd=cwd))
+    except (taskbook.HeaderError, RuntimeError) as error:
+        return FileRisk(path, status, 2, f"任务书头部无法解析（{error}）")
+    errors = taskbook.check_header(header, path)
+    if errors:
+        return FileRisk(path, status, 2, f"任务书头部不合格（{errors[0]}）")
+    report = taskbook.Report(path, header)
+    if report.needs_user_review:
+        kind = "架构级" if header.get("architecture") is True else f"{header['class']} 护栏、流程或发版"
+        return FileRisk(path, status, 2, f"{kind}任务书须经用户审")
+    return FileRisk(path, status, 0, f"{header['class']} 任务书，准入检查由 verify 执行")
 
 
 def commits_claim_r1(base: str, head: str, cwd: Path) -> bool:
