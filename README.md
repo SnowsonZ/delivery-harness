@@ -1,94 +1,69 @@
-# harness：可验证交付的判定器与护栏
+# delivery-harness
 
-本目录把「AI Agent 在低人工参与下持续、稳定、高质量地交付」落成机器可执行的规则。本项目是这套做法的标杆：目标是**有效**（有数据证明）且**可复制**（脚本、模板和文档能被其他项目照搬）。
+A verifiable delivery harness for AI coding agents. It turns "the agent says it is done" into machine-checked evidence, so agents can deliver continuously with little human involvement, and people only do what machines cannot: define intent, set constraints, review evidence and handle exceptions.
 
-## 愿景
+[中文说明](README.zh-CN.md)
 
-每一类改动的「完成」，都从「Agent 说做完了、人去复验」变成：
+## What it does
 
-- 开工前就有可执行的判定；
-- 完工后由 Agent 之外的机器重跑判定，并留下证据；
-- 人只做机器做不了的事：定义意图、设计约束、审证据、处理例外。
+- **Deterministic gates.** One `verify` command runs the same checks locally, in CI and inside agent dispatch: repository hygiene (secrets, local paths, forbidden files), complexity ratchets, doc links, spec-acceptance ↔ test mapping, task-brief admission, and your project's own lint and test commands.
+- **Checks that check themselves.** Fixes carrying a `Defect:` trailer must fail before the fix and pass after it; existing tests run at their base version so an agent cannot weaken them; historic incidents are re-injected (replay) and must be caught; mutation scores and quality baselines only move in one direction.
+- **Risk routing instead of trust.** Every change is classified R0–R3 from the paths it touches, not from what the author claims. Low-risk, well-verified classes merge automatically; everything else goes to a human. Autonomy is granted per task class with an error budget and is withdrawn automatically when the budget is exceeded.
+- **Three layers of guards.** Agent-tool hooks (Claude Code, Codex, OpenCode, Pi, Zcode) refuse destructive commands and edits to the harness itself; git hooks protect branches and tags regardless of which agent is used; server-side rulesets and a separate agent account are the backstop.
+- **Dispatch and independent review.** `dispatch` hands a merged task brief to an executor agent in an isolated worktree slot, runs the gates outside the executor, opens the PR and escalates when stuck. `dispatch review` has a different agent review R2+ PRs read-only.
 
-自治程度不靠信任，而是按「可验证性 × 风险」逐级放开：判定器越可靠、风险越低，放得越多（R0/R1 自动合并，R2 以上由用户审批）。
+## How it is installed
 
-## 理念来源
+The engine is **vendored** into each project under `.harness/engine/` and pinned by `.harness/engine.lock` (version, engine commit, tree hash). The trusted source of guards and rules is whatever the project owner merged into `main`; a vendored, hash-locked copy keeps that property, while a package in a local environment would not. `verify` fails if the engine files differ from the lock, and the only way to change them is `upgrade`, which produces a reviewable PR.
 
-- 调研报告《低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践》（2026-09-23）：入库快照 [docs/research/2026-09-23-agent-delivery-theory.md](../docs/research/2026-09-23-agent-delivery-theory.md)，编辑源为 [Claude 文档](https://claude.ai/code/artifact/487213ef-a1a8-44fd-9399-2e37f91c8b0c)。先读它的「核心结论」和「3.2 八条设计原则」。
-- 开工时的落地计划：[2026-09-25 落地交接说明](../docs/plans/2026-09-25-harness-rollout-handoff.md)（原为报告最后一节：基线、失败分类、可验证性地图、P0–P6 路线），历史文档。
-- 目标态设计：[Agent-Notification 可验证交付 Harness 目标态设计](https://claude.ai/code/artifact/a7646759-f838-49a8-aa1a-175b329ea1ed)（2026-09-27，第十七节为 2026-09-28 的决定，第十六节为分阶段实施路线）。
-- **现状（2026-09-29）**：阶段一（P1–P3）与阶段二（P4–P8）全部落地；成熟度为 M1 完整、M2 的机制基本建齐但准入数据未满足；下一阶段是阶段三「放权」，以真实使用积累数据。对照报告与设计的逐项复核见 [2026-09-29 现状复核](../docs/review/2026-09-29-harness-status.md)。
-- 落到本仓库的方案与决定：[可验证交付方案](../docs/plans/verifiable-delivery.md)（§1 目标、§2「可验证」的操作定义、§10 决定记录）。
-- 本项目自己的失败样本：v0.8.0 交付中的 R1–R19 与 X1–X6，分类见 [2026-09-25 基线评审](../docs/review/2026-09-25-harness-baseline.md)。每条护栏都对应其中至少一种失败。
+```
+.harness/
+  engine/          # this repository's engine/, read-only, hash-locked
+  engine.lock
+  config/          # rules.toml, autonomy.toml, checks.toml — your project's settings
+  state/           # ratchet baselines and shrink-only lists
+  project/         # replay_cases.py — your project's incident replays
+```
 
-## 原则与落点
+The engine ships no user-specific defaults. Identity (the agent's GitHub account), models, source directories and check commands all come from `.harness/config/`; anything required but missing is an explicit error.
 
-报告的八条设计原则，在本仓库分别由这些部分承担：
+## Quick start
 
-| 原则（报告 3.2） | 本仓库的落点 |
+Requirements: Python 3.11+, git, and the GitHub CLI for PR automation. Linux and macOS are supported; Windows is not yet (hooks are POSIX shell).
+
+```sh
+git clone https://github.com/SnowsonZ/delivery-harness
+python3 delivery-harness/engine/cli.py install --target path/to/your-repo
+```
+
+Then, in your repository:
+
+1. Fill `.harness/config/checks.toml`: `[identity] agent_login`, `[sources]`, and your lint/test commands under `[[verify.checks]]`.
+2. Review `.harness/config/rules.toml` (risk paths) and `autonomy.toml` (every class starts at human review).
+3. `bin/harness guard-git install`, then `bin/verify`.
+4. Commit the result through a PR that you approve.
+
+Upgrading: `python3 delivery-harness/engine/cli.py upgrade --target path/to/your-repo` replaces the engine and the lock, nothing else.
+
+## Commands
+
+All commands run through `bin/harness <command>` (or `python3 .harness/engine/cli.py <command>`). `bin/verify` and `bin/dispatch` are shortcuts.
+
+| Command | Purpose |
 |---|---|
-| 1. 先有判定器，再放权 | `verify.py`（本机、云端、CI 同一条命令）；`acceptance.py`（规格验收编号必须有测试或登记缺口）；`taskbook.py`（任务书不合格不派发，验收必须挂规格编号）；只有判定可靠的 R0/R1 才自动合并 |
-| 2. 确定性优先 | 风险等级由 `risk.py` 按改动路径判定，不由执行者自报；修复证据由 `evidence.py` 生成；评审证据包由 `review_pack.py` 汇总 |
-| 3. 生成与验证分离 | 角色分工：Codex、Claude Code 设计与评审，Zcode、OpenCode、Pi 执行；判定在 CI 中重跑；`auto-merge.yml` 执行 main 上的定义；Agent 用单独账号，合并须由非推送者批准 |
-| 4. 结构防护胜过提示词 | 三层护栏（见下）；执行方不能改判定器与合同（任务书、规格）；已有测试按 base 版本运行（`base_tests.py`）；判定器本身被检验（修复前必须失败、变异测试、事故回放） |
-| 5. 小批量、可回滚 | 一个任务一个 PR，按 R0–R3 分级；回滚方式写进任务书 |
-| 6. 状态外置、上下文从简 | 任务书（机器可读的 YAML 头部）与模板（`docs/templates/`）、[待办清单](../docs/plans/backlog.md)、决定记录；中断后从文件恢复 |
-| 7. 自治度按「任务类别 × 风险」 | `policy.py` 按 `autonomy.toml` 的类别自治等级与误差预算路由：满足条件的 R0/R1 由 App 批准后自动合并，超预算自动停该类，其余请用户评审；停机用 Disable workflow（规范 §8） |
-| 8. 每次失败都沉淀为 harness 改进 | 缺陷编号全局唯一，修复带 `Defect:` 与回归测试；`replay_cases.py` 事故回放集；变异与质量基线只升不降（质量含 Swift），文档断链由 `docs_check.py` 拦下；每周周报与错误分析把异常沉淀为待办 |
+| `verify [--quick\|--full] [--strict]` | Run all gates; `--full` adds incident replay |
+| `integrity` | Engine files match `engine.lock` |
+| `hygiene`, `quality`, `docs`, `acceptance`, `taskbook` | Individual gates |
+| `risk`, `r1`, `policy`, `run-check` | Risk level, refactor checks, merge routing, dispatch-record checks |
+| `evidence`, `base-tests`, `replay`, `mutate` | Checks on the checks |
+| `guard-command`, `guard-git` | Agent-tool and git guards (called by hooks) |
+| `dispatch run\|status\|stop\|review` | Executor dispatch and independent review |
+| `metrics`, `weekly` | Delivery metrics and the weekly report |
+| `release-check` | Tag matches the project version and is on `main` |
+| `install`, `upgrade` | Run from a checkout of this repository |
 
-## 组成
+## Status
 
-**判定器**（回答「做对了吗」，都由 `verify.py` 或 CI 调用）
+Version 0.1 extracts the engine from the project where it was built and proven ([Agent-Notification](https://github.com/SnowsonZ/Agent-Notification)); behaviour is unchanged there, verified by identical test counts, quality metrics and mutation scores before and after. Messages and prompts are in Chinese for now; English localisation, configurable directory conventions, a TypeScript language plugin and end-to-end tracing are planned — see [CHANGELOG](CHANGELOG.md).
 
-| 文件 | 作用 |
-|---|---|
-| `verify.py` | 统一验证入口：lint、卫生、验收映射、Python 与 Swift 测试、回放 |
-| `acceptance.py`、`acceptance-gaps.txt` | 规格验收编号 ↔ 测试的映射；暂缺的登记在缺口清单，只能缩减 |
-| `taskbook.py`、`taskbook-exempt.txt` | 任务书准入：头部、类别与风险、验收挂规格编号（复用 `acceptance.py` 的解析）、章节、步骤交叉核对；历史任务登记豁免，清单只能缩减 |
-| `evidence.py` | 修复证据：退回带 `Defect:` 的提交，引用该编号的测试必须以断言失败结束，恢复后通过；每个非文档类编号须有回放（注入、守卫测试或写明原因的暂缓） |
-| `base_tests.py`、`base_tests_runner.py` | 已有测试按 base 版本在新代码上运行，防止执行方改测试迁就代码 |
-| `replay.py`、`replay_cases.py` | 事故回放：把历史缺陷注入代码副本，对应检查必须失败 |
-| `mutate.py`、`mutation-baseline.json` | 关键函数的变异测试，得分只升不降 |
-| `quality.py`、`quality-baseline.json` | 熵治理：Python 复杂度（ruff C901）与体量、Swift 超长文件、超长函数与嵌套过深函数（标准库轻量解析）只降不升 |
-| `docs_check.py` | 文档熵治理：已跟踪 Markdown 的相对链接断链即失败；未完成状态超过 30 天未更新的文档只报告 |
-| `hygiene.py` | 禁止提交的路径、超大文件、凭据、本机真实路径 |
-| `risk.py`、`r1_checks.py` | 按改动路径判定 R0–R3；任务书按头部类别判定，模板与待办清单为 R2；声明 R1 时另核对签名不变、无新依赖与迁移、不超规模 |
-| `policy.py`、`autonomy.toml` | 合并路由：风险、类别自治等级、误差预算、规模、任务 PR 的运行记录逐条判定并写理由；K3 三抽一抽审；放权只改 `autonomy.toml`（R3） |
-| `run_check.py` | 任务 PR 的 CI 侧复核：`Task:` 归属、运行记录格式与一致性、CI 轮次对预算 |
-| `weekly.py` | 周报：交付指标、突增标红、误差预算与抽审进度、试跑记录汇总，写进「每周质量报告」议题 |
-| `review.py`、`review_prompt.md`（`bin/dispatch review`，后台 `--watch`） | 独立评审：非设计方、只读、只看任务书与 diff 与证据包，结论评论到 PR；`calibrate` 在 `evals/review/` 校准集上统计 TPR、TNR |
-| `release_check.py` | 发版前核对版本号与 tag |
-| `metrics.py` | 交付度量，与 v0.8.0 基线并列 |
-| `review_pack.py` | 评审证据包：把机器结论汇成一页 |
-
-**派发**（回答「怎样让执行方在限定范围内做完」）
-
-| 文件 | 作用 |
-|---|---|
-| `dispatch.py`（`bin/dispatch`） | 准入、认领、槽位、守卫预检、本地判定、运行记录、开 PR、等 CI、升级与停机 |
-| `dispatch_host.py` | 启动执行方（Pi），监视时长与卡死，最小权限环境，解析 token 与守卫拒绝 |
-| `dispatch_prompt.md` | 执行方提示词模板，只由任务书渲染，随运行记录入库 |
-
-**三层护栏**（回答「最坏会怎样」）
-
-| 层 | 组成 | 挡住什么 |
-|---|---|---|
-| Agent 层 | `command_guard.py` + `shell_structure.py`，由各宿主的钩子调用：`.claude/settings.json`、`.codex/hooks.json`、`.opencode/plugin/`、`.pi/extensions/`、`.zcode/config.json` | 执行前拒绝改写历史、推 tag、强推 main、合并或批准 PR、设置覆盖变量、删除议题与撤登记标签；执行方不能编辑判定器、合同与运行记录，不能改动议题 |
-| git 层 | `git_guard.py` + `.githooks/`，规则读 origin/main 上的 `rules.toml` | 与用哪家 Agent 无关：保护分支上提交、改写、推送卫生 |
-| 服务端 | ruleset（`.github/rulesets/`）、`build.yml`、`auto-merge.yml`、单独的 Agent 账号与批准 App | 本机两层都被绕过时的兜底：必须经 PR、必需检查、非推送者批准 |
-
-**配置**：`rules.toml`（风险、卫生、守卫规则）、`common.py`（公共工具）。
-
-## 从哪里读起
-
-1. 本文件。
-2. 报告的「核心结论」与「3.2 八条设计原则」。
-3. [现役规范 delivery-harness.md](../docs/specs/delivery-harness.md)：命令、约定、一次性设置、验证状态、已知边界。
-4. [待办清单](../docs/plans/backlog.md)：还没做完的事。
-5. 需要追溯决定时读 [可验证交付方案](../docs/plans/verifiable-delivery.md) §10，追溯失败样本时读 [基线评审](../docs/review/2026-09-25-harness-baseline.md)。
-
-## 维护
-
-- 新增或删除 harness 组件时，同步更新本文件的「组成」与「原则与落点」。
-- 本目录由评审方维护，执行方不能编辑（唯一例外：`acceptance-gaps.txt` 只能删行）；改动属于 R3，由用户批准。
-- 报告有实质更新时，评审方重新导出快照，覆盖 `docs/research/2026-09-23-agent-delivery-theory.md` 并更新其中的导出日期与版本。
+Security model and limits: [SECURITY.md](SECURITY.md). License: [MIT](LICENSE).

@@ -1,5 +1,0 @@
-# 只检查头部、不检查验收表与章节的历史任务书（harness/taskbook.py）。只能缩减：新增条目 risk.py 判 R3。
-# 格式：<路径>  # <原因>
-docs/plans/task-002-test-gaps.md  # 2026-09-26 完成的历史任务：验收表早于规格编号约定，证据类型（变异、编译、verify）不在词表中
-docs/plans/task-003-r9-today-usage.md  # 同上
-docs/plans/task-004-today-tokens.md  # 同上；验收已由 PR #39 的 CI 与真机确认

@@ -1,0 +1,17 @@
+# delivery-harness 钩子公共部分（由各钩子 source）：定位引擎与解释器。
+# 解释器优先用 .harness/config/checks.toml [runtime] python（相对仓库根），与 bin/harness 一致；
+# 没有配置或不可执行时用 PATH 上的 python3；都找不到时按 HARNESS_FAIL_OPEN 决定放行或拒绝。
+HARNESS_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+HARNESS_CLI="$HARNESS_ROOT/.harness/engine/cli.py"
+HARNESS_PY=$(sed -n '/^\[runtime\]/,/^\[/s/^python *= *"\(.*\)".*/\1/p' "$HARNESS_ROOT/.harness/config/checks.toml" 2>/dev/null | head -n 1)
+if [ -n "$HARNESS_PY" ]; then
+    HARNESS_PY="$HARNESS_ROOT/$HARNESS_PY"
+fi
+if [ -z "$HARNESS_PY" ] || [ ! -x "$HARNESS_PY" ]; then
+    HARNESS_PY=$(command -v python3 || true)
+fi
+if [ -z "$HARNESS_PY" ]; then
+    echo "harness：找不到 python3，$(basename -- "$0") 守卫未执行。" >&2
+    if [ "${HARNESS_FAIL_OPEN:-0}" = 1 ]; then exit 0; fi
+    exit 1
+fi

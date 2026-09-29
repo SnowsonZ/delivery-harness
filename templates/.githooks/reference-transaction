@@ -1,0 +1,13 @@
+#!/bin/sh
+# 禁止本地改写/删除保护分支、移动/删除 tag（.harness/engine/guards/git_guard.py）。
+# 每次引用更新都会调用本钩子：只在 prepared 阶段、且涉及分支或 tag 时才启动 Python。
+[ "$1" = prepared ] || exit 0
+input=$(cat)
+case "$input" in
+    *refs/heads/*|*refs/tags/*) ;;
+    *) exit 0 ;;
+esac
+# 解释器缺失时放行并告警：引用守卫失效不能让整个仓库无法提交。
+HARNESS_FAIL_OPEN=1
+. "$(dirname -- "$0")/_runtime"
+printf '%s\n' "$input" | exec "$HARNESS_PY" "$HARNESS_CLI" guard-git reference-transaction prepared
