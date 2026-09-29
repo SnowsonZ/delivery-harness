@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import time
 from pathlib import Path
 
 # 让 `engine` 包可导入：引擎目录的上一级（业务仓库的 .harness/，或引擎仓库根）。
@@ -47,9 +48,43 @@ COMMANDS = {
     "upgrade": "engine.core.install:upgrade_main",
 }
 
+# 入口事件的阶段映射（共用合同 C1）：判定入口归 verify，判级与路由归 route，派发归 dispatch，
+# 评审归 review；表外的其余检查、报告与安装升级归 ci。新增入口必须落进这张表或登记例外。
+COMMAND_STAGE = {
+    "verify": "verify",
+    "integrity": "verify",
+    "risk": "route",
+    "policy": "route",
+    "dispatch": "dispatch",
+    "review": "review",
+    "review-pack": "review",
+}
+# 不记通用入口事件的命令：guard 只记拒绝（T104，放行不逐条记，设计 3.6）；events/trace 查询、
+# audit/alert 发布各自记事件，避免递归（C1）。
+QUIET_COMMANDS = frozenset({"guard-command", "guard-git", "events", "trace", "audit", "alert"})
+
 
 def usage() -> str:
     return "用法：cli.py <子命令> [参数…]\n子命令：" + "、".join(COMMANDS)
+
+
+def _record_dispatch(name: str, started: float, outcome) -> None:
+    """分派边界的观察旁路：一条 cli.<命令> 事件（时长、返回码或异常类别）；永不影响原行为。"""
+    if name in QUIET_COMMANDS:
+        return
+    from engine.core import events  # 延迟导入：钩子等高频路径不付不必要的导入成本
+
+    if isinstance(outcome, SystemExit):
+        code = outcome.code if isinstance(outcome.code, int) else (0 if outcome.code is None else 1)
+        status = "ok" if code == 0 else "fail"
+        error = {"kind": "SystemExit"} if code else None
+    elif isinstance(outcome, BaseException):
+        code, status, error = None, "error", {"kind": type(outcome).__name__}
+    else:
+        code, status, error = outcome, ("ok" if outcome == 0 else "fail"), None
+    events.emit(stage=COMMAND_STAGE.get(name, "ci"), step=f"cli.{name}", status=status,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                outputs={"code": code}, error=error)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,9 +97,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"未知子命令：{name}\n{usage()}", file=sys.stderr)
         return 2
     module_name, _, function = COMMANDS[name].partition(":")
-    module = importlib.import_module(module_name)
-    sys.argv = [f"cli.py {name}", *rest]
-    return getattr(module, function or "main")(rest)
+    started = time.monotonic()
+    try:
+        module = importlib.import_module(module_name)
+        sys.argv = [f"cli.py {name}", *rest]
+        code = getattr(module, function or "main")(rest)
+    except SystemExit as exc:
+        _record_dispatch(name, started, exc)  # 仅记录，原样重抛
+        raise
+    except BaseException as exc:
+        _record_dispatch(name, started, exc)  # 业务异常同样记录后原样重抛
+        raise
+    _record_dispatch(name, started, code)
+    return code
 
 
 if __name__ == "__main__":
