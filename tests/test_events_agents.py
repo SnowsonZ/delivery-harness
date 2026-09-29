@@ -529,6 +529,28 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertIn("budget-exceeded", gh.labels)
         self.assertEqual(len(gh.comments), 1)
 
+        # 升级评论发布失败：escalate 事件仍留（notified=False、status fail），原异常原样传播
+        rel_l = "docs/plans/task-905-l.md"
+        self.write_taskbook(rel_l, self.header("T905L"))
+        self.stub_taskbook(rel_l, self.header("T905L"))
+        gh = FakeGitHub(self.repo, ci=(False, "CI 未通过：见摘要", [5]))
+
+        def broken_comment(pr, body, label=None):
+            raise RuntimeError("gh down")
+
+        gh.comment = broken_comment
+        with self.assertRaises(RuntimeError):
+            self.run_dispatch(rel_l, RecordingHost([], executor_script(mixed_stream())), gh)
+        rows = self.trace_events("task/905-l")
+        self.assertEqual(self.steps(rows),
+                         [("admit", "ok"), ("guard_preflight", "ok"), ("slot", "ok"), ("claim", "ok"),
+                          ("executor_round", "ok"), ("local_verify", "ok"), ("push_pr", "ok"),
+                          ("ci_wait", "fail"), ("escalate", "fail")])
+        self.assertEqual((rows[-1]["outputs"]["target"], rows[-1]["outputs"]["notified"]), ("pr", False))
+        self.assertEqual(gh.comments, [])
+        # 状态摘要哈希与产物仍随失败事件保存
+        self.assertIsNotNone(self.artifact(rows[-1]["outputs"]["summary.sha256"]))
+
         # 成功全链：admit→preflight→slot→claim→executor→local_verify→push_pr→ci_wait 全部 ok，退出码 0
         rel_k = "docs/plans/task-905-k.md"
         self.write_taskbook(rel_k, self.header("T905K"))
