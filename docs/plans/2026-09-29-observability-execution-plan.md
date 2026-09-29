@@ -1,12 +1,12 @@
 # 可观测性执行计划（B46 实现，路径 A：先自举，再用 Pi 派发）
 
-状态：**执行中**（2026-09-29 更新）。阶段 0（自举）与 T001、T101 已完成并合并；剩余任务按 [任务拆分流程](../task-splitting.md) 一次性拆完、做追溯表与独立拆分评审后一并提交。依据：[可观测性与审计设计](2026-09-29-observability-design.md)（已审定）。
+状态：**执行中**（2026-09-29 更新）。阶段 0（自举）与 T001、T101 已完成并合并；剩余24份任务书已形成v2工作区草案（22份可派发、2份设计方文档任务）；OpenCode v1评审结论需修订，F1–F9已在草稿处理，F10细化决策在[共用合同C8](2026-09-29-observability-task-contracts.md)待用户明确审定。[追溯表](2026-09-29-observability-traceability.md)、[评审原文/处理](../review/2026-09-29-observability-split-review.md)与[结构核对证据](../review/2026-09-29-observability-split-structure-check.md)已同步；OpenCode第二轮结论可提交（待用户审C8），4条非阻断建议已澄清；当前未提交、未派发。全部材料按[任务拆分流程](../task-splitting.md)一并组成一个文档PR。依据：[可观测性与审计设计](2026-09-29-observability-design.md)（已审定）。
 
 ## 1. 路径与前提
 
 - **路径 A**：先给本仓库自举（B49：装上自己的守卫、`bin/`、CI 判定与派发），再用 `bin/dispatch run <任务书>` 交给 Pi 实现。可观测性用它自己要观测的那套机制开发。
 - **执行方只有 Pi**：`dispatch_host.py` 目前只有 `PiHost`。zcode、opencode 作执行方需要先写宿主适配器（B47），不在本计划内；OpenCode 继续做独立评审。
-- **分工**：设计、任务书、等价验证、复核由我做；实现由 Pi 做；批准合并与所有平台设置由用户做。
+- **分工**：设计方由Codex接任（新任务书头部designer: codex）；任务书、文档收尾、等价验证与产出复核由Codex做；实现由Pi做；独立拆分评审与PR评审由OpenCode做；批准合并、平台设置与版本决定由用户做。历史T101头部不改。
 - **提交规则**：我改完只留在工作区；提交、推送、开 PR 逐次由用户确认（含任务书 PR）。Pi 派发出的 PR 由 `bin/dispatch` 以 Agent 账号开出，这是派发流程本身，不需要额外授权，但**派发命令本身每次由用户说了才跑**。
 
 ## 2. 阶段 0：自举（B49）——已完成（#7、#8、#12）
@@ -32,77 +32,72 @@
 
 阶段 0 的验收：`bin/verify --full` 通过；CI 出现 `harness` job 且通过；冒烟任务走通，运行记录格式完整。
 
-## 3. 阶段 1（P1）：事件库与埋点
+## 3. 阶段1（P1）：加固、埋点与等价
 
-### 3.1 通用约束（写进每份任务书）
+### 3.1 通用合同
 
-- 只依赖标准库；不改任何判定逻辑；`emit()` 永不抛异常、永不影响退出码；`HARNESS_EVENTS=off` 关闭。
-- 只改任务书白名单里的文件；不改已有测试（新增测试写在新文件）；不编辑 `CHANGELOG.md`、`README*`、`SECURITY.md`（由我在收尾任务统一写）。
-- 事件只放引用、哈希、计数、枚举、时长；值的过滤规则见设计 2.4。
-- 类别 K5（功能），涉及公共接口，`architecture: true`，按规则由你审任务书。
+所有任务先读[共用合同C0](2026-09-29-observability-task-contracts.md)，只改任务书白名单、新增独立测试，不改原判定与既有测试。引用准备、观察API及清理/发布失败不得影响原返回码/业务异常；原始日志与Pi流仅本机，CI/账本只发布安全JSON。新stage/status不随任务增加。设计方收尾文档不交Pi派发。
 
-### 3.2 接口（T101 定义，T102–T105 依赖，先定死）
+触及engine/templates的任务为K7/R3、architecture: true；T106/T601只新增测试为K2/R0、architecture: false；T107/T602安全/流程文档仍按K7/R3由设计方处理。任务书均由用户审后合并，不能以架构声明或文档PR合并替代派发授权。
 
-`engine/core/events.py`（公共 API）：
+### 3.2 已合并的公共接口
+
+T101实际API为权威（原计划的摘要已修正）：
 
 ```python
-def emit(stage: str, step: str, status: str, *, trace_id: str | None = None,
-         duration_ms: int | None = None, inputs: list[dict] | None = None,
-         outputs: dict | None = None, decision: dict | None = None,
-         error: dict | None = None, actor: dict | None = None) -> None: ...
-def ref(kind: str, ref: str, *, sha256: str | None = None, size: int | None = None) -> dict: ...
-def file_ref(kind: str, path: Path, rev: str | None = None) -> dict: ...   # 读文件算 sha256，路径转仓库相对
-@contextmanager
-def span(stage: str, step: str, **fixed) -> Iterator[Span]: ...            # 计时；span.outputs / span.status 可在块内设置
-def current_trace() -> str: ...                                            # 当前分支名；main 上为 main@<短提交>；CI 取 GITHUB_HEAD_REF / GITHUB_REF_NAME
+def emit(stage, step, status, *, trace_id=None, duration_ms=None, inputs=None,
+         outputs=None, decision=None, error=None, actor=None, source=None) -> int | None: ...
+def ref(kind, ref, *, sha256=None, size=None) -> dict: ...
+def file_ref(kind, path, rev=None) -> dict: ...
+def store_artifact(data: bytes | Path) -> dict: ...
+def span(stage, step, **fixed): ...
+def current_trace() -> str: ...
 def enabled() -> bool: ...
+def set_anchor(trace_id, stage, head_hash, fixed_in, source=None) -> None: ...
+def chain_head(trace_id, source=None) -> str | None: ...
+def verify_chain(trace_id=None, source=None) -> list[str]: ...
 ```
 
-`stage` ∈ `guard verify dispatch ci route review merge alert`；`status` ∈ `ok fail skip deny error`；不在枚举内的值被拒绝并记入 `redacted`，不抛异常。`actor` 缺省为 `{"role": "engine", "host": "ci" 或 "local"}`。
+SQLite v1四表带source，按(source, trace_id)串链，WAL、busy_timeout=5000。库与内容寻址产物均在git公共目录。T109补强prev_hash/seq的独立断言、step/空引用过滤、span与产物读取失败隔离、原子保存、新版库读取保护。
 
-`engine/core/events_db.py`（存储，不对外承诺接口）：建库与迁移（`PRAGMA user_version`）、带哈希链的写入、`verify_chain(trace_id=None)`、隐私过滤、按 `ts` 清理、查询。库文件 `<git 公共目录>/harness/harness.db`，WAL + `busy_timeout=2000`；表结构见设计 2.2。
+本次待审补充：Actions来源用run/attempt/job隔离避免不同临时库seq=1冲突；actor.host仍ci，显式source与本机local兼容，公共签名/四表/hash算法不变。详情共用合同C2；此为设计细化草案，不称已审定。
 
-### 3.3 任务清单与并行
+### 3.3 P1任务与合并顺序
 
-T001（冒烟）与 **T101 已完成并合并**（T101 派发 23 分钟、一次成功、独立评审通过，全链含 `wait_ci` 走通）。以下按 T101 已定的接口继续；类别一律 K7（触及 `engine/**`、`templates/**`）、风险 R3、`architecture: true` 由用户审任务书。
+T101首个任务已完成全链。剩余P1顺序：**T109 → T102 →（T103与T104可并行）→ T105 → T108 → T106 → T107 → G1/G2**。
 
-| 任务 | 内容 | 白名单文件 | 依赖 |
-|---|---|---|---|
-| **T102** 判定层埋点 | `cli.py` 统一包装：每个子命令一个事件（阶段按命令映射、时长、退出码）；`verify` 每项检查一个事件和一个档位汇总；`integrity` 失败带 `error.kind` | `engine/cli.py`、`engine/checks/verify.py`、`engine/checks/integrity.py`、`tests/test_events_verify.py` | T101 |
-| **T103** 路由埋点 | `policy` 每条 `Rule` 一个事件、`route.facts`、`route.result`；`risk` 的判级明细；**显式传 `trace_id`**（CI 里 `workflow_run` 触发的判定拿到的是 `main@…`，应取 PR 分支） | `engine/routing/policy.py`、`engine/routing/risk.py`、`tests/test_events_route.py` | T101 |
-| **T104** 守卫埋点 | `command_guard`、`git_guard` 拒绝事件（规则名、角色、工具类别、仓库相对路径；命令全文不记） | `engine/guards/command_guard.py`、`engine/guards/git_guard.py`、`tests/test_events_guard.py` | T101 |
-| **T105** 评审与派发埋点 | `review` 结论与发现计数；`dispatch` 各步；执行环节的放行/拒绝计数与事件流哈希（`store_artifact`） | `engine/agents/review.py`、`engine/agents/dispatch.py`、`engine/agents/dispatch_host.py`、`tests/test_events_agents.py` | T101 |
-| **T108** CI 检查输出埋点 | hygiene、base_tests、mutation、evidence、run_check、quality、metrics、taskbook 的带内容事件（设计 3.1、3.3） | `engine/checks/hygiene.py`、`base_tests.py`、`mutate.py`、`evidence.py`、`quality.py`、`taskbook.py`、`engine/routing/run_check.py`、`engine/reports/metrics.py`、`tests/test_events_checks.py` | T101 |
-| **T109** 事件库加固 | 补 `prev_hash` 与 `seq` 连续性的测试（T101 复核时两个变异未被抓住）；`step` 过滤；`span` 传未知参数不抛异常；引用过滤后不存空字典；产物原子写；`verify` 读库前检查版本 | `engine/core/events.py`、`engine/core/events_db.py`、`tests/test_events_hardening.py`（新增，不改 T101 的测试） | T101 |
-| **T106** 开关不影响判定 | 集成测试：事件开启、环境变量关闭、库不可写三种情况下 `verify`、`risk`、`policy`、`guard-command` 的输出与退出码逐字相同 | 新增 `tests/test_events_equivalence.py` | T102–T105、T108 |
-| **T107** 文档收尾 | SECURITY.md（事件不进判定、防篡改不防止）、CHANGELOG、README 事件与库位置、`[events]` 配置说明 | `SECURITY.md`、`CHANGELOG.md`、`README.md`、`README.zh-CN.md` | T106 |
-
-并行与冲突：最多同时 3 个槽位。T102、T103、T104 先并行，T105、T108、T109 接着；同一文件的任务串行（P2 的 `dispatch.py`：T201 → T202 → T205）；`cli.py` 命令注册处的冲突是小冲突。每个 PR 合并后其余分支要更新才能满足「分支须最新」的 ruleset。
-
-### 3.4 验收与等价证据（我做，不交给执行方）
-
-每个任务 PR 我逐个复核：运行记录格式与 exit、CI 两项与 `harness`、独立评审结论、diff 只落在白名单内、无判定逻辑改动（`git diff` 里 `decide` / `evaluate` / `run_check` 的返回值路径未变）。
-
-T101–T106 全部合并后：
-
-1. 走 `upgrade` PR 把新引擎装进本仓库的 `.harness/engine`（此后本仓库自己的流程开始产生事件）。
-2. 在 Agent-Notification 的独立 worktree 里 `upgrade --allow-dirty`，跑 `bin/verify --full`，对比升级前：Python 测试数 556、质量指标、变异得分不变；`harness.db` 有事件、链校验通过。
-3. 手工删改一条事件，`verify_chain` 报错。
-4. 记下升级 Agent-Notification 的 PR 是否需要 Migration 条目（预期新增可选 `[events]`，无必填项）。
-
-## 4. 后续各期（任务级清单，前一期合并后按实际代码再修订任务书）
-
-| 期 | 任务 | 关键依赖与注意 |
+| 任务 | 内容 | 负责与前提 |
 |---|---|---|
-| P2 | **T201** 运行记录增加 `trace_id`、`stages` 时间线、链头锚点（旧记录仍通过）；**T202** `missing_context`（提示词要求执行方报告缺失的上下文，B36）；**T203** `run-check` 内容检查（B38）；**T204** 本机产物按 `[events] artifact_days` 清理（B40）；**T205** 派发侧告警触发（CI 只剩最后一轮、槽位内守卫拒绝突增，升级信息补 `trace_id` 与时间线链接） | T201、T202、T205 同改 `dispatch.py`，串行；T204 可并行 |
-| P3 | **T301** 事件导出与本机导入（幂等）；**T302** `events`、`trace` 命令（`--ci`）；**T303** 工作流接入（上传 artifact、summary 渲染，模板与本仓库副本）；**T304** GitHub 侧事件同步（merge、audit_sample、escape）；**T305** 审计账本（写入 `harness-audit` 分支，加 PR 锚点评论，分支 ruleset 模板） | 涉及 `templates/.github/workflows`；本仓库自己 `.github/` 的同步由设计方做；新分支的 ruleset 由用户在平台应用 |
-| P4 | **T401** `audit` 复原（取回引用并核对哈希）；**T402** 完整性规则与防篡改（链头对锚点，`[audit]` 配置）；**T403** `alert` 命令与工作流末尾步骤 | T401、T402 同改 `audit.py`，串行 |
-| P5 | **T501** 周报事件小节 | 与现有小节数据对账 |
-| P6 | **T601** 端到端验收（夹具仓库加假 `gh`，走全链并断言人为缺环节、断链能被发现）；**T602** 文档与迁移（README 命令表、账本与 ruleset 设置、SECURITY、Migration 条目） | 收尾；版本号由用户定 |
+| [T109](task-109-events-hardening.md) | 事件库加固、CI来源隔离 | Pi；先于所有新埋点 |
+| [T102](task-102-events-verify.md) | CLI包装、verify各项/汇总、integrity内容 | Pi；守卫放行不产生入口事件 |
+| [T103](task-103-events-route.md) | risk逐文件/汇总、route facts/各Rule/result | Pi；显式PR trace贯穿risk与route |
+| [T104](task-104-events-guard.md) | command/git拒绝事件 | Pi；放行不记，原拒绝行为不变 |
+| [T105](task-105-events-agents.md) | dispatch全链/review、执行流计数/产物 | Pi；观察元数据外置dispatch_observation.py，保留旧Pi parse接口，提供C6固定安全评审摘要 |
+| [T108](task-108-events-checks.md) | 其余八模块的内容事件 | Pi；各目标/缺陷/指标按条记录 |
+| [T106](task-106-events-equivalence.md) | 全部原判定入口三态等价夹具 | Pi；只新增测试，不改产品代码 |
+| [T107](task-107-events-docs.md) | P1安全/事件配置与变更记录 | 设计方；不派发 |
 
-**设计方自己做的（不派发）**：每期结束升级本仓库内置副本；同步本仓库 `.github/workflows/`；在 Agent-Notification 的独立 worktree 上做等价验证；平台设置与版本号（用户）。
+### 3.4 设计方复核与阶段门禁
 
-**共 23 个派发任务**（P1 剩 8：T102–T109，P2 五个、P3 五个、P4 三个、P5 一个、P6 两个）。
+每个实现PR复核实际运行记录、当前head的CI/harness输出、OpenCode独立评审、白名单、原decide/evaluate/run_check返回路径；每条验收对应产品入口与具名断言，必要定向变异在副本做，不把评审“通过”替代测试强度。
+
+每期结束G1同步本仓库内置引擎/配置/工作流（用户逐次授权PR）；G2在Agent-Notification独立worktree做升级前后bin/verify --full与测试数/质量/变异对比。历史556是前次基线，新的基线先实际采集；链校验及事件出现也由命令输出认定。涉及判定/守卫/派发/配置的实现PR仍逐个做消费方验证，不仅期末一次。
+
+不在用户主目录试装，不在OpenCode评审期间替换内置副本。门禁操作与证据详见追溯表G1–G5，均尚未执行。T201摘要组装外置run_timeline.py、T205条件下沉alerts.py，避免派发体量棘轮，不上调基线。
+
+## 4. 后续各期（合同一次性拆完，依赖完成后方可执行）
+
+| 期 | 顺序与范围 | 前提/负责方 |
+|---|---|---|
+| P2 | T201记录时间线/链头 → T202缺失上下文 → T203内容检查 → T204产物/终止原始流30天清理 → T205派发预警 | P1 G1/G2完成；Pi实现，设计方阶段升级/等价 |
+| P3 | T301导出/幂等导入 → T302events/trace与CI下载 → T303模板artifact/summary → T304GitHub事实 → T305合并账本/锚点/ruleset模板 | P2 G1/G2完成；真实.github副本由设计方，平台设置G4由用户 |
+| P4 | T401audit复原/引用哈希 → T402完整性/锚点/配置 → T403alert与可信工作流末尾 | P3 G1/G2/G4完成；audit.py/cli.py/模板串行 |
+| P5 | T501周报事件小节与旧指标对账 | P4升级后；不改旧数据来源 |
+| P6 | T601夹具全链/缺陷注入 → G3真实派发PR全链核对 → T602最终文档/Migration/平台步骤 | T601为Pi测试任务；T602设计方、不派发；版本G5由用户、在发版时做 |
+
+24份剩余任务书的完整链接、依赖、预算、文件串行序与85条设计追溯见[追溯表](2026-09-29-observability-traceability.md)。**不是23个派发任务：24份任务书中22份可派发、2份设计方文档任务。** T103/T104可并行，其余连续接口/文件决策按表串行；不为用满三个槽位引入合并冲突。
+
+后期若实际代码与合同不符，设计方修订任务书并经原审查/用户确认后再派发，不能让执行方自己扩白名单或更改设计。全部任务书/共用合同/追溯表/执行计划先由OpenCode只读拆分评审，再处理发现，整包作为一个文档PR由用户审。OpenCode v1结论为需修订，第二轮复核已给可提交结论（待用户审C8）；未获得提交/派发授权。
 
 ## 5. 风险与应对
 
@@ -117,6 +112,6 @@ T101–T106 全部合并后：
 
 ## 6. 已定的决定与遗留
 
-已定（用户 2026-09-29）：阶段 0 的三项代价可接受；Pi 执行方用 `--model zai-coding-cn/glm-5.3`，评审方沿用 OpenCode（glm-5.3）；接口按 3.2 定死（T101 已实现）；任务书的提交方式与顺序按 [任务拆分流程](../task-splitting.md)。
+已定（用户 2026-09-29）：阶段 0 的三项代价可接受；Pi 执行方用 `--model zai-coding-cn/glm-5.3`，评审方沿用 OpenCode（glm-5.3）；基础接口按3.2已合并代码；C2来源隔离与共用合同的新增接口/格式/配置细化待本次用户审定；任务书的提交方式与顺序按 [任务拆分流程](../task-splitting.md)。
 
 遗留：独立评审（OpenCode）对「测试是否真的能失败」不敏感，T101 的评审没有发现两个未被抓住的变异（B59）；每个 PR 仍要设计方做变异检查与逐行验收核对。
