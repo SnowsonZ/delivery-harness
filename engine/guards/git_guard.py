@@ -9,6 +9,8 @@
 
 对应 v0.8.0 X3：filter-repo 改写了本地 main 与 18 个 tag，并删除了 origin。
 覆盖变量见 .harness/config/rules.toml [guard]；只供人使用。
+三个钩子的拒绝在报告边界逐条写 guard 事件（钩子名、分支、规则键；理由文本含 ref 与规则说明，不进事件），
+放行不记（设计 3.6）。
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import tomllib
 from pathlib import Path
 
 from engine.checks import hygiene
+from engine.core import events
 from engine.core.common import LEGACY_RULES_REL, ROOT, RULES_REL, ZERO_SHA, git, load_rules
 
 HOOKS_DIR = ".githooks"
@@ -99,11 +102,11 @@ def _packing_loose_ref(ref: str, old: str, cwd: Path) -> bool:
     return _transaction_subcommand() == "pack-refs"
 
 
-def ref_transaction_violations(lines: list[str], cwd: Path, rules: dict) -> list[str]:
-    """reference-transaction 的 prepared 阶段：返回应拒绝的更新。"""
+def ref_transaction_denials(lines: list[str], cwd: Path, rules: dict) -> list[tuple[str, str, str]]:
+    """reference-transaction 的 prepared 阶段：返回应拒绝的 (规则键, 理由, 引用)。"""
     if _allowed("HARNESS_ALLOW_REWRITE"):
         return []
-    problems = []
+    denials: list[tuple[str, str, str]] = []
     for line in lines:
         parts = line.split()
         if len(parts) != 3:
@@ -116,17 +119,18 @@ def ref_transaction_violations(lines: list[str], cwd: Path, rules: dict) -> list
             continue  # 散文件并入 packed-refs，引用本身不变
         if ref.startswith("refs/tags/") and old != ZERO_SHA and old != new:
             action = "删除" if new == ZERO_SHA else "移动"
-            problems.append(f"{action}已有 tag {ref}（已发布的 tag 不能改；推 tag 会触发发布）")
+            denials.append(("tag_rewrite", f"{action}已有 tag {ref}（已发布的 tag 不能改；推 tag 会触发发布）", ref))
         elif _protected(ref, rules) and old != ZERO_SHA and old != new:
             if new == ZERO_SHA:
-                problems.append(f"删除保护分支 {ref}")
+                denials.append(("protected_rewrite", f"删除保护分支 {ref}", ref))
             elif not _is_ancestor(old, new, cwd):
-                problems.append(f"改写保护分支 {ref}（{old[:7]} → {new[:7]} 不是快进）")
-    return problems
+                denials.append(("protected_rewrite", f"改写保护分支 {ref}（{old[:7]} → {new[:7]} 不是快进）", ref))
+    return denials
 
 
-def pre_push_violations(lines: list[str], cwd: Path, rules: dict) -> list[str]:
-    problems = []
+def pre_push_denials(lines: list[str], cwd: Path, rules: dict) -> list[tuple[str, str, str]]:
+    """pre-push 的引用检查：返回应拒绝的 (规则键, 理由, 远端引用)。"""
+    denials: list[tuple[str, str, str]] = []
     for line in lines:
         parts = line.split()
         if len(parts) != 4:
@@ -134,18 +138,22 @@ def pre_push_violations(lines: list[str], cwd: Path, rules: dict) -> list[str]:
         _local_ref, local_sha, remote_ref, remote_sha = parts
         if remote_ref.startswith("refs/tags/"):
             if not _allowed("HARNESS_ALLOW_TAG"):
-                problems.append(f"推送 tag {remote_ref}：推 tag 会触发发布，只能由用户执行")
+                denials.append(("push_tag", f"推送 tag {remote_ref}：推 tag 会触发发布，只能由用户执行", remote_ref))
             continue
         if _protected(remote_ref, rules) and not _allowed("HARNESS_ALLOW_MAIN"):
-            problems.append(f"直接推送保护分支 {remote_ref}：请推到功能分支并开 PR")
+            denials.append(("push_protected_branch", f"直接推送保护分支 {remote_ref}：请推到功能分支并开 PR", remote_ref))
             continue
         if local_sha == ZERO_SHA or remote_sha == ZERO_SHA or _allowed("HARNESS_ALLOW_REWRITE"):
             continue  # 删除分支、新建分支
         if not _exists(remote_sha, cwd):
-            problems.append(f"{remote_ref} 远端有本地没有的提交 {remote_sha[:7]}：先 fetch，确认不会覆盖别人的提交")
+            denials.append(("push_stale_remote",
+                            f"{remote_ref} 远端有本地没有的提交 {remote_sha[:7]}：先 fetch，确认不会覆盖别人的提交",
+                            remote_ref))
         elif not _is_ancestor(remote_sha, local_sha, cwd):
-            problems.append(f"强制推送 {remote_ref}（{remote_sha[:7]} → {local_sha[:7]} 不是快进）：已推送的历史不改写")
-    return problems
+            denials.append(("force_push",
+                            f"强制推送 {remote_ref}（{remote_sha[:7]} → {local_sha[:7]} 不是快进）：已推送的历史不改写",
+                            remote_ref))
+    return denials
 
 
 def current_branch(cwd: Path) -> str:
@@ -175,38 +183,46 @@ def _run_verify(repo: Path, *args: str) -> int:
 
 def cmd_pre_commit(repo: Path) -> int:
     rules = trusted_rules(repo)
-    problems = []
+    denials: list[tuple[str, str, str]] = []
     branch = current_branch(repo)
     if branch in rules["guard"]["protected_branches"] and not _allowed("HARNESS_ALLOW_MAIN"):
-        problems.append(f"在保护分支 {branch} 上提交：请在功能分支上工作")
-    problems += [violation.render() for violation in hygiene.scan_staged(repo, rules)]
-    if _report("提交", problems):
+        denials.append(("commit_protected_branch", f"在保护分支 {branch} 上提交：请在功能分支上工作", branch))
+    denials += [("staged_hygiene", violation.render(), branch) for violation in hygiene.scan_staged(repo, rules)]
+    code = _report("提交", [denial[1] for denial in denials])
+    if code:
+        _emit_denials("pre-commit", denials)
         return 1
     return _run_verify(repo, "--quick")
 
 
-def push_hygiene_violations(lines: list[str], repo: Path, rules: dict) -> list[str]:
+def push_hygiene_denials(lines: list[str], repo: Path, rules: dict) -> list[tuple[str, str, str]]:
     """本次推送带出的改动做卫生检查（与 CI 的 --range 同口径，提前在本机发现）。"""
-    problems = []
+    denials: list[tuple[str, str, str]] = []
     for line in lines:
         parts = line.split()
         if len(parts) != 4 or parts[1] == ZERO_SHA or parts[2].startswith("refs/tags/"):
             continue
-        local_sha, remote_sha = parts[1], parts[3]
+        local_sha, remote_ref, remote_sha = parts[1], parts[2], parts[3]
         if remote_sha != ZERO_SHA and _exists(remote_sha, repo):
             base = remote_sha
         else:
             base = git("merge-base", local_sha, "origin/main", cwd=repo, check=False)
         if not base:
             continue
-        problems += [violation.render() for violation in hygiene.scan_range(base, local_sha, repo, rules)]
-    return problems
+        denials += [("push_hygiene", violation.render(), remote_ref)
+                    for violation in hygiene.scan_range(base, local_sha, repo, rules)]
+    return denials
 
 
 def cmd_pre_push(repo: Path, stdin: str) -> int:
     rules = trusted_rules(repo)
     lines = stdin.splitlines()
-    if _report("推送", pre_push_violations(lines, repo, rules) or push_hygiene_violations(lines, repo, rules)):
+    denials = pre_push_denials(lines, repo, rules)
+    if not denials:
+        denials = push_hygiene_denials(lines, repo, rules)
+    code = _report("推送", [denial[1] for denial in denials])
+    if code:
+        _emit_denials("pre-push", denials)
         return 1
     return _run_verify(repo)
 
@@ -214,7 +230,19 @@ def cmd_pre_push(repo: Path, stdin: str) -> int:
 def cmd_reference_transaction(repo: Path, state: str, stdin: str) -> int:
     if state != "prepared":
         return 0
-    return _report("引用更新", ref_transaction_violations(stdin.splitlines(), repo, trusted_rules(repo)))
+    denials = ref_transaction_denials(stdin.splitlines(), repo, trusted_rules(repo))
+    code = _report("引用更新", [denial[1] for denial in denials])
+    if code:
+        _emit_denials("reference-transaction", denials)
+    return code
+
+
+def _emit_denials(hook: str, denials: list[tuple[str, str, str]]) -> None:
+    """拒绝报告边界逐条记事件（设计 3.6）：只有钩子名、分支与规则键，理由文本不进事件；
+    事件写入失败由 emit 吞掉并提示一次，钩子的拒绝输出与退出码不变。"""
+    for key, _message, branch in denials:
+        events.emit("guard", "git", "deny", decision={"by": "guard", "rule": key},
+                    outputs={"hook": hook, "branch": branch})
 
 
 def hooks_path(cwd: Path = ROOT) -> str:
