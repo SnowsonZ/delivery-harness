@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import time
 from contextlib import closing
 from datetime import UTC, datetime
+from itertools import count
 from pathlib import Path
 
 from engine.core.common import ROOT, git
@@ -161,7 +163,7 @@ def insert_event(payload: dict, inputs: list[dict]) -> int | None:
     if path is None:
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
-    refs = [_normalize_ref(item) for item in inputs]
+    refs = [item for item in (_normalize_ref(entry) for entry in inputs) if item]  # 过滤后的空引用不入表
     outputs_text = json.dumps(payload.get("outputs") or {}, sort_keys=True,
                               separators=(",", ":"), ensure_ascii=False)
     with closing(_connect(path)) as conn:
@@ -223,12 +225,18 @@ def chain_head(source: str, trace_id: str) -> str | None:
 
 
 def verify(trace_id: str | None = None, source: str | None = None) -> list[str]:
-    """校验哈希链，返回问题描述列表（空列表表示完好）；trace_id、source 为 None 时校验全部。"""
+    """校验哈希链，返回问题描述列表（空列表表示完好）；trace_id、source 为 None 时校验全部。
+
+    先看库版本：schema 比本代码新时明确报告不可校验，不修改库、不当作完好。
+    """
     path = db_path()
     if path is None or not path.exists():
         return []
     problems: list[str] = []
     with closing(_connect(path)) as conn:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if version > SCHEMA_VERSION:
+            return [f"harness.db 的 schema 版本较新（user_version={version} > {SCHEMA_VERSION}），不可校验"]
         where, params = [], []
         if trace_id is not None:
             where.append("trace_id=?")
@@ -271,15 +279,36 @@ def _verify_group(conn: sqlite3.Connection, source: str, trace_id: str,
     return problems
 
 
+_TMP_SEQ = count()
+
+
+def _write_artifact_file(target: Path, content: bytes) -> None:
+    """产物落盘：先写临时文件再原子替换；失败不留下半文件与临时残留，已有内容不重复写。
+
+    临时文件名带进程号与计数，多进程/多线程并发存同一产物互不冲突；os.replace 原子生效，
+    内容寻址保证同名即同内容，先后替换结果一致。
+    """
+    if target.exists():
+        return
+    tmp = target.with_name(f"{target.name}.tmp-{os.getpid()}-{next(_TMP_SEQ)}")
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, target)
+    finally:
+        tmp.unlink(missing_ok=True)  # 替换成功后临时文件已不存在；失败时清掉残留
+
+
 def save_artifact(digest: str, size: int, content: bytes) -> None:
-    """内容寻址保存产物（已存在则不重复写）并登记 artifacts 表。"""
+    """内容寻址保存产物（临时文件写完后原子替换，已存在则不重复写）并登记 artifacts 表。"""
     directory = artifacts_dir()
     if directory is None:
         return
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / digest
-    if not target.exists():
-        target.write_bytes(content)
+    _write_artifact_file(target, content)
     path = db_path()
     if path is None:
         return
