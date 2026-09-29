@@ -23,6 +23,8 @@ rollback: git revert（仅在用户授权后）
 
 `emit` 的校验与写入使用同一 step 值：`_build_payload` 收到 strip 后的 `step_text`，库中 step 列不再出现首尾空白（含换行）的原值，「非法整条不写、合法写清洗值」的口径在边界一致。补负例断言：step 含首尾空白（含换行）时事件可写，且 payload 的 step 列等于 strip 后的值。不改其他列、不改公共签名；既有断言只增不改。
 
+口径切分：step 首尾空白/换行经 strip 后合法、写入 strip 值；内部换行（如 "a\nb"）整条不写。T109 既有断言的非法用例（"x"×121、"a\nb"、本机路径）均为内部换行或路径类，不含首尾空白换行值，与本案 " ok \n" 用例不冲突；既有断言只增不改。
+
 ## 白名单
 
 - `engine/core/events.py`
