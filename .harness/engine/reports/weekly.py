@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engine.checks import r1_checks
-from engine.core.common import ROOT, git, setting
+from engine.core.common import ROOT, ci_workflows, git, setting
 from engine.reports import metrics
 from engine.routing import policy, risk
 
@@ -120,8 +120,10 @@ def collect(end: dt.datetime, gh=_gh, cwd: Path = ROOT) -> Week:
     for pr in week.prs:
         week.modified_tests += _modifies_tests(pr, cwd)
         if pr["headRefName"] in dispatched:
-            builds = json.loads(gh("run", "list", "--workflow", "build", "--branch", pr["headRefName"], "--limit", "100",
-                                   "--json", "headSha,status,event"))
+            builds = []
+            for workflow in ci_workflows():
+                builds += json.loads(gh("run", "list", "--workflow", workflow, "--branch", pr["headRefName"],
+                                        "--limit", "100", "--json", "headSha,status,event"))
             week.ci_rounds[pr["number"]] = len({run["headSha"] for run in builds
                                                 if run["status"] == "completed" and run["event"] == "pull_request"})
     return week

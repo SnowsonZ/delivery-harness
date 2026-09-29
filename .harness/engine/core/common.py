@@ -123,6 +123,14 @@ def setting(section: str, key: str, default=None, *, required: bool = False, sou
     return default
 
 
+def ci_workflows() -> list[str]:
+    """判定 CI 通过与统计 CI 轮次所依据的工作流名（rules.toml [dispatch] ci_workflows，缺省 ["harness"]，即模板的工作流）。"""
+    names = setting("dispatch", "ci_workflows", ["harness"], source="rules")
+    if not isinstance(names, list) or not names or not all(isinstance(name, str) and name for name in names):
+        raise ConfigError(".harness/config/rules.toml 的 [dispatch] ci_workflows 须是非空的工作流名列表")
+    return names
+
+
 # 目录约定（与项目无关的通用布局，写在引擎 README）：
 #   docs/specs/            现役规格与验收表        docs/plans/task-*.md   任务书
 #   docs/runs/             运行记录               docs/templates/        模板
