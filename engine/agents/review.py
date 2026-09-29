@@ -33,6 +33,7 @@ from queue import Queue
 from typing import ClassVar
 
 from engine.agents import dispatch, dispatch_host
+from engine.agents import dispatch_observation as observation
 from engine.core.common import ENGINE_DIR, ROOT, changed_files, commit_field, git, load_rules
 from engine.routing import run_check
 
@@ -51,6 +52,9 @@ class Verdict:
     summary: str = ""
     parsed: bool = True
     failure: str = ""  # 评审方本身失败（报错退出、超时、额度用尽）：不是结论，不计入校准，不评论为结论
+    error_kind: str = ""  # 失败的机器类别（timeout / reviewer_exit / no_output），供评审观察事件
+    audit_model: str | None = None  # 审计摘要用的模型（明确报告优先，其次显式请求；两者皆无为 None）
+    model_basis: str = "unknown"  # reported / explicit_request / unknown（共用合同 C6）
 
     @property
     def flagged(self) -> bool:
@@ -79,13 +83,14 @@ def parse_output(text: str) -> Verdict:
 
 class Reviewer:
     name = ""
+    model_name: str | None = None  # 显式请求的模型（审计摘要用；展示名可带档位等修饰）
     env: ClassVar[dict[str, str]] = {}  # 评审方专用的环境变量（如 OpenCode 的权限配置）
 
     def argv(self, prompt: str, workspace: Path, output: Path) -> list[str]:
         raise NotImplementedError
 
-    def read(self, stdout: str, output: Path) -> tuple[str, str]:
-        """返回 (最终文本, 模型)。"""
+    def read(self, stdout: str, output: Path) -> tuple[str, str, str]:
+        """返回 (最终文本, 展示用模型, model_basis：reported / explicit_request / unknown)。"""
         raise NotImplementedError
 
 
@@ -94,6 +99,7 @@ class CodexReviewer(Reviewer):
 
     def __init__(self, model: str | None, effort: str | None = None):
         self.model, self.effort = model, effort
+        self.model_name = model
 
     def argv(self, prompt, workspace, output):
         # 没配置模型时沿用 Codex 自己的默认设置。
@@ -105,7 +111,8 @@ class CodexReviewer(Reviewer):
     def read(self, stdout, output):
         base = self.model or "codex 默认模型"
         label = f"{base} {self.effort}" if self.effort else base
-        return (output.read_text(encoding="utf-8") if output.exists() else stdout), label
+        basis = "explicit_request" if self.model else "unknown"
+        return (output.read_text(encoding="utf-8") if output.exists() else stdout), label, basis
 
 
 class ClaudeReviewer(Reviewer):
@@ -113,6 +120,7 @@ class ClaudeReviewer(Reviewer):
 
     def __init__(self, model: str | None = None):
         self.model = model
+        self.model_name = model
 
     def argv(self, prompt, workspace, output):
         command = ["claude", "-p", "--allowedTools", "Read,Grep,Glob", "--output-format", "json"]
@@ -124,9 +132,11 @@ class ClaudeReviewer(Reviewer):
         try:
             data = json.loads(stdout)
         except json.JSONDecodeError:
-            return stdout, self.model or ""
-        model = next(iter(data.get("modelUsage") or {}), self.model or "")
-        return str(data.get("result", "")), model
+            return stdout, self.model or "", "explicit_request" if self.model else "unknown"
+        reported = next(iter(data.get("modelUsage") or {}), "")
+        model = reported or self.model or ""
+        basis = "reported" if reported else ("explicit_request" if self.model else "unknown")
+        return str(data.get("result", "")), model, basis
 
 
 class PiReviewer(Reviewer):
@@ -134,6 +144,7 @@ class PiReviewer(Reviewer):
 
     def __init__(self, model: str | None = None):
         self.model = model
+        self.model_name = model
 
     def argv(self, prompt, workspace, output):
         command = ["pi", "-na", "--tools", "read,grep,find,ls", "-p", "--mode", "json", "--no-session"]
@@ -143,7 +154,7 @@ class PiReviewer(Reviewer):
 
     def read(self, stdout, output):
         """取最后一条助手消息的文本与模型（pi 的 json 事件流）。"""
-        text, model = "", self.model or ""
+        text, model, reported = "", self.model or "", ""
         for line in stdout.splitlines():
             try:
                 event = json.loads(line)
@@ -154,8 +165,11 @@ class PiReviewer(Reviewer):
                 parts = [part.get("text", "") for part in message.get("content", []) if part.get("type") == "text"]
                 if any(parts):
                     text = "\n".join(parts)
+                if message.get("model"):
+                    reported = message["model"]
                 model = message.get("model", model)
-        return text, model
+        basis = "reported" if reported else ("explicit_request" if self.model else "unknown")
+        return text, model, basis
 
 
 class OpenCodeReviewer(Reviewer):
@@ -171,6 +185,7 @@ class OpenCodeReviewer(Reviewer):
 
     def __init__(self, model: str | None = None):
         self.model = model
+        self.model_name = model
 
     def argv(self, prompt, workspace, output):
         command = ["opencode", "run", "--pure", "--agent", "plan", "--format", "json", "--dir", str(workspace)]
@@ -189,7 +204,7 @@ class OpenCodeReviewer(Reviewer):
             part = event.get("part") or {}
             if event.get("type") == "text" and part.get("type") == "text":
                 texts.append(part.get("text", ""))
-        return "\n".join(texts), self.model or ""
+        return "\n".join(texts), self.model or "", "explicit_request" if self.model else "unknown"
 
 
 def make_reviewer(name: str) -> Reviewer:
@@ -218,13 +233,20 @@ def run_reviewer(reviewer: Reviewer, workspace: Path, timeout: float) -> tuple[V
             result = subprocess.run(reviewer.argv(prompt, workspace, output), cwd=workspace, env=env,
                                     stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
                                     check=False)
-            text, model = reviewer.read(result.stdout, output)
+            text, model, basis = reviewer.read(result.stdout, output)
             failure = "" if result.returncode == 0 else _failure_line(result.stdout + result.stderr, result.returncode)
+            error_kind = "" if result.returncode == 0 else "reviewer_exit"
         except subprocess.TimeoutExpired:
-            text, model, failure = "", "", f"超过 {int(timeout / 60)} 分钟未完成"
+            text, model, basis = "", "", "unknown"
+            failure, error_kind = f"超过 {int(timeout / 60)} 分钟未完成", "timeout"
     verdict = parse_output(text)
     if failure or not text.strip():
-        verdict = Verdict("评审失败", [], failure or "评审方没有输出", parsed=False, failure=failure or "没有输出")
+        verdict = Verdict("评审失败", [], failure or "评审方没有输出", parsed=False, failure=failure or "没有输出",
+                          error_kind=error_kind or "no_output")
+    # C6：模型明确报告优先；其次实际命令显式指定的请求模型；两者皆无不把配置默认值当已调用模型。
+    verdict.audit_model = model if basis == "reported" else (
+        reviewer.model_name if basis == "explicit_request" else None)
+    verdict.model_basis = basis
     return verdict, model, time.monotonic() - started
 
 
@@ -310,7 +332,7 @@ def run_check_records(workspace: Path, base: str) -> list[dict]:
 
 
 def render_comment(verdict: Verdict, reviewer: str, model: str, designer: str | None, head: str, seconds: float,
-                   same_host: bool = False) -> str:
+                   same_host: bool = False, audit: dict | None = None) -> str:
     lines = [
         f"### 独立评审（试行）：{verdict.verdict}", "",
         f"- 评审方：{reviewer}（{model or '模型未报告'}）；设计方：{designer or '未能判定'}；评审的提交：`{head[:12]}`；用时 {seconds / 60:.1f} 分钟",
@@ -328,6 +350,9 @@ def render_comment(verdict: Verdict, reviewer: str, model: str, designer: str | 
     data = {"verdict": verdict.verdict, "reviewer": reviewer, "model": model, "head": head,
             "findings": len(verdict.findings), "flagged": verdict.flagged, "parsed": verdict.parsed}
     lines += ["", f"<!-- independent-review {json.dumps(data, ensure_ascii=False)} -->"]
+    if audit is not None:
+        # C6 审计摘要：与旧标记并列，单行 JSON，字段与材料编码见共用合同 C6；T305 只解析这个新标记。
+        lines.append(f"<!-- harness-review-audit {json.dumps(audit, ensure_ascii=False)} -->")
     return "\n".join(lines) + "\n"
 
 
@@ -335,9 +360,11 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
     github = github or dispatch.GitHub(root)
     pr = json.loads(github._run(["gh", "pr", "view", str(number), "--json",
                                  "title,body,headRefName,headRefOid,baseRefName,state,mergeCommit"]))
+    trace = pr["headRefName"]  # 评审事件的显式 trace：PR 的 headRefName
+    head = pr["headRefOid"]
     workspace = review_workspace(root)
     git("fetch", "--quiet", "origin", f"pull/{number}/head", "main", cwd=workspace)
-    checkout(workspace, pr["headRefOid"])
+    checkout(workspace, head)
     base = review_base(pr, workspace)
     designer = designer_of(base, "HEAD", pr["headRefName"], workspace)
     name = reviewer_name or load_rules().get("review", {}).get("reviewer") or OTHER.get(designer or "")
@@ -350,14 +377,36 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
     target = run_check.scope(base, "HEAD", pr["headRefName"], workspace)
     task_text = (workspace / target.taskbook).read_text(encoding="utf-8") if target and target.taskbook else ""
     write_materials(workspace, base, f"# {pr['title']}\n\n{pr['body']}", task_text, ci_summary(number, github))
+    materials = observation.review_materials(
+        workspace, base, head, target.taskbook if target and target.taskbook else None, number)
+    executors = {record.get("gen_ai.agent.name") for record in run_check_records(workspace, base)}
+    independent = None if designer is None else name != designer
     verdict, model, seconds = run_reviewer(make_reviewer(name), workspace, load_rules().get("review", {}).get(
         "timeout_minutes", 30) * 60)
     if verdict.failure:
+        observation.review(trace=trace, head=head, reviewer=name, verdict=verdict.verdict,
+                           duration_ms=int(seconds * 1000), findings=verdict.findings, materials=materials,
+                           designer=designer, model=verdict.audit_model, model_basis=verdict.model_basis,
+                           parsed=verdict.parsed, independent=independent, same_host=name in executors,
+                           failure=verdict.failure, error_kind=verdict.error_kind)
         print(f"PR #{number}：评审方失败（{verdict.failure}），没有评论，保留待评审标签")
         return 1
-    executors = {record.get("gen_ai.agent.name") for record in run_check_records(workspace, base)}
-    github.comment(number, render_comment(verdict, name, model, designer, pr["headRefOid"], seconds,
-                                          same_host=name in executors))
+    same_host = name in executors
+    audit = observation.review_audit(trace_id=trace, head=head, base=base, reviewer=name,
+                                     model=verdict.audit_model, model_basis=verdict.model_basis,
+                                     designer=designer,
+                                     implementers=sorted(item for item in executors if item),
+                                     independent=independent, same_host=same_host, parsed=verdict.parsed,
+                                     verdict=verdict.verdict, duration_ms=int(seconds * 1000),
+                                     findings=verdict.findings, materials=materials)
+    body = render_comment(verdict, name, model, designer, head, seconds, same_host, audit)
+    url = github.comment(number, body)
+    # 事件在评论实际发布后写：URL 与评论字节哈希只有此刻可知（C6：摘要不预写 URL、不含自身哈希）。
+    observation.review(trace=trace, head=head, reviewer=name, verdict=verdict.verdict,
+                       duration_ms=int(seconds * 1000), findings=verdict.findings, materials=materials,
+                       designer=designer, model=verdict.audit_model, model_basis=verdict.model_basis,
+                       parsed=verdict.parsed, independent=independent, same_host=same_host,
+                       comment=url, comment_body=body)
     try:
         github._run(["gh", "pr", "edit", str(number), "--remove-label", LABEL], agent=True)
     except RuntimeError:
