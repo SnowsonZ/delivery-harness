@@ -1,0 +1,158 @@
+"""派发脚本的执行方运行层：启动执行方、监视时长与卡死、解析事件流（bin/dispatch 调用）。
+
+执行方在槽位 worktree 中运行，进程自成一组，超时或卡死时先 TERM 后 KILL 整组。
+环境按最小权限准备：去掉继承的 GitHub 令牌，gh 指向空配置目录，git 清空凭据助手，
+执行方因此不能推送、不能调用 GitHub（推送与开 PR 由派发脚本以 Agent 身份完成）。
+
+宿主：
+  pi    `pi -na -e <守卫> -p --mode json --no-session <提示词>`。-na 不加载槽位里的项目文件，
+        -e 显式加载从 origin/main 导出的守卫扩展（用户 2026-09-28 决定：守卫来自 main，执行方改不到）。
+  其他宿主（OpenCode、Zcode 协议客户端）按需加入；Zcode 的 `-p` 不执行工作区钩子，不能用于无人值守。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import signal
+import subprocess
+import time
+from collections import Counter
+from dataclasses import dataclass, field
+from pathlib import Path
+
+GUARD_DENIAL = "harness 守卫拒绝了这次操作"
+TOKEN_VARS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK")
+
+
+@dataclass
+class RunResult:
+    exit: str  # ok / timeout / stall / stopped / error
+    returncode: int | None
+    seconds: float
+    model: str = ""
+    usage: dict = field(default_factory=dict)
+    guard_denials: dict[str, int] = field(default_factory=dict)
+
+
+def executor_env(base: dict[str, str], identity: dict[str, str], gh_config_dir: Path) -> dict[str, str]:
+    env = {key: value for key, value in base.items() if key not in TOKEN_VARS and not key.startswith("GIT_CONFIG_")}
+    env.update(identity)
+    env["GH_CONFIG_DIR"] = str(gh_config_dir)  # 空目录：gh 未登录
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_CONFIG_COUNT"] = "1"
+    env["GIT_CONFIG_KEY_0"] = "credential.helper"
+    env["GIT_CONFIG_VALUE_0"] = ""  # 清空凭据助手：执行方拿不到钥匙串里的用户凭据
+    return env
+
+
+def _activity(cwd: Path, events: Path) -> tuple[int, str]:
+    size = events.stat().st_size if events.exists() else 0
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=cwd, capture_output=True, text=True, check=False
+    ).stdout
+    return size, status
+
+
+def _terminate(process: subprocess.Popen, grace: float = 10.0) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=grace)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+
+
+def run_monitored(
+    argv: list[str],
+    cwd: Path,
+    env: dict[str, str],
+    events: Path,
+    deadline_seconds: float,
+    stall_seconds: float,
+    poll_seconds: float = 5.0,
+    stop_flag: Path | None = None,
+    on_start=None,
+) -> tuple[str, int | None, float]:
+    """运行执行方直到结束、超时、卡死（stall_seconds 内既无输出也无文件变化）或收到停机标记。"""
+    events.parent.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+    with open(events, "wb") as out:
+        process = subprocess.Popen(
+            argv, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        if on_start:
+            on_start(process.pid)
+        last, last_change = _activity(cwd, events), time.monotonic()
+        while process.poll() is None:
+            time.sleep(poll_seconds)
+            now = time.monotonic()
+            if stop_flag is not None and stop_flag.exists():
+                _terminate(process)
+                return "stopped", process.returncode, now - started
+            if now - started > deadline_seconds:
+                _terminate(process)
+                return "timeout", process.returncode, now - started
+            current = _activity(cwd, events)
+            if current != last:
+                last, last_change = current, now
+            elif now - last_change > stall_seconds:
+                _terminate(process)
+                return "stall", process.returncode, now - started
+    seconds = time.monotonic() - started
+    return ("ok" if process.returncode == 0 else "error"), process.returncode, seconds
+
+
+def denial_reasons(text: str) -> list[str]:
+    if GUARD_DENIAL not in text:
+        return []
+    return [line.strip()[2:] for line in text.splitlines() if line.strip().startswith("- ")]
+
+
+class PiHost:
+    name = "pi"
+
+    def __init__(self, model: str | None = None, binary: str = "pi"):
+        self.model = model
+        self.binary = binary
+
+    def version(self) -> str:
+        result = subprocess.run([self.binary, "--version"], capture_output=True, text=True, check=False)
+        return result.stdout.strip() or result.stderr.strip()
+
+    def argv(self, prompt: str, guard_extension: Path) -> list[str]:
+        command = [self.binary, "-na", "-e", str(guard_extension), "-p", "--mode", "json", "--no-session"]
+        if self.model:
+            command += ["--model", self.model]
+        return command + [prompt]
+
+    def parse(self, events: Path) -> tuple[str, dict, dict[str, int]]:
+        """从 json 事件流取模型、token 与费用、守卫拒绝次数（按理由计，不含命令）。"""
+        model, usage, denials = "", Counter(), Counter()
+        if not events.exists():
+            return model, {}, {}
+        for line in events.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "message_end":
+                message = event.get("message", {})
+                if message.get("role") == "assistant":
+                    model = message.get("model", model)
+                    reported = message.get("usage") or {}
+                    usage["input_tokens"] += int(reported.get("input", 0)) + int(reported.get("cacheRead", 0))
+                    usage["output_tokens"] += int(reported.get("output", 0))
+                    usage["cost"] += float((reported.get("cost") or {}).get("total", 0.0))
+            elif event.get("type") == "tool_execution_end" and event.get("isError"):
+                content = (event.get("result") or {}).get("content") or []
+                text = "\n".join(part.get("text", "") for part in content if isinstance(part, dict))
+                denials.update(denial_reasons(text))
+        result = dict(usage)
+        if "cost" in result:
+            result["cost"] = round(result["cost"], 6)
+        return model, result, dict(denials)

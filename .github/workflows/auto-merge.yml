@@ -1,0 +1,186 @@
+name: auto-merge
+
+# 合并路由：harness 全绿后，由 .harness/engine/cli.py policy 判定能否自动合并（风险 R0/R1、类别在 autonomy.toml 中为 L4、
+# 未超误差预算、不超规模阈值、任务 PR 的运行记录合格），每条理由写进 job summary。不自动合并的打类别标签并请仓库所有者评审。
+# 停机：Actions → auto-merge → Disable workflow；恢复：Enable workflow。
+#
+# 用 workflow_run 而不是在 PR 的 CI 里合并：workflow_run 执行默认分支上的这份定义与引擎，PR 改自己的 workflow 或引擎
+# 影响不到这里的判定。只把 PR 的 diff 当数据读，不执行 PR 的代码。
+#
+# 批准方式取自 checks.toml [platform] approval（安装与 ruleset 见 README「Platform setup」）：
+#   app（默认，两个账号）：ruleset 要求非推送者批准最后一次推送；自动合并的 PR 由专用 GitHub App 批准。
+#         App 凭据放在只允许默认分支使用的 environment 里，PR 分支上的 workflow 取不到。
+#   none（单账号）：ruleset 不要求批准，用 GITHUB_TOKEN 合并；能力与风险见 SECURITY.md。
+on:
+  workflow_run:
+    workflows: [harness]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  judge:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    # 只读：policy 读 PR 标签与 escape 议题（误差预算）、该分支的 harness 运行（CI 轮次）。
+    permissions:
+      actions: read
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      auto_merge: ${{ steps.policy.outputs.auto_merge }}
+      risk: ${{ steps.policy.outputs.risk }}
+      class: ${{ steps.policy.outputs.class }}
+      audit: ${{ steps.policy.outputs.audit }}
+      approval: ${{ steps.policy.outputs.approval }}
+      app_client_id_var: ${{ steps.policy.outputs.app_client_id_var }}
+      app_private_key_secret: ${{ steps.policy.outputs.app_private_key_secret }}
+      environment: ${{ steps.policy.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Fetch evaluated head (data only)
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: git fetch --no-tags origin "$HEAD_SHA"
+
+      - name: Merge policy of the evaluated head (default branch's rules)
+        id: policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python .harness/engine/cli.py policy --base "origin/$BASE_BRANCH" --head "$HEAD_SHA" ${PR:+--pr "$PR"} --branch "$HEAD_BRANCH" --github
+
+  # 不自动合并的：打类别标签并请仓库所有者评审，PR 出现在其待评审列表里。只「请求评审」，不批准。
+  # 所有者自己开的 PR（单账号）不能请自己评审，GitHub 拒绝时只记日志、不算失败：这类 PR 由所有者直接合并。
+  request-review:
+    needs: judge
+    if: needs.judge.outputs.auto_merge == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write  # 创建类别标签
+      pull-requests: write
+    steps:
+      - name: Label class and request owner review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RISK: ${{ needs.judge.outputs.risk }}
+          CLASS: ${{ needs.judge.outputs.class }}
+        run: |
+          if [ -z "$PR" ]; then
+            echo "no associated PR, skipping"
+            exit 0
+          fi
+          # 类别标签是误差预算的窗口依据；escape 与 budget-exceeded 供登记使用。
+          gh label create "class:$CLASS" --repo "$GITHUB_REPOSITORY" --color c5def5 --force >/dev/null
+          gh label create escape --repo "$GITHUB_REPOSITORY" --color d93f0b --description "Defect found after merge; body names the introducing PR" --force >/dev/null
+          gh label create budget-exceeded --repo "$GITHUB_REPOSITORY" --color d93f0b --description "Over task budget, no auto-merge" --force >/dev/null
+          gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label "class:$CLASS"
+          # R2 及以上：标出待独立评审；评审由非设计方经 bin/dispatch review 完成。
+          if [ "$RISK" = "R2" ] || [ "$RISK" = "R3" ]; then
+            gh label create needs-independent-review --repo "$GITHUB_REPOSITORY" --color 1d76db \
+              --description "Awaiting independent review" >/dev/null 2>&1 || true
+            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label needs-independent-review
+          fi
+          gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-reviewer "$OWNER" \
+            || echo "could not request review from $OWNER ($RISK); probably their own PR"
+
+  # approval = app：只有判定为自动合并才进入 environment；其余不产生部署记录，也碰不到 App 凭据。
+  merge-app:
+    needs: judge
+    if: needs.judge.outputs.auto_merge == 'true' && needs.judge.outputs.approval == 'app'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.judge.outputs.environment }}
+    permissions:
+      contents: write
+      issues: write  # 类别标签与 audit 议题
+      pull-requests: write
+    steps:
+      - name: App token (approve only)
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars[needs.judge.outputs.app_client_id_var] }}
+          private-key: ${{ secrets[needs.judge.outputs.app_private_key_secret] }}
+          permission-pull-requests: write
+
+      - name: Label, approve and merge
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RISK: ${{ needs.judge.outputs.risk }}
+          CLASS: ${{ needs.judge.outputs.class }}
+          AUDIT: ${{ needs.judge.outputs.audit }}
+        run: |
+          if [ -z "$PR" ]; then
+            echo "no associated PR, skipping"
+            exit 0
+          fi
+          gh label create "class:$CLASS" --repo "$GITHUB_REPOSITORY" --color c5def5 --force >/dev/null
+          gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label "class:$CLASS"
+          # 批准绑定到评估过的提交；之后若有新推送，ruleset 作废这次批准，等新一轮 harness 再判定。
+          GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" \
+            -f commit_id="$HEAD_SHA" -f event=APPROVE \
+            -f body="auto-merge: $RISK $CLASS, harness passed; routing reasons are in this run's job summary ($HEAD_SHA)"
+          # 只合并本次评估过的提交。
+          gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$HEAD_SHA"
+          # 抽样审计：被抽中的 PR 合并后开 audit 议题，由评审方审完关闭；发现问题另开 escape 议题。
+          if [ "$AUDIT" = "true" ]; then
+            gh label create audit --repo "$GITHUB_REPOSITORY" --color fbca04 --force >/dev/null
+            gh issue create --repo "$GITHUB_REPOSITORY" --label audit --label "class:$CLASS" \
+              --title "Audit: PR #$PR ($CLASS)" \
+              --body "PR #$PR was sampled by the audit rule in .harness/config/autonomy.toml ($RISK $CLASS, $HEAD_SHA). Review it against the task brief, diff and evidence; open a separate issue labelled escape and class:$CLASS naming PR #$PR if you find a problem."
+          fi
+
+  # approval = none（单账号）：没有批准步骤，也没有 environment 保护的凭据；合并权限就是 GITHUB_TOKEN 的。
+  merge-direct:
+    needs: judge
+    if: needs.judge.outputs.auto_merge == 'true' && needs.judge.outputs.approval == 'none'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Label and merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RISK: ${{ needs.judge.outputs.risk }}
+          CLASS: ${{ needs.judge.outputs.class }}
+          AUDIT: ${{ needs.judge.outputs.audit }}
+        run: |
+          if [ -z "$PR" ]; then
+            echo "no associated PR, skipping"
+            exit 0
+          fi
+          gh label create "class:$CLASS" --repo "$GITHUB_REPOSITORY" --color c5def5 --force >/dev/null
+          gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label "class:$CLASS"
+          gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$HEAD_SHA"
+          if [ "$AUDIT" = "true" ]; then
+            gh label create audit --repo "$GITHUB_REPOSITORY" --color fbca04 --force >/dev/null
+            gh issue create --repo "$GITHUB_REPOSITORY" --label audit --label "class:$CLASS" \
+              --title "Audit: PR #$PR ($CLASS)" \
+              --body "PR #$PR was sampled by the audit rule in .harness/config/autonomy.toml ($RISK $CLASS, $HEAD_SHA). Review it against the task brief, diff and evidence; open a separate issue labelled escape and class:$CLASS naming PR #$PR if you find a problem."
+          fi

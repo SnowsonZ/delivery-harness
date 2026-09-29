@@ -1,0 +1,12 @@
+#!/bin/sh
+# delivery-harness 入口：bin/harness <子命令> [参数…]（子命令见 bin/harness --help）。
+# 解释器与 git 钩子相同：优先 .harness/config/checks.toml [runtime] python，没有时用 PATH 上的 python3。
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+runtime=$(sed -n '/^\[runtime\]/,/^\[/s/^python *= *"\(.*\)".*/\1/p' "$root/.harness/config/checks.toml" 2>/dev/null | head -n 1)
+if [ -n "$runtime" ] && [ -x "$root/$runtime" ]; then
+    runtime="$root/$runtime"
+else
+    runtime=$(command -v python3)
+fi
+exec "$runtime" "$root/.harness/engine/cli.py" "$@"

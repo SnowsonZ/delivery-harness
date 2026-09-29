@@ -1,0 +1,4 @@
+#!/bin/sh
+# 保护分支上禁止提交；暂存区卫生；快速 verify（.harness/engine/guards/git_guard.py）。
+. "$(dirname -- "$0")/_runtime"
+exec "$HARNESS_PY" "$HARNESS_CLI" guard-git pre-commit

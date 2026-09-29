@@ -1,0 +1,29 @@
+name: Escape
+description: A defect found after merge that a gate or review should have caught. Registering only makes the system more conservative; anyone, agents included, may file one.
+title: "Escape: "
+labels: ["escape"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include session content, user input or credentials. After filing, add the class label `class:<class>` (same as the introducing PR): the error budget counts per class, and closing the issue does not remove it from the count.
+  - type: input
+    id: introduced
+    attributes:
+      label: Introducing PR
+      description: "Write it as `introduced: #123`; the error budget attributes by it"
+      placeholder: "introduced: #"
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom and reproduction
+      description: How it was found, impact, minimal reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: gate
+    attributes:
+      label: Gate or review that should have stopped it
+      description: For example a missing test, acceptance id, guard rule or review checklist item

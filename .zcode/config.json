@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "PreToolUse": [
+        {
+          "matcher": "Bash|Edit|Write|mcp__.*(merge_pull_request|auto_merge|merge_pr|pull_request_review|approve_pull_request|approve_pr|issue|label).*",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 \"${ZCODE_PROJECT_DIR}/.harness/engine/cli.py\" guard-command --format claude --role implementer",
+              "timeout": 30,
+              "statusMessage": "harness 守卫"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
