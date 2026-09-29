@@ -16,7 +16,7 @@
 
 | 编号 | 事项 | 估计成本 | 负责 | 来源 |
 |---|---|---|---|---|
-| B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、即时告警；设计草案 `docs/plans/2026-09-29-observability-design.md` 待用户审（分支 docs/observability-design），审定前不写实现；收掉 B36、B38、B40 | 大 | 评审方设计，用户审 | 用户 2026-09-29 |
+| B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、`audit`、即时告警；收掉 B36、B38、B40。设计已审定（`docs/plans/2026-09-29-observability-design.md`），T101 事件库已合并，剩余约 23 个任务按 `docs/task-splitting.md` 拆分后派发（`docs/plans/2026-09-29-observability-execution-plan.md`） | 大 | 评审方 | 用户 2026-09-29 |
 | B45 | 第二个项目接入前：`adopt`（探测语言、源码目录、测试与 lint 命令，渐进档位，已有配置幂等合并，AGENTS.md 受管块）与 TypeScript 语言插件 | 大 | 评审方 | 用户 2026-09-29（面向开源、接入无感） |
 | B42 | harness 测试（Agent-Notification 的 `tests/test_harness*.py`）移植到本仓库：改为基于夹具项目，本仓库单独即可验证；那边只留消费方契约测试 | 中 | 评审方 | Agent-Notification T008 |
 | B44 | 本仓库 CI 加消费方契约测试：检出 Agent-Notification main，用待测引擎 upgrade 后跑其 harness 测试与 `verify --quick` | 小 | 评审方 | Agent-Notification T008 |
@@ -30,6 +30,9 @@
 | B51 | 升级时自动检测配置缺口（对照新版引擎列出缺失的必填或建议配置，替代只靠 CHANGELOG 的 Migration 条目）；与 B45 的 adopt 一起做。已完成部分：拒绝非 main 提交、打印 Migration 条目、`docs/upgrading.md`（PR #3） | 小 | 评审方 | B48 后 Agent-Notification 升级流程讨论 |
 | B52 | 审计账本覆盖「被拦下」（关闭未合并）的 PR：v0.2 只做已合并（用户 2026-09-29 定），被拦下的 PR 目前只在本机库里 | 中 | 评审方 | 可观测性设计 4.1 |
 | B54 | 任务拆分评审工具化：`bin/dispatch review-plan`（复用独立评审的材料包与提示词，材料为设计、追溯表与全部任务书），现按 `docs/task-splitting.md` 手工执行 | 中 | 评审方 | 用户 2026-09-29 |
+| B57 | `dispatch.pr_body` 固定写「需要人工验收的部分：见任务书验收表中的人工条目」，任务书没有人工条目时落空；只在有人工条目时才写，否则写「无」。T101 独立评审指出 | 小 | 评审方 | T101 评审 |
+| B58 | 第三方没有 `docs/templates/review-checklist.md`：评审提示词与材料包（`review_prompt.md`、`review_pack.py`）引用它。随模板提供一份通用清单，并在清单里加「每条验收说明未实现时会怎么失败」一项。T101 独立评审指出 | 中 | 评审方 | T101 评审 |
+| B59 | 独立评审的测试强度核查：T101 的 OpenCode 评审通过，但没发现设计方变异检查抓出的两个未被抓住的变异。本仓库没有评审校准集；建立校准集（含「测试恒真、变异未被抓住」类样本）并按其结果选评审方与提示词 | 中 | 评审方 | T101 复核 |
 | B47 | 开源化其余项：界面与提示词国际化（en、zh-CN）、可配置的目录约定与默认分支、执行方宿主适配器（Pi 之外）、`platform` 一键平台设置与 App manifest | 中 | 评审方 | 用户 2026-09-29 |
 | B49 | 自举：本仓库装上自己的 Agent 层与 git 层守卫（目前只有服务端 ruleset 兜底） | 中（进行中：分支 chore/self-host） | 评审方 | 2026-09-29 迁移准备 |
 | B4 | 按改动行做变异测试（先只支持 Python），自动发现「测试写了但没测到东西」 | 出现一次这类逃逸再做；约 1 天，每个 PR 的 CI 多 1–4 分钟 | 评审方 | Agent-Notification 修复证据方案讨论（2026-09-26） |
