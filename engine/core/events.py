@@ -251,7 +251,7 @@ def emit(stage: str, step: str, status: str, *, trace_id: str | None = None,
 
     trace_id 缺省 current_trace()；source 缺省按环境取（真实 Actions 为 ci:<run_id>:<run_attempt>:<job>，
     其余 CI 为 "ci"，本地为 "local"）；actor 缺省 {"role": "engine", "host": <来源的显示分类>}。
-    step 按字符串隐私规则过滤，非法整条不写。
+    step 先去首尾空白（含换行）再按字符串隐私规则过滤：非法整条不写，合法写清洗后的值。
     """
     try:
         if not enabled():
@@ -262,7 +262,7 @@ def emit(stage: str, step: str, status: str, *, trace_id: str | None = None,
         if _clean_str(step_text, _MAX_STR) is None:
             return None
         source = source or default_source()
-        payload, clean_inputs = _build_payload(stage, str(step), status, source,
+        payload, clean_inputs = _build_payload(stage, step_text, status, source,
                                                trace_id or current_trace(), duration_ms,
                                                outputs, decision, error,
                                                actor or {"role": "engine", "host": _host_class(source)}, inputs)

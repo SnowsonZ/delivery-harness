@@ -199,6 +199,16 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(self.rows("SELECT COUNT(*) FROM artifacts")[0][0], 0)
         self.assertEqual(events.verify_chain("t"), [])
 
+    def test_step_written_value_is_stripped(self):
+        """T110：emit 校验与写入用同一 step 值——首尾空白（含换行）strip 后合法并写清洗值，
+        内部换行仍整条不写，「非法整条不写、合法写清洗值」在边界一致。"""
+        event_id = events.emit("guard", " ok \n", "ok", trace_id="t")
+        self.assertIsInstance(event_id, int)
+        self.assertEqual(self.event(event_id)["step"], "ok")
+        self.assertIsNone(events.emit("guard", "a\nb", "ok", trace_id="t"))  # 内部换行整条不写
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM events WHERE trace_id=?", ("t",))[0][0], 1)
+        self.assertEqual(events.verify_chain("t"), [])
+
     def test_artifact_atomicity_and_newer_schema_read(self):
         artifacts = events_db.artifacts_dir()
         digest = hashlib.sha256(b"payload").hexdigest()
