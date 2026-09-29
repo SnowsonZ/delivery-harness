@@ -47,11 +47,6 @@ def tree_hash(engine_dir: Path = ENGINE_DIR) -> str:
     return _scan(engine_dir)[0]
 
 
-def file_hashes(engine_dir: Path = ENGINE_DIR) -> dict[str, str]:
-    """相对路径 → 内容 sha256（与目录树哈希同一遍历口径，供观察事件使用）。"""
-    return _scan(engine_dir)[1]
-
-
 def read_lock(path: Path = LOCK_FILE) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
