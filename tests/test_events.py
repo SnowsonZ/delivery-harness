@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -384,6 +385,16 @@ class EventsTest(unittest.TestCase):
         self.assertEqual(rows[1][:5], ("ci", "t", "ci", ci_head, "ci_artifact"))
         self.assertTrue(rows[0][5])
         self.assertTrue(rows[1][5])
+
+    def test_checks_template_documents_events_section(self):
+        path = ENGINE_REPO / "templates" / ".harness" / "config" / "checks.toml"
+        text = path.read_text(encoding="utf-8")
+        self.assertIsNotNone(tomllib.loads(text))  # 注释掉的节不影响 TOML 合法性
+        lines = text.splitlines()
+        heads = [index for index, line in enumerate(lines) if line.strip() == "# [events]"]
+        self.assertEqual(len(heads), 1)
+        block = lines[heads[0]:heads[0] + 5]
+        self.assertTrue(any(line.strip().startswith("# enabled") for line in block))
 
     def test_modules_import_only_stdlib_and_engine(self):
         allowed = set(sys.stdlib_module_names) | {"engine"}
