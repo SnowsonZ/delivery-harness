@@ -66,4 +66,4 @@ All commands run through `bin/harness <command>` (or `python3 .harness/engine/cl
 
 Version 0.1 extracts the engine from the project where it was built and proven ([Agent-Notification](https://github.com/SnowsonZ/Agent-Notification)); behaviour is unchanged there, verified by identical test counts, quality metrics and mutation scores before and after. Messages and prompts are in Chinese for now; English localisation, configurable directory conventions, a TypeScript language plugin and end-to-end tracing are planned — see [CHANGELOG](CHANGELOG.md).
 
-Security model and limits: [SECURITY.md](SECURITY.md). License: [MIT](LICENSE).
+Security model and limits: [SECURITY.md](SECURITY.md). License: [MIT](LICENSE). Development rules, backlog and roadmap (in Chinese): [AGENTS.md](AGENTS.md), [docs/backlog.md](docs/backlog.md), [docs/plans/2026-09-29-roadmap.md](docs/plans/2026-09-29-roadmap.md).
