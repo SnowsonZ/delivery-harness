@@ -9,8 +9,8 @@
   3. 预算     该类最近 window 次合并中的 escape 议题不超过 max_escapes；PR 不带 budget-exceeded 标签
   4. 规模     增删行数（不计黄金快照与运行记录）不超过 autonomy.toml [size] max_lines
   5. 运行记录 实现某份任务书的 PR（run_check.py）：提交都带 `Task:`、有格式完整且 exit 为 ok 的运行记录、
-              已完成的 build 轮次不超过任务书 budget.ci_rounds；不是在实现任务书的 PR 不要求
-读不到标签、议题或 build 运行时按不满足处理（宁可转人审）。停机不在这里：用 Actions → auto-merge →
+              已完成的 CI 轮次不超过任务书 budget.ci_rounds；不是在实现任务书的 PR 不要求
+读不到标签、议题或 CI 运行时按不满足处理（宁可转人审）。停机不在这里：用 Actions → auto-merge →
 Disable workflow（docs/specs/delivery-harness.md §8）。
 
 K3 按 PR 编号哈希每 audit_every 个抽 1 个，合并后由工作流开 audit 议题。
@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engine.checks import r1_checks, taskbook
-from engine.core.common import ROOT, ConfigError, commit_field, git, path_matches, setting
+from engine.core.common import ROOT, ConfigError, ci_workflows, commit_field, git, path_matches, setting
 from engine.routing import risk, run_check
 
 CONTRACT_PATTERNS = ["docs/plans/task-*.md", "docs/templates/**", "docs/plans/backlog.md", "docs/specs/**"]
@@ -208,9 +208,12 @@ def escapes_in_window(klass: str, window: int, gh=_gh) -> tuple[int, int]:
 
 
 def branch_rounds(branch: str, gh=_gh) -> int | None:
+    """该分支已完成的 CI 轮次：ci_workflows 各工作流的 pull_request 运行，按不同的 head 提交合计。"""
     try:
-        runs = json.loads(gh("run", "list", "--workflow", "build", "--branch", branch, "--limit", "100",
-                             "--json", "headSha,status,event"))
+        runs = []
+        for workflow in ci_workflows():
+            runs += json.loads(gh("run", "list", "--workflow", workflow, "--branch", branch, "--limit", "100",
+                                  "--json", "headSha,status,event"))
     except (RuntimeError, json.JSONDecodeError, OSError):
         return None
     return run_check.ci_rounds([run for run in runs if run.get("event") == "pull_request"])
