@@ -104,6 +104,68 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("integrity", result.stdout)
 
+    def test_ci_templates_and_rulesets_agree(self):
+        """工作流、ruleset 是一套：ruleset 要求的状态检查就是 harness 工作流的 job，auto-merge 监听同名工作流。"""
+        github = self.repo / ".github"
+        harness = (github / "workflows/harness.yml").read_text()
+        self.assertTrue(harness.startswith("name: harness\n"))
+        self.assertRegex(harness, r"\n  harness:\n")
+        self.assertIn("workflows: [harness]", (github / "workflows/auto-merge.yml").read_text())
+        for name, approvals in (("main.json", 1), ("main-single-account.json", 0)):
+            ruleset = json.loads((github / "rulesets" / name).read_text())
+            rules = {rule["type"]: rule.get("parameters", {}) for rule in ruleset["rules"]}
+            contexts = [c["context"] for c in rules["required_status_checks"]["required_status_checks"]]
+            self.assertEqual(contexts, ["harness"], name)
+            self.assertEqual(rules["pull_request"]["required_approving_review_count"], approvals, name)
+            self.assertIn("non_fast_forward", rules)
+            self.assertEqual(ruleset["bypass_actors"], [])
+
+    def policy_outputs(self):
+        out = self.tmp / "github-output"
+        out.unlink(missing_ok=True)
+        result = subprocess.run([str(self.repo / "bin" / "harness"), "policy", "--base", "HEAD", "--head", "HEAD", "--github"],
+                                cwd=self.repo, capture_output=True, text=True, check=False,
+                                env={**env(), "GITHUB_OUTPUT": str(out)})
+        return result, dict(line.split("=", 1) for line in out.read_text().splitlines()) if out.exists() else {}
+
+    def set_platform(self, text):
+        checks = self.repo / ".harness/config/checks.toml"
+        checks.write_text(checks.read_text().replace("[platform]\n", "[platform]\n" + text, 1))
+
+    def test_platform_defaults_and_overrides_reach_the_workflow_outputs(self):
+        # 默认：两个账号 + App，变量名是通用默认值，不含任何使用者自己的名字。
+        _, out = self.policy_outputs()
+        self.assertEqual((out["approval"], out["app_client_id_var"], out["environment"]),
+                         ("app", "HARNESS_APP_CLIENT_ID", "harness-auto-merge"))
+        self.assertEqual(out["app_private_key_secret"], "HARNESS_APP_PRIVATE_KEY")
+        self.set_platform('approval = "none"\napp_client_id_var = "MY_APP_ID"\nenvironment = "merge-env"\n')
+        _, out = self.policy_outputs()
+        self.assertEqual((out["approval"], out["app_client_id_var"], out["environment"]), ("none", "MY_APP_ID", "merge-env"))
+
+    def test_unknown_approval_mode_is_an_explicit_error(self):
+        self.set_platform('approval = "maybe"\n')
+        result, out = self.policy_outputs()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("approval", result.stderr + result.stdout)
+        self.assertNotIn("approval", out)
+
+    def test_project_without_tests_dir_is_not_a_base_tests_failure(self):
+        self.git("checkout", "-q", "-b", "feat")
+        (self.repo / "app.py").write_text("x = 1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "app")
+        result = self.harness("base-tests", "--base", "main")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("无已有测试可回放", result.stdout)
+
+    def test_metrics_baseline_is_only_shown_when_the_project_registers_one(self):
+        result = self.harness("metrics", "--base", "HEAD")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("基线", result.stdout)
+        checks = self.repo / ".harness/config/checks.toml"
+        checks.write_text(checks.read_text() + '\n[metrics.baseline]\nlabel = "v1"\nvalues = { "评审轮次" = 2 }\n')
+        self.assertIn("v1 基线：评审轮次 2。", self.harness("metrics", "--base", "HEAD").stdout)
+
 
 class OwnValuesTest(unittest.TestCase):
     def test_engine_and_templates_carry_no_user_specific_values(self):

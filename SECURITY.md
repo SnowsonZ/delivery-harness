@@ -16,6 +16,16 @@ Guards and rules are trusted only in the form the repository owner merged into `
 
 Human-only overrides (`HARNESS_ALLOW_*`, `HARNESS_SKIP_VERIFY`) exist for the owner; the agent-tool guard refuses commands that set them.
 
+## Single-account mode
+
+With `[platform] approval = "none"` the agent and the owner are the same GitHub account. What is lost compared with two accounts:
+
+- The server can no longer tell agent actions from yours. A credential the agent can use is your credential: it can merge R2/R3 pull requests that should wait for you, and approvals stop being an independent signal (the ruleset requires none).
+- Auto-merge runs with `GITHUB_TOKEN` and no environment-protected App credential; routing (`policy`) still decides, but nothing outside the repository backs it up.
+- The agent-tool and git guards become the only barrier against merging and history rewrites, and they cover cooperative agents only.
+
+What still holds: pull requests and passing `harness` are required on the default branch, history rewrites and deletions are refused, and `policy` still routes only R0/R1 in autonomous classes to auto-merge. To narrow the exposure, give the agent a fine-grained personal access token limited to this repository (contents and pull requests only, no administration, so it cannot edit the ruleset) instead of your full `gh` login, and keep every class in `autonomy.toml` at human review until you trust the setup. Moving to two accounts later only needs the second account, an App and `approval = "app"`.
+
 ## Known limits
 
 - Guard hooks depend on each agent host's hook support and on the owner trusting the project once; an untrusted project leaves only the git and server layers.

@@ -1,4 +1,4 @@
-"""交付度量：统计一次交付（base..head）中机器可数的指标，并与 v0.8.0 基线并列。
+"""交付度量：统计一次交付（base..head）中机器可数的指标，并与项目登记的基线（checks.toml [metrics.baseline]，可选）并列。
 
     bin/harness metrics --base origin/main [--head HEAD] [--github] [--json]
 
@@ -18,17 +18,17 @@ from pathlib import Path
 
 from engine.checks import evidence
 from engine.core.cases import load_project_cases
-from engine.core.common import ROOT, added_lines, git
+from engine.core.common import ROOT, added_lines, git, setting
 from engine.routing import risk, run_check
 
-# docs/review/2026-09-25-harness-baseline.md §2
-V080_BASELINE = {
-    "评审轮次": 5,
-    "声称已修但代码未变": 3,
-    "自述与事实不符": 5,
-    "临时探针 CI 运行": 32,
-    "首轮修复净增测试": "16 项修复 / +1",
-}
+
+def baseline_line() -> str:
+    """checks.toml [metrics.baseline] 的 label 与 values 拼成一行；未登记则为空（不并列任何基线）。"""
+    values = setting("metrics.baseline", "values", {})
+    if not values:
+        return ""
+    label = setting("metrics.baseline", "label", "基线")
+    return f"{label} 基线：" + "；".join(f"{key} {value}" for key, value in values.items()) + "。"
 
 
 def added_test_functions(base: str, head: str, cwd: Path = ROOT) -> int:
@@ -104,7 +104,8 @@ def render(data: dict) -> str:
             continue
         shown = "、".join(value) if isinstance(value, list) else value
         lines.append(f"| {key} | {shown if shown != '' else '—'} |")
-    lines += ["", "v0.8.0 基线：" + "；".join(f"{key} {value}" for key, value in V080_BASELINE.items()) + "。"]
+    if baseline_line():
+        lines += ["", baseline_line()]
     return "\n".join(lines) + "\n"
 
 

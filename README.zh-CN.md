@@ -64,7 +64,7 @@
 
 ## 安装与使用
 
-见 [README.md](README.md) 的 Quick start。要点：引擎以带锁文件的内置副本装进业务仓库（`.harness/engine/` 与 `.harness/engine.lock`），升级只能经 `upgrade` 整体替换并由用户批准的 PR 合并；引擎不带任何使用者自己的默认值，缺必填配置时明确报错。
+见 [README.md](README.md) 的 Quick start 与「Platform setup」（GitHub：ruleset、批准 App、单账号模式；`install` 同时写入 `.github/` 下的工作流与 ruleset 模板，批准方式由 `checks.toml [platform] approval` 选择）。要点：引擎以带锁文件的内置副本装进业务仓库（`.harness/engine/` 与 `.harness/engine.lock`），升级只能经 `upgrade` 整体替换并由用户批准的 PR 合并；引擎不带任何使用者自己的默认值，缺必填配置时明确报错。
 
 ## 开发
 

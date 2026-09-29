@@ -333,8 +333,8 @@ def render(week: Week, data: dict, flagged: list[str], budgets: list[str], trial
     lines += ["### 误差预算", "", "| 类别 | 窗口 | 消耗 | 状态 |", "|---|---|---|---|"] + (budgets or ["| — | — | — | — |"])
     lines += ["", "### 试跑记录（自动汇总）", "", "| 任务 | PR | 人工评审 | 要求修改 | 升级 | 逃逸 |",
               "|---|---|---|---|---|---|"] + (trials or ["| — | — | — | — | — | — |"])
-    lines += ["", "v0.8.0 基线：" + "；".join(f"{key} {value}" for key, value in metrics.V080_BASELINE.items()) + "。",
-              "", "错误分析：由不是本周主要设计方的评审方按设计 11.1 做，结论存 `docs/review/weekly/<年-周>.md`。", ""]
+    lines += [""] + ([metrics.baseline_line(), ""] if metrics.baseline_line() else [])
+    lines += ["错误分析：由不是本周主要设计方的评审方按设计 11.1 做，结论存 `docs/review/weekly/<年-周>.md`。", ""]
     lines += [f"<!-- weekly-data {json.dumps({'week': week.key, **data['_signals']}, ensure_ascii=False)} -->"]
     return "\n".join(lines) + "\n"
 
