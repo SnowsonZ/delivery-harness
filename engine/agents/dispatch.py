@@ -40,7 +40,7 @@ from pathlib import Path
 
 from engine.agents import dispatch_host
 from engine.checks import taskbook
-from engine.core.common import ENGINE_DIR, ROOT, git, load_rules, setting
+from engine.core.common import ENGINE_DIR, ROOT, ci_workflows, git, load_rules, setting
 
 PROMPT_TEMPLATE = ENGINE_DIR / "prompts" / "dispatch_prompt.md"
 ESCALATION_FILE = "build/dispatch/escalation.md"
@@ -542,17 +542,24 @@ class GitHub:
         self._run(argv, agent=True, stdin=body)
 
     def wait_ci(self, branch: str, sha: str, timeout: float) -> tuple[bool, str]:
+        """等 rules.toml [dispatch] ci_workflows 列出的每个工作流在该提交上跑完；全部成功才算通过。"""
+        workflows = ci_workflows()
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            runs = json.loads(self._run(["gh", "run", "list", "--workflow", "build", "--branch", branch,
-                                         "--json", "headSha,status,conclusion,databaseId,url", "--limit", "10"]))
-            run = next((item for item in runs if item["headSha"] == sha), None)
-            if run and run["status"] == "completed":
-                if run["conclusion"] == "success":
-                    return True, ""
-                log = subprocess.run(["gh", "run", "view", str(run["databaseId"]), "--log-failed"], cwd=self.root,
+            found = {}
+            for workflow in workflows:
+                runs = json.loads(self._run(["gh", "run", "list", "--workflow", workflow, "--branch", branch,
+                                             "--json", "headSha,status,conclusion,databaseId,url", "--limit", "10"]))
+                run = next((item for item in runs if item["headSha"] == sha), None)
+                if run and run["status"] == "completed":
+                    found[workflow] = run
+            failed = next((run for run in found.values() if run["conclusion"] != "success"), None)
+            if failed:
+                log = subprocess.run(["gh", "run", "view", str(failed["databaseId"]), "--log-failed"], cwd=self.root,
                                      capture_output=True, text=True, check=False).stdout
-                return False, f"CI 未通过：{run['url']}\n\n```\n{log[-3000:]}\n```"
+                return False, f"CI 未通过：{failed['url']}\n\n```\n{log[-3000:]}\n```"
+            if len(found) == len(workflows):
+                return True, ""
             time.sleep(30)
         return False, f"等待 CI 超过 {int(timeout / 60)} 分钟"
 

@@ -2,7 +2,7 @@
 
     bin/harness metrics --base origin/main [--head HEAD] [--github] [--json]
 
---github 时用 GITHUB_TOKEN 与 GITHUB_REPOSITORY 查询该分支的 build workflow 运行（CI 轮次、失败轮次）；
+--github 时用 GITHUB_TOKEN 与 GITHUB_REPOSITORY 查询该分支的 CI 工作流运行（rules.toml [dispatch] ci_workflows）（CI 轮次、失败轮次）；
 没有凭据时标为「不可用」，不猜。评审轮次、自述不实、人工介入由人记录在交付说明中（见
 docs/plans/verifiable-delivery.md 的试跑规程）。
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from engine.checks import evidence
 from engine.core.cases import load_project_cases
-from engine.core.common import ROOT, added_lines, git, setting
+from engine.core.common import ROOT, added_lines, ci_workflows, git, setting
 from engine.routing import risk, run_check
 
 
@@ -50,14 +50,15 @@ def github_runs(branch: str) -> dict | None:
     token, repo = os.environ.get("GITHUB_TOKEN"), os.environ.get("GITHUB_REPOSITORY")
     if not token or not repo:
         return None
-    query = urllib.parse.urlencode({"branch": branch, "per_page": 100})
+    query = urllib.parse.urlencode({"branch": branch, "event": "pull_request", "per_page": 100})
     request = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/actions/workflows/build.yml/runs?{query}",
+        f"https://api.github.com/repos/{repo}/actions/runs?{query}",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
     )
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
-            runs = json.load(response).get("workflow_runs", [])
+            names = set(ci_workflows())
+            runs = [run for run in json.load(response).get("workflow_runs", []) if run.get("name") in names]
     except (OSError, ValueError):
         return None
     return {
