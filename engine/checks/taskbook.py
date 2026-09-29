@@ -364,50 +364,41 @@ def on_main(path: str, root: Path = ROOT) -> str | None:
     return None
 
 
+# 问题文案前缀 → 稳定规则键（观察侧归類用，不参与判定；顺序即优先级，前缀长的在前）。
+_PROBLEM_RULES = (
+    ("class 取值非法", "header.class"),
+    ("class ", "header.class_risk"),
+    ("spec_refs 中的", "acceptance.link"),
+    ("spec_refs", "header.spec_refs"),
+    ("步骤触及护栏", "steps.class"),
+    ("步骤触及架构级路径", "steps.architecture"),
+    ("步骤触及 R3 路径", "steps.risk"),
+    ("步骤跨", "steps.architecture"),
+    ("头部缺少字段", "header.required"),
+    ("task ", "header.task"),
+    ("designer", "header.designer"),
+    ("size", "header.size"),
+    ("architecture", "header.architecture"),
+    ("budget", "header.budget"),
+    ("rollback", "header.rollback"),
+    ("「验收」表为空", "acceptance.table"),
+    ("验收第", "acceptance.row"),
+    ("验收表挂了", "acceptance.link"),
+    ("缺少「目标终态」", "section.goal"),
+    ("中、大任务缺少", "section.required"),
+    ("不是 docs/plans", "path"),
+)
+
+
 def _problem_rule(error: str) -> str:
     """观察旁路：把问题文案归到稳定的规则键（只用于事件计数，不参与判定；未识别的归 other）。"""
-    if error.startswith("头部缺少字段"):
-        return "header.required"
-    if error.startswith("task "):
-        return "header.task"
-    if error.startswith("class 取值非法"):
-        return "header.class"
-    if error.startswith("class ") and "与 risk" in error:
-        return "header.class_risk"
-    if error.startswith("designer"):
-        return "header.designer"
-    if error.startswith("size"):
-        return "header.size"
-    if error.startswith("architecture"):
-        return "header.architecture"
-    if error.startswith("spec_refs"):
-        return "header.spec_refs"
-    if error.startswith("budget"):
-        return "header.budget"
-    if error.startswith("rollback"):
-        return "header.rollback"
-    if error.startswith("「验收」表为空"):
-        return "acceptance.table"
-    if error.startswith("验收第"):
-        return "acceptance.row"
-    if error.startswith(("spec_refs 中的", "验收表挂了")):
-        return "acceptance.link"
-    if error.startswith("缺少「目标终态」"):
-        return "section.goal"
-    if error.startswith("中、大任务缺少"):
-        return "section.required"
-    if error.startswith("步骤触及护栏"):
-        return "steps.class"
-    if error.startswith(("步骤跨", "步骤触及架构级路径")):
-        return "steps.architecture"
-    if error.startswith("步骤触及 R3 路径"):
-        return "steps.risk"
+    for prefix, rule in _PROBLEM_RULES:
+        if error.startswith(prefix):
+            return rule
     if "origin/main" in error:
         return "on_main"
     if "taskbook-exempt.txt" in error:
         return "exempt"
-    if error.startswith("不是 docs/plans"):
-        return "path"
     return "other"
 
 

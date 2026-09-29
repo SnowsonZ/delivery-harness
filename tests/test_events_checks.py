@@ -581,6 +581,90 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(seen["head"], [{"metric": "head", "value": self.short(head_m)}])
         self.assertEqual(set(seen), {"base", "head", "提交数", "风险等级", "Defect 修复",
                                      "声称已修但代码未变", "修复带回放用例", "缺回放的修复", "新增测试函数"})
+    # ---------- 验收 4：八个模块的失败结果在事件关闭、写入失败时保持原输出/退出码 ----------
+
+    def test_disabled_and_failed_sink_preserve_check_results(self):
+        warn = "harness：事件写入失败，已跳过（不影响本次运行）"
+        # 失败夹具：每个模块至少一项检查结果为失败（run_check 与 metrics 本身只报告）
+        self.commit({
+            "docs/plans/task-902-bad.md": taskbook_text("T902", ci_rounds=9, acceptance_ref="ZZ99"),
+            "build/out.txt": "产物\n",
+            "notes.md": "记录\nlog /Users/test/data\n",
+        }, "违规夹具")
+        base_tests_rev = self.commit({
+            "app.py": "def flag():\n    return False\n",
+            "tests/test_app.py": TEST_APP_BASE,
+        }, "基线")
+        self.commit({"app.py": "def flag():\n    return True\n"}, "破坏行为")
+        self.commit({"src/calc.py": CALC_SRC, "tests/test_calc.py": TEST_CALC}, "变异目标")
+        self.install_mutation_baseline({"sign": 1.0})
+        self.install_quality_baseline({
+            "complex_functions": 0, "files_over_800": 0, "largest_file_lines": 20,
+            "swift_files_over_500": 0, "swift_long_functions": 0, "swift_deep_functions": 0,
+        })
+        self.commit({"src/small.py": "a = 1\n", "src/big.py": "x = 1\n" * 801,
+                     "docs/plans/task-888-iso.md": taskbook_text("T888")}, "体量夹具")
+        record_base = self.head_sha()
+        prompt_body = "为 T888 准备的提示词\n"
+        record = {
+            "task": "T888", "class": "K1", "attempt": 1, "branch": "task/888-iso",
+            "gen_ai.agent.name": "pi", "host_version": "0.85.1", "gen_ai.request.model": "test/model",
+            "prompt_sha256": hashlib.sha256(prompt_body.encode()).hexdigest(),
+            "prompt_path": "docs/runs/task-888-iso/1.prompt.md",
+            "guard_ref": f"main@{self.short(self.base)}",
+            "started_at": "2026-01-02T03:04:05Z", "ended_at": "2026-01-02T03:14:05Z",
+            "exit": "timeout", "retries": 0, "failure_signatures": [], "guard_denials": {},
+        }
+        self.commit({
+            "docs/runs/task-888-iso/1.prompt.md": prompt_body,
+            "docs/runs/task-888-iso/1.json": json.dumps(record, ensure_ascii=False),
+        }, "超时记录\n\nTask: T888")
+        self.isolate_mutate_copy()
+        # 期望退出码与失败标记：确保等价比较覆盖的是真实的失败结果，不是全绿的空洞等价
+        expected = {
+            "taskbook": (1, "不合格 1"),
+            "hygiene": (1, "仓库卫生："),
+            "base_tests": (1, "FAILED"),
+            "mutate": (1, "未变异时测试就失败"),
+            "evidence": (1, "没有带 `Defect: T108-Z9` 的提交"),
+            "quality": (1, "从 0 升到 1"),
+            "run_check": (0, "❌"),  # 只报告不失败：发现为失败、退出码不变
+            "metrics": (0, "缺回放的修复"),
+        }
+        cases = {
+            "taskbook": (taskbook, []),
+            "hygiene": (hygiene, ["--range", self.base]),
+            "base_tests": (base_tests, ["--base", base_tests_rev]),
+            "mutate": (mutate, ["--only", "broken"]),
+            "evidence": (evidence, ["--base", self.base, "--ids", "T108-Z9", "--no-run"]),
+            "quality": (quality, []),
+            "run_check": (run_check, ["--base", record_base, "--branch", "task/888-iso"]),
+            "metrics": (metrics, ["--base", self.base]),
+        }
+        for name, (module, argv) in cases.items():
+            with self.subTest(module=name):
+                code_marker = expected[name]
+                os.environ["HARNESS_EVENTS"] = "off"
+                off = self.run_main(module, *argv)
+                self.assertEqual(off[0], code_marker[0], name)
+                self.assertIn(code_marker[1], off[1] + off[2], name)
+                os.environ.pop("HARNESS_EVENTS", None)
+                events._warned = False
+                on = self.run_main(module, *argv)
+                self.db_path.unlink()
+                self.db_path.mkdir()  # 库位置变成目录：写入必然失败
+                events._warned = False
+                try:
+                    broken = self.run_main(module, *argv)
+                finally:
+                    self.db_path.rmdir()
+                self.assertEqual(off, on)  # 关闭与开启：stdout、业务 stderr 与退出码逐字一致
+                self.assertEqual(on[0], broken[0])
+                self.assertEqual(on[1], broken[1])
+                # 唯一差异是 T101 固定的一次写入失败提示；其余 stderr 逐字一致
+                self.assertEqual([line for line in broken[2].splitlines() if line != warn],
+                                 on[2].splitlines())
+                self.assertEqual(broken[2].count(warn), 1)
 
 
 if __name__ == "__main__":
