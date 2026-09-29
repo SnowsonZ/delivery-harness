@@ -1,0 +1,3 @@
+#!/bin/sh
+# 派发与独立评审入口（bin/harness dispatch）：把已合并的任务书交给执行方，在槽位 worktree 中完成并开 PR。
+exec "$(dirname -- "$0")/harness" dispatch "$@"

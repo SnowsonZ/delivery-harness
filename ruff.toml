@@ -1,0 +1,7 @@
+# 引擎自身的 lint 标准（CI 与本地一致）。只用默认规则集。
+# DTZ（naive datetime）豁免：周报与评审记录按本机日期归日。
+target-version = "py311"
+line-length = 120
+
+[lint]
+extend-ignore = ["DTZ"]

@@ -1,0 +1,51 @@
+# delivery-harness 项目配置：身份、运行时、源码与语言、verify 检查清单、发版、变异目标。
+# 改动本文件属于 R3（护栏本身），由用户批准。
+schema = 1
+
+[identity]
+# 必填：执行方与 Agent 推送、开 PR、评论使用的 GitHub 账号（与仓库所有者不同，合并须由非推送者批准）。
+# agent_login = ""
+# 可选：提交邮箱，缺省为 <login>@users.noreply.github.com。
+# agent_email = ""
+
+[runtime]
+# 可选：bin/harness 与 git 钩子优先使用的解释器（相对仓库根），缺省用 PATH 上的 python3。
+# python = ".venv/bin/python"
+# 派发槽位清理未跟踪文件时保留、并以符号链接指向主目录的路径（如本地虚拟环境）。
+preserve = []
+
+[sources]
+# 产品代码（R1 判定只看这些路径）。
+code = []
+# UI 代码：改动不自动合并。
+ui = []
+# 质量棘轮：Python 目录（ruff C901 与体量）、Swift 目录（轻量解析）。
+python_dirs = []
+swift_dirs = []
+
+[verify]
+# 锁定版本的 Python 工具（在 requirements 文件中写 tool==版本）。
+requirements = "requirements-dev.txt"
+pinned_tools = []
+# 检查顺序：引擎检查（tools、hygiene、quality、docs、acceptance、taskbook、integrity、replay）与下面的项目检查混排。
+order = []
+
+# 项目检查：name、tiers（quick/default/full）、command（`{python}` 换成当前解释器）或 shell、requires = "macos"。
+# [[verify.checks]]
+# name = "lint"
+# tiers = ["quick", "default", "full"]
+# command = ["{python}", "-m", "ruff", "check", "."]
+#
+# [[verify.checks]]
+# name = "tests"
+# command = ["{python}", "-m", "unittest", "discover", "-s", "tests"]
+
+# [release]
+# version_file = "src/version.py"
+# short_version_var = "VERSION"
+
+# [[mutation.targets]]
+# name = "关键函数"
+# file = "src/module.py"
+# functions = ["fn"]
+# tests = ["test_module"]
