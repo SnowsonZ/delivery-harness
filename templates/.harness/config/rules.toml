@@ -94,6 +94,8 @@ architecture_paths = ["tests/golden/**"]
 [dispatch]
 # 派发：仓库同级的固定槽位数、卡死判定与等待 CI 的上限。
 slots = 3
+# 判定 CI 通过与统计 CI 轮次所依据的工作流名（缺省 ["harness"]，即本模板的 harness.yml）；项目另有必需的 CI 工作流时列在这里。
+# ci_workflows = ["harness"]
 stall_minutes = 15
 ci_timeout_minutes = 60
 
