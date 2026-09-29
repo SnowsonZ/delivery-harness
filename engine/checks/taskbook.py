@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engine.checks import acceptance
+from engine.core import events
 from engine.core.common import ROOT, STATE_DIR, git, load_rules, path_matches
 
 TASK_GLOB = "task-*.md"
@@ -363,12 +364,88 @@ def on_main(path: str, root: Path = ROOT) -> str | None:
     return None
 
 
+def _problem_rule(error: str) -> str:
+    """观察旁路：把问题文案归到稳定的规则键（只用于事件计数，不参与判定；未识别的归 other）。"""
+    if error.startswith("头部缺少字段"):
+        return "header.required"
+    if error.startswith("task "):
+        return "header.task"
+    if error.startswith("class 取值非法"):
+        return "header.class"
+    if error.startswith("class ") and "与 risk" in error:
+        return "header.class_risk"
+    if error.startswith("designer"):
+        return "header.designer"
+    if error.startswith("size"):
+        return "header.size"
+    if error.startswith("architecture"):
+        return "header.architecture"
+    if error.startswith("spec_refs"):
+        return "header.spec_refs"
+    if error.startswith("budget"):
+        return "header.budget"
+    if error.startswith("rollback"):
+        return "header.rollback"
+    if error.startswith("「验收」表为空"):
+        return "acceptance.table"
+    if error.startswith("验收第"):
+        return "acceptance.row"
+    if error.startswith(("spec_refs 中的", "验收表挂了")):
+        return "acceptance.link"
+    if error.startswith("缺少「目标终态」"):
+        return "section.goal"
+    if error.startswith("中、大任务缺少"):
+        return "section.required"
+    if error.startswith("步骤触及护栏"):
+        return "steps.class"
+    if error.startswith(("步骤跨", "步骤触及架构级路径")):
+        return "steps.architecture"
+    if error.startswith("步骤触及 R3 路径"):
+        return "steps.risk"
+    if "origin/main" in error:
+        return "on_main"
+    if "taskbook-exempt.txt" in error:
+        return "exempt"
+    if error.startswith("不是 docs/plans"):
+        return "path"
+    return "other"
+
+
+def _admission_inputs(path: str, root: Path, rev: str) -> list[dict]:
+    """任务书引用（路径@提交 + 内容哈希）；文件读不到时只带路径，不带哈希。"""
+    target = root / path
+    if not target.is_file():
+        return [events.ref("taskbook", path)]
+    try:
+        return [events.file_ref("taskbook", target, rev=rev or None)]
+    except OSError:
+        return [events.ref("taskbook", path)]
+
+
+def _record_admission(reports: list[Report], root: Path = ROOT) -> None:
+    """观察旁路：taskbook.admit 每份任务书一条事件（通过与问题规则计数），失败不影响原判定。"""
+    try:
+        rev = git("rev-parse", "HEAD", cwd=root, check=False)
+        for report in reports:
+            counts: dict[str, int] = {}
+            for error in report.errors:
+                rule = _problem_rule(error)
+                counts[rule] = counts.get(rule, 0) + 1
+            events.emit(stage="ci", step="taskbook.admit", status="ok" if not report.errors else "fail",
+                        inputs=_admission_inputs(report.path, root, rev),
+                        outputs={"problems": len(report.errors), **counts},
+                        decision={"by": "taskbook", "rule": "admit",
+                                  "reason": report.errors[0] if report.errors else "合格"})
+    except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
+        return
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("paths", nargs="*", help="只检查这些任务书（默认全部）")
     parser.add_argument("--on-main", action="store_true", help="另要求与 origin/main 上的版本一致（派发前）")
     args = parser.parse_args(argv)
-    reports = check_all()
+    reports = check_all(ROOT)
     if args.paths:
         wanted = {Path(path).as_posix().removeprefix("./") for path in args.paths}
         reports = [report for report in reports if report.path in wanted]
@@ -384,6 +461,7 @@ def main(argv: list[str] | None = None) -> int:
     for report in failed:
         for error in report.errors:
             print(f"✗ {report.path}：{error}")
+    _record_admission(reports, ROOT)  # 观察：引用、通过与问题规则计数
     return 1 if failed else 0
 
 
