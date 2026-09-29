@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ENGINE_REPO = Path(__file__).resolve().parents[1]
 CLI = ENGINE_REPO / "engine" / "cli.py"
@@ -165,6 +166,36 @@ class InstallTest(unittest.TestCase):
         checks = self.repo / ".harness/config/checks.toml"
         checks.write_text(checks.read_text() + '\n[metrics.baseline]\nlabel = "v1"\nvalues = { "评审轮次" = 2 }\n')
         self.assertIn("v1 基线：评审轮次 2。", self.harness("metrics", "--base", "HEAD").stdout)
+
+
+class UpgradeSourceTest(unittest.TestCase):
+    def test_migration_notes_list_only_newer_versions(self):
+        sys.path.insert(0, str(ENGINE_REPO))
+        from engine.core import install
+        notes = install.migration_notes("0.0.1")
+        self.assertTrue(any("[metrics.baseline]" in note for note in notes), notes)
+        self.assertEqual(install.migration_notes(""), [])
+
+    def test_upgrade_refuses_a_commit_that_is_not_on_origin_main(self):
+        from engine.core import install
+        tmp = Path(tempfile.mkdtemp(prefix="dh-src-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        run = lambda *a, cwd: subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True, env=env(), check=True)
+        origin, work = tmp / "origin.git", tmp / "work"
+        run("init", "-q", "--bare", "-b", "main", str(origin), cwd=tmp)
+        run("clone", "-q", str(origin), str(work), cwd=tmp)
+        (work / "engine").mkdir()
+        (work / "engine" / "x.py").write_text("x = 1\n")
+        run("add", "-A", cwd=work)
+        run("commit", "-q", "-m", "one", cwd=work)
+        run("push", "-q", "origin", "HEAD:main", cwd=work)
+        run("fetch", "-q", cwd=work)
+        with mock.patch.object(install, "ENGINE_DIR", work / "engine"):
+            self.assertEqual(install.not_on_origin_main(), "")
+            run("checkout", "-q", "-b", "feat", cwd=work)
+            (work / "engine" / "x.py").write_text("x = 2\n")
+            run("commit", "-q", "-am", "two", cwd=work)
+            self.assertIn("不在 origin/main 上", install.not_on_origin_main())
 
 
 class OwnValuesTest(unittest.TestCase):
