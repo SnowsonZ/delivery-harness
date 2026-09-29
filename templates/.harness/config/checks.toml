@@ -51,6 +51,10 @@ order = []
 # name = "tests"
 # command = ["{python}", "-m", "unittest", "discover", "-s", "tests"]
 
+# 事件与审计（可观测性，可选）。库与产物在 git 公共目录（.git/harness/），不入库、不上传。
+# [events]
+# enabled = true   # false 关闭事件写入；环境变量 HARNESS_EVENTS=off 优先于本配置。缺省开启。
+
 # [release]
 # version_file = "src/version.py"
 # short_version_var = "VERSION"
