@@ -174,6 +174,7 @@ class UpgradeSourceTest(unittest.TestCase):
         from engine.core import install
         notes = install.migration_notes("0.0.1")
         self.assertTrue(any("[metrics.baseline]" in note for note in notes), notes)
+        self.assertTrue(all(note.startswith("**Migration:**") for note in notes), notes)
         self.assertEqual(install.migration_notes(""), [])
 
     def test_upgrade_refuses_a_commit_that_is_not_on_origin_main(self):

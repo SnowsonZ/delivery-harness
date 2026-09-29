@@ -65,7 +65,7 @@ def migration_notes(previous_version: str) -> list[str]:
         if line.startswith("## "):
             version = re.search(r"\d+\.\d+\.\d+", line)
             applies = "Unreleased" in line or (version is not None and _version_tuple(version.group()) > _version_tuple(previous_version))
-        elif applies and "**Migration:**" in line:
+        elif applies and line.lstrip("- ").startswith("**Migration:**"):
             notes.append(line.lstrip("- ").strip())
     return notes
 
