@@ -248,6 +248,37 @@ class ObservabilityTaskTest(unittest.TestCase):
             self.assertTrue(any("不可校验" in problem for problem in problems), problems)
             self.assertEqual(self.db_path.read_bytes(), before)
 
+    def test_observation_failures_do_not_change_business_outcome(self):
+        """C0：事件开启、关闭、写入失败三态下，业务 stdout、退出码与业务 stderr 逐字相同。
+
+        只排除 T101 固定的一次写入失败提示；stderr 其余差异不允许。
+        """
+        body = """
+            events.emit("verify", "warm", "ok", trace_id="t")
+            print("out:business")
+            with events.span("verify", "step", trace_id="t") as holder:
+                holder.outputs = {"n": 2}
+                print("in-span")
+                raise SystemExit(7)
+        """
+        os.environ["HARNESS_EVENTS"] = "off"  # 三态之一：关闭
+        off = self.run_py(body)
+        del os.environ["HARNESS_EVENTS"]  # 三态之二：开启且库健康
+        on = self.run_py(body)
+        self.assertTrue(self.db_path.exists())
+        self.db_path.unlink()  # 三态之三：写入失败（库路径被目录占用）
+        self.db_path.mkdir(parents=True)
+        try:
+            broken = self.run_py(body)
+        finally:
+            shutil.rmtree(self.db_path)
+        self.assertEqual((off.returncode, on.returncode, broken.returncode), (7, 7, 7))
+        self.assertEqual(off.stdout, on.stdout)
+        self.assertEqual(broken.stdout, on.stdout)
+        self.assertEqual((off.stderr, on.stderr), ("", ""))
+        self.assertEqual(broken.stderr.splitlines(), [WARN_LINE])  # 仅固定的一次提示
+        self.assertEqual(on.stdout, "out:business\nin-span\n")
+
     def test_ci_run_attempt_job_isolates_chains(self):
         def ci_env(run_id=None, attempt=None, job=None):
             os.environ["CI"] = "true"
