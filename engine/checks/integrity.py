@@ -1,7 +1,7 @@
 """引擎完整性：业务仓库里的 .harness/engine/ 必须与 .harness/engine.lock 记录的发布版本逐字节一致。
 
 引擎以内置副本的形式装进业务仓库（经用户批准合并到 main，守卫与规则都从 main 读取）。
-锁文件记录版本、引擎仓库提交与目录树哈希；任何人（包括执行方）改了引擎文件而没有走 `bin/harness upgrade`，
+锁文件记录版本、引擎仓库提交与目录树哈希；任何人（包括执行方）改了引擎文件而没有走 upgrade（在引擎仓库的检出中运行），
 哈希就对不上，verify 失败。升级引擎只能由 upgrade 同时改引擎与锁文件，属于 R3，由用户批准。
 
     bin/harness integrity            核对（verify 各档运行）
@@ -46,14 +46,14 @@ def check(engine_dir: Path = ENGINE_DIR, lock_file: Path = LOCK_FILE) -> tuple[b
     if engine_dir.parent != lock_file.parent:
         return True, "引擎不在业务仓库的 .harness/ 下（引擎仓库自身），无需核对"
     if not lock_file.exists():
-        return False, f"缺少 {lock_file.name}：用 `bin/harness upgrade` 安装或升级引擎，不要手工复制"
+        return False, f"缺少 {lock_file.name}：在引擎仓库的检出中运行 `python3 engine/cli.py upgrade --target <本仓库>`，不要手工复制"
     lock = read_lock(lock_file)
     actual = tree_hash(engine_dir)
     if actual != lock.get("tree"):
         return False, (
             f"引擎文件与锁定的 {lock.get('version')}（{str(lock.get('commit', ''))[:12]}）不一致：\n"
             f"  锁定 {lock.get('tree')}\n  实际 {actual}\n"
-            "引擎只能经 `bin/harness upgrade` 整体替换（R3，由用户批准）；本地修改请撤销"
+            "引擎只能在引擎仓库的检出中用 `python3 engine/cli.py upgrade --target <本仓库>` 整体替换（R3，由用户批准）；本地修改请撤销"
         )
     return True, f"引擎 {lock.get('version')}（{str(lock.get('commit', ''))[:12]}）与锁文件一致 ✓"
 
