@@ -629,7 +629,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         return status()
     if args.command == "review":
-        import review as review_module  # review 依赖本模块，按需导入
+        from engine.agents import review as review_module  # review 依赖本模块，按需导入
 
         if args.watch:
             return review_module.watch(args.interval, args.reviewer)

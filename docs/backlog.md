@@ -58,3 +58,4 @@ B34–B41 的处理建议（B35 与 B36 先做、B41 放弃等）用户 2026-09-
 | B48 | 第三方可走通：通用 CI 工作流、两套 ruleset、`[platform]` 批准方式与 App 变量名可配置、单账号模式与风险说明；README「Platform setup」 | 2026-09-29，delivery-harness #3 |
 | B53 | CI 工作流名可配置（`[dispatch] ci_workflows`），dispatch 等待全部必需工作流；T001 冒烟暴露 | 2026-09-29，delivery-harness #11 |
 | B55 | `dispatch` 等 CI 时对 `gh` 瞬时失败有限次重试（连续 3 次才抛出）；T001 后验证 `wait_ci` 时暴露，本机网络多次瞬断 | 2026-09-29，delivery-harness #15 |
+| B56 | `bin/dispatch review` 导入旧的平铺模块名 `review`，自 v0.1 抽离起崩溃（`bin/harness review pr` 不受影响）；T101 评审时暴露 | 2026-09-29，delivery-harness #15 |
