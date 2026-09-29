@@ -16,7 +16,7 @@
 
 | 编号 | 事项 | 估计成本 | 负责 | 来源 |
 |---|---|---|---|---|
-| B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、`audit`、即时告警；收掉 B36、B38、B40。设计已审定（`docs/plans/2026-09-29-observability-design.md`），T101 事件库已合并，进行中：分支 `codex/observability-task-breakdown`；剩余24份任务书草案（22份可派发、2份设计方文档），OpenCode第二轮可提交，F1–F9已解决、4条非阻断建议已澄清；追溯表/共用合同C8的F10细化待用户明确审定，按 `docs/task-splitting.md` 整包提交（`docs/plans/2026-09-29-observability-execution-plan.md`） | 大 | 评审方 | 用户 2026-09-29 |
+| B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、`audit`、即时告警；收掉 B36、B38、B40。设计已审定（`docs/plans/2026-09-29-observability-design.md`），T101 事件库已合并，进行中：分支 `codex/observability-task-breakdown`；剩余25份任务书（23份可派发，含 2026-09-29 修订新增的 T110；2份设计方文档），OpenCode第二轮可提交，F1–F9已解决、4条非阻断建议已澄清；追溯表/共用合同C8的F10细化待用户明确审定，按 `docs/task-splitting.md` 整包提交（`docs/plans/2026-09-29-observability-execution-plan.md`） | 大 | 评审方 | 用户 2026-09-29 |
 | B45 | 第二个项目接入前：`adopt`（探测语言、源码目录、测试与 lint 命令，渐进档位，已有配置幂等合并，AGENTS.md 受管块）与 TypeScript 语言插件 | 大 | 评审方 | 用户 2026-09-29（面向开源、接入无感） |
 | B42 | harness 测试（Agent-Notification 的 `tests/test_harness*.py`）移植到本仓库：改为基于夹具项目，本仓库单独即可验证；那边只留消费方契约测试 | 中 | 评审方 | Agent-Notification T008 |
 | B44 | 本仓库 CI 加消费方契约测试：检出 Agent-Notification main，用待测引擎 upgrade 后跑其 harness 测试与 `verify --quick` | 小 | 评审方 | Agent-Notification T008 |
@@ -35,6 +35,7 @@
 | B59 | 独立评审的测试强度核查：T101 的 OpenCode 评审通过，但没发现设计方变异检查抓出的两个未被抓住的变异。本仓库没有评审校准集；建立校准集（含「测试恒真、变异未被抓住」类样本）并按其结果选评审方与提示词 | 中 | 评审方 | T101 复核 |
 | B60 | 命令守卫误报：`command_guard` 会扫描 heredoc 正文，把正文里出现的 `HARNESS_*=…` 字样当成「设置覆盖变量」拒绝（同样的文字放在 `echo` 引号里则放行，说明引号内已按数据处理，heredoc 正文没有）。改为按 shell 结构解析，heredoc 正文与引号内文字一律当数据，只在真正的赋值、`env`、`export` 位置判定；补回归测试（heredoc、here-string、引号、真赋值各一）。2026-09-29 修改文档时被设计方守卫误拦 | 小 | 评审方 | 可观测性文档修改时暴露 |
 | B61 | 任务书步骤文件解析漏掉根目录多点文件名（如 README.zh-CN.md）：`taskbook.step_files` 的 PATH_TOKEN 只识别单点根文件名，导致这类步骤路径不参与类别/风险交叉核对。补解析与回归，不能只靠合格任务书数量；本次拆分用直接读取「涉及文件」列补核对，不在文档拆分中改判定器 | 小 | 评审方 | B46拆分结构核对，2026-09-29 |
+| B64 | 引擎任务书校验的 DESIGNERS 枚举扩展（现仅 claude-code/codex）：支持任意设计方标识（如 zcode），免得新设计方沿用旧席位署名；现以「Zcode 代行 codex 席位」过渡（T110 头部 designer: codex）。触发：设计方席位再变更或新增执行方宿主时 | 小 | 评审方 | PR #23 第二轮评审，2026-09-29 |
 | B62 | 凭据规则缺少词边界：普通长task文件名的尾部被误识别为密钥；T602文档迁移任务名在暂存后扫描触发9处误报。改进凭据模式边界并补真实凭据/普通标识符正反例；本次只缩短新任务书slug，不改护栏规则 | 小 | 评审方 | B46提交前卫生检查，2026-09-29 |
 | B47 | 开源化其余项：界面与提示词国际化（en、zh-CN）、可配置的目录约定与默认分支、执行方宿主适配器（Pi 之外）、`platform` 一键平台设置与 App manifest | 中 | 评审方 | 用户 2026-09-29 |
 | B49 | 自举：本仓库装上自己的 Agent 层与 git 层守卫（目前只有服务端 ruleset 兜底） | 中（进行中：分支 chore/self-host） | 评审方 | 2026-09-29 迁移准备 |
