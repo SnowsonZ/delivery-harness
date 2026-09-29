@@ -12,11 +12,10 @@
 
 ## 1. 按顺序推进
 
-用户 2026-09-29 定的顺序：先让第三方能走通（B48，已完成；B53 是 T001 冒烟暴露的后续阻塞），再做可观测性（B46，设计先交用户审），再做接入无感化（B45），之后装进第二个项目（Python + TypeScript）。
+用户 2026-09-29 定的顺序：先让第三方能走通（B48，已完成；B53 是 T001 冒烟暴露的后续阻塞，已完成），再做可观测性（B46，设计先交用户审），再做接入无感化（B45），之后装进第二个项目（Python + TypeScript）。
 
 | 编号 | 事项 | 估计成本 | 负责 | 来源 |
 |---|---|---|---|---|
-| B53 | **阻塞 P1 派发**：CI 工作流名写死为 `build`（Agent-Notification 的名字）：`dispatch.wait_ci`、`policy.branch_rounds`、`metrics.github_runs`（`build.yml`）、`weekly` 都按它查运行，第三方无法等 CI、统计轮次。改为可配置（如 `[dispatch] ci_workflow`），等待时对该提交上的全部必需检查判定。T001 冒烟暴露 | 小 | 评审方 | T001 冒烟（2026-09-29） |
 | B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、即时告警；设计草案 `docs/plans/2026-09-29-observability-design.md` 待用户审（分支 docs/observability-design），审定前不写实现；收掉 B36、B38、B40 | 大 | 评审方设计，用户审 | 用户 2026-09-29 |
 | B45 | 第二个项目接入前：`adopt`（探测语言、源码目录、测试与 lint 命令，渐进档位，已有配置幂等合并，AGENTS.md 受管块）与 TypeScript 语言插件 | 大 | 评审方 | 用户 2026-09-29（面向开源、接入无感） |
 | B42 | harness 测试（Agent-Notification 的 `tests/test_harness*.py`）移植到本仓库：改为基于夹具项目，本仓库单独即可验证；那边只留消费方契约测试 | 中 | 评审方 | Agent-Notification T008 |
@@ -57,3 +56,4 @@ B34–B41 的处理建议（B35 与 B36 先做、B41 放弃等）用户 2026-09-
 |---|---|---|
 | — | 引擎抽离与 Agent-Notification 迁移（阶段 A、B） | 2026-09-29，delivery-harness #1、Agent-Notification #66 |
 | B48 | 第三方可走通：通用 CI 工作流、两套 ruleset、`[platform]` 批准方式与 App 变量名可配置、单账号模式与风险说明；README「Platform setup」 | 2026-09-29，delivery-harness #3 |
+| B53 | CI 工作流名可配置（`[dispatch] ci_workflows`），dispatch 等待全部必需工作流；T001 冒烟暴露 | 2026-09-29，delivery-harness #11 |
