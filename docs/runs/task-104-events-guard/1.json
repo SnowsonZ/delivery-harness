@@ -1,0 +1,26 @@
+{
+  "task": "T104",
+  "class": "K7",
+  "attempt": 1,
+  "branch": "task/104-events-guard",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "c0e47bbe022873020e79baf4fc721354ebea4704004b39b776e78f69bc20ec8a",
+  "prompt_path": "docs/runs/task-104-events-guard/1.prompt.md",
+  "guard_ref": "8ad6c19037feb1ae96ab80cf3e260f236b0b1eae",
+  "started_at": "2026-09-29T16:39:24+00:00",
+  "ended_at": "2026-09-29T17:15:33+00:00",
+  "executor_seconds": 2153.6,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {
+    "强制推送：已推送的历史不改写": 1
+  },
+  "gen_ai.usage.input_tokens": 5340593,
+  "gen_ai.usage.output_tokens": 88346,
+  "cost": 0.223935,
+  "escalation": null
+}
