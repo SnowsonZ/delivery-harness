@@ -13,6 +13,7 @@ AI 编码 Agent 的可验证交付引擎：判定器、护栏、风险判级与�
 - 引擎在 `engine/`，只依赖 Python 标准库（≥ 3.11）；安装模板在 `templates/`；测试在 `tests/`。
 - 验证：`python3 -m ruff check engine tests`（版本 0.16.8）与 `python3 -W error::ResourceWarning -m unittest discover -s tests -v`，与 CI（Ubuntu、macOS）同口径。通过与否只认命令与 CI 输出，不手写。
 - 在真实项目上验证（改判定逻辑、守卫、派发、配置读取时必做）：在 Agent-Notification 的独立 worktree 中运行 `python3 <本仓库>/engine/cli.py upgrade --target <worktree> --allow-dirty`，再跑它的 `bin/verify --full`（harness 契约测试 `tests/test_harness*.py` 暂在那边，待办 B42）。不在其主目录试装。
+- 升级已接入的项目（如 Agent-Notification）按 `docs/upgrading.md`；改配置项、命令接口或模板配合方式时，在 CHANGELOG 写 `**Migration:**` 条目，`upgrade` 靠它提示。
 - 引擎与模板里不得出现使用者自己的值（账号、邮箱、模型、App、本机路径、项目名）：`tests/test_install.py` 的 OwnValuesTest 拦截；新增项目相关的值一律走 `.harness/config/` 配置，缺必填项明确报错。
 - 引擎运行时的提示与文案目前为中文，国际化见待办；代码注释、提交说明沿用中文，README.md、SECURITY.md、CHANGELOG.md 用英文。
 
