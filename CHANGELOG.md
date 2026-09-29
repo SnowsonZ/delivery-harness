@@ -12,6 +12,9 @@ First release as a standalone engine, extracted from [Agent-Notification](https:
 - No user-specific defaults: agent identity, runtime interpreter, preserved paths, source directories, UI paths, release version file, verify checks, mutation targets, replay suites, reviewer models and report bots are configuration. Missing required settings are explicit errors.
 - Language plugins (`engine/lang/`): Python and Swift signature comparison, dependency detection, function size and nesting.
 - Templates for `bin/`, git hooks, agent-tool hooks and config skeletons (`templates/`); installation never overwrites existing files.
+- CI templates for third parties: `harness`, `auto-merge` and `quality` workflows, two rulesets (two-account, single-account) and an `escape` issue template are installed under `.github/`. Project checks are read from `checks.toml`; the approval App's variable, secret and environment names and the approval mode are configured under the new `[platform]` section (`approval = "app" | "none"`); single-account mode is documented with its risks in SECURITY.md.
+- `base-tests` no longer fails a project that has no `tests/` directory at the base commit.
+- **Migration:** the delivery metrics and weekly report no longer print the built-in "v0.8.0 baseline" (it was the originating project's history). A project that wants a baseline line registers it under `[metrics.baseline]` (`label`, `values`) in `checks.toml`.
 - Migration aid: when `origin/main` still has the flat `harness/` layout, the git guard and dispatch read rules and export guards from the old location. Remove once all consumers have migrated.
 
 Known limits, planned next: English messages and prompts (i18n), configurable directory conventions and default branch, TypeScript language plugin, project adoption with detection (`adopt`), end-to-end tracing (observability), executor host adapters beyond Pi.

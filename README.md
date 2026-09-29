@@ -45,6 +45,26 @@ Then, in your repository:
 
 Upgrading: `python3 delivery-harness/engine/cli.py upgrade --target path/to/your-repo` replaces the engine and the lock, nothing else.
 
+## Platform setup (GitHub)
+
+`install` also writes `.github/workflows/{harness,auto-merge,quality}.yml`, `.github/rulesets/*.json` and an `escape` issue template. Project-specific checks come from `checks.toml`; edit the "Prepare project" steps in the workflows for your toolchain. Requirements come in two shapes, chosen by `[platform] approval` in `checks.toml`.
+
+**Two accounts (default, `approval = "app"`).** You (the owner), a separate GitHub account for the agent (`[identity] agent_login`, added as a collaborator with write access; `bin/as-agent` takes its token from `gh auth login`), and a GitHub App you create yourself with *Pull requests: read and write*, installed on the repository. The App only approves R0/R1 changes that `policy` routes to auto-merge; the ruleset requires an approval from someone other than the last pusher, so neither the agent nor the workflow can approve alone. Once per repository (the names below are the defaults; override them under `[platform]`):
+
+```sh
+gh api repos/OWNER/REPO/rulesets --method POST --input .github/rulesets/main.json
+echo '{"deployment_branch_policy":{"protected_branches":true,"custom_branch_policies":false}}' \
+  | gh api repos/OWNER/REPO/environments/harness-auto-merge --method PUT --input -
+gh variable set HARNESS_APP_CLIENT_ID --repo OWNER/REPO --body "<app client id>"
+gh secret set HARNESS_APP_PRIVATE_KEY --repo OWNER/REPO --env harness-auto-merge < app-private-key.pem
+gh api repos/OWNER/REPO/actions/permissions/workflow --method PUT \
+  -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false
+```
+
+**One account (`approval = "none"`).** Set `[identity] agent_login` to your own login and apply `.github/rulesets/main-single-account.json` instead (no approval required, everything else the same); no App or environment is needed and `auto-merge` merges with `GITHUB_TOKEN`. This works, but it removes the separation the two-account setup gives you: server-side rules can no longer tell the agent from you. See [SECURITY.md](SECURITY.md#single-account-mode) before choosing it.
+
+Whichever you choose, merge the adoption PR yourself: `auto-merge` is triggered by `workflow_run`, which only runs workflows that already exist on the default branch. Required status checks in both rulesets: `harness` (the job in `harness.yml`); add your own project checks to the ruleset if you have separate workflows.
+
 ## Commands
 
 All commands run through `bin/harness <command>` (or `python3 .harness/engine/cli.py <command>`). `bin/verify` and `bin/dispatch` are shortcuts.

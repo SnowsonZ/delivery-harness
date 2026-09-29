@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engine.checks import r1_checks, taskbook
-from engine.core.common import ROOT, commit_field, git, path_matches, setting
+from engine.core.common import ROOT, ConfigError, commit_field, git, path_matches, setting
 from engine.routing import risk, run_check
 
 CONTRACT_PATTERNS = ["docs/plans/task-*.md", "docs/templates/**", "docs/plans/backlog.md", "docs/specs/**"]
@@ -39,6 +39,23 @@ CONTRACT_PATTERNS = ["docs/plans/task-*.md", "docs/templates/**", "docs/plans/ba
 def ui_patterns() -> list[str]:
     """UI 代码（checks.toml [sources] ui）：改动按 K6 归类，不自动合并。"""
     return list(setting("sources", "ui", []))
+
+
+APPROVAL_MODES = ("app", "none")
+
+
+def platform_outputs() -> dict[str, str]:
+    """checks.toml [platform]：自动合并工作流的批准方式与 App 变量名。approval = "app"（默认，两个账号 + 批准 App）
+    或 "none"（单账号：ruleset 不要求批准，工作流用 GITHUB_TOKEN 合并，风险见 SECURITY.md）。"""
+    approval = setting("platform", "approval", "app")
+    if approval not in APPROVAL_MODES:
+        raise ConfigError(f".harness/config/checks.toml 的 [platform] approval 只能是 {' 或 '.join(APPROVAL_MODES)}，得到 {approval!r}")
+    return {
+        "approval": approval,
+        "app_client_id_var": setting("platform", "app_client_id_var", "HARNESS_APP_CLIENT_ID"),
+        "app_private_key_secret": setting("platform", "app_private_key_secret", "HARNESS_APP_PRIVATE_KEY"),
+        "environment": setting("platform", "environment", "harness-auto-merge"),
+    }
 
 
 BUDGET_LABEL = "budget-exceeded"
@@ -249,6 +266,7 @@ def main(argv: list[str] | None = None) -> int:
                     f"risk={facts.risk.label}\nclass={facts.machine_class}\n"
                     f"auto_merge={'true' if auto else 'false'}\naudit={'true' if audit else 'false'}\n"
                 )
+                handle.writelines(f"{key}={value}\n" for key, value in platform_outputs().items())
     return 0
 
 

@@ -8,6 +8,17 @@ schema = 1
 # 可选：提交邮箱，缺省为 <login>@users.noreply.github.com。
 # agent_email = ""
 
+[platform]
+# 自动合并的批准方式（.github/workflows/auto-merge.yml 读取；ruleset 见 .github/rulesets/）：
+#   "app"（默认）  两个账号：Agent 用单独的 GitHub 账号，自动合并的 PR 由批准 App 批准。
+#   "none"         单账号：ruleset 不要求批准，用 GITHUB_TOKEN 合并；此时 [identity] agent_login 填你自己的账号，
+#                  风险见 SECURITY.md「Single-account mode」。
+# approval = "app"
+# 批准 App 的仓库变量名（App 的 client id）、密钥名与放密钥的 environment 名；缺省如下，仅在与现有命名冲突时改。
+# app_client_id_var = "HARNESS_APP_CLIENT_ID"
+# app_private_key_secret = "HARNESS_APP_PRIVATE_KEY"
+# environment = "harness-auto-merge"
+
 [runtime]
 # 可选：bin/harness 与 git 钩子优先使用的解释器（相对仓库根），缺省用 PATH 上的 python3。
 # python = ".venv/bin/python"
@@ -49,3 +60,8 @@ order = []
 # file = "src/module.py"
 # functions = ["fn"]
 # tests = ["test_module"]
+
+# 交付度量与周报并列的历史基线（可选）：label 显示在「<label> 基线：」前。
+# [metrics.baseline]
+# label = "v1.0"
+# values = { "评审轮次" = 5 }

@@ -48,6 +48,8 @@ TAMPERED = 3
 
 def run(base: str, head: str = "HEAD", cwd: Path = ROOT) -> tuple[bool, bool, str]:
     """返回 (base 测试是否通过, 是否强制要求通过, 摘要)。测试框架被篡改时强制要求通过。"""
+    if not git("ls-tree", "-r", "--name-only", base, "--", "tests", cwd=cwd).strip():
+        return True, False, "base 没有 tests/，无已有测试可回放"
     intended = [flag for flag in risk.classify(base, head, cwd).flags if flag.startswith(INTENDED)]
     temp = Path(tempfile.mkdtemp(prefix="base-tests-"))
     worktree = temp / "wt"
