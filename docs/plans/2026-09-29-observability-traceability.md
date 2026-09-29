@@ -1,6 +1,6 @@
 # B46 需求追溯表与实施顺序
 
-状态：**OpenCode第二轮可提交，待用户审定共用合同C8**。设计方席位自 2026-09-29 起由 Zcode 代行 codex（任务书头部仍写 designer: codex，受引擎 DESIGNERS 枚举所限，扩展枚举另立待办）；独立评审方OpenCode；已合并的历史T101不改。本轮修订以 PR #23 落库。
+状态：**OpenCode第二轮可提交，待用户审定共用合同C8**。设计方席位自 2026-09-29 起由 Zcode 代行 codex（任务书头部仍写 designer: codex，受引擎 DESIGNERS 枚举所限，扩展枚举另立待办）；独立评审方OpenCode；已合并的历史T101不改。本轮修订以 PR #24 落库。
 
 依据：[设计](2026-09-29-observability-design.md)、[共用合同](2026-09-29-observability-task-contracts.md)、[拆分流程](../task-splitting.md)。设计条款→需求行→任务验收为正向；后面的任务表为反向。具名新测试尚未实现，本文不声称验收通过。T101已合并，其存量验收不足由T109补强。
 

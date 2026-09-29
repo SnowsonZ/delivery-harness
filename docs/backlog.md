@@ -16,9 +16,7 @@
 
 | 编号 | 事项 | 估计成本 | 负责 | 来源 |
 |---|---|---|---|---|
-<<<<<<< HEAD
 | B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、`audit`、即时告警；收掉 B36、B38、B40。设计已审定（`docs/plans/2026-09-29-observability-design.md`），T101 事件库已合并，进行中：分支 `codex/observability-task-breakdown`；剩余25份任务书（23份可派发，含 2026-09-29 修订新增的 T110；2份设计方文档），OpenCode第二轮可提交，F1–F9已解决、4条非阻断建议已澄清；追溯表/共用合同C8的F10细化待用户明确审定，按 `docs/task-splitting.md` 整包提交（`docs/plans/2026-09-29-observability-execution-plan.md`） | 大 | 评审方 | 用户 2026-09-29 |
-
 | B63 | T109 独立评审遗留（一般级两条，处置：PR #20 先合并再跟进）：① `engine/core/events.py` `emit` 的 step 合法性检查基于 strip 后的 `step_text`，写入 payload 却是未 strip 的原值，含首尾空白/换行的 step 绕过 `_clean_str` 规则以原值入库，与「非法整条不写」口径边界不一致——随 B46 P1 收掉（T102–T105 再触 events 时修，最晚 T107 前），修法：对实际写入值执行同一清洗（或统一写 `step_text`）并补尾部换行负例断言；② T109 行为变化（`default_source` 真实取值变为 `ci:<run_id>:<run_attempt>:<job>`、`store_artifact` 失败改返回 `None`、`verify` 拒校验新版库）未记 CHANGELOG——归 T107 的 `p1_changelog`，G2 前必须落实 | 小 | 评审方（设计方复核定修法） | T109 独立评审（PR #20，2026-09-29） |
 | B45 | 第二个项目接入前：`adopt`（探测语言、源码目录、测试与 lint 命令，渐进档位，已有配置幂等合并，AGENTS.md 受管块）与 TypeScript 语言插件 | 大 | 评审方 | 用户 2026-09-29（面向开源、接入无感） |
 | B42 | harness 测试（Agent-Notification 的 `tests/test_harness*.py`）移植到本仓库：改为基于夹具项目，本仓库单独即可验证；那边只留消费方契约测试 | 中 | 评审方 | Agent-Notification T008 |
