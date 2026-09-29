@@ -12,10 +12,11 @@
 
 ## 1. 按顺序推进
 
-用户 2026-09-29 定的顺序：先让第三方能走通（B48，已完成），再做可观测性（B46，设计先交用户审），再做接入无感化（B45），之后装进第二个项目（Python + TypeScript）。
+用户 2026-09-29 定的顺序：先让第三方能走通（B48，已完成；B53 是 T001 冒烟暴露的后续阻塞），再做可观测性（B46，设计先交用户审），再做接入无感化（B45），之后装进第二个项目（Python + TypeScript）。
 
 | 编号 | 事项 | 估计成本 | 负责 | 来源 |
 |---|---|---|---|---|
+| B53 | **阻塞 P1 派发**：CI 工作流名写死为 `build`（Agent-Notification 的名字）：`dispatch.wait_ci`、`policy.branch_rounds`、`metrics.github_runs`（`build.yml`）、`weekly` 都按它查运行，第三方无法等 CI、统计轮次。改为可配置（如 `[dispatch] ci_workflow`），等待时对该提交上的全部必需检查判定。T001 冒烟暴露 | 小 | 评审方 | T001 冒烟（2026-09-29） |
 | B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、即时告警；设计草案 `docs/plans/2026-09-29-observability-design.md` 待用户审（分支 docs/observability-design），审定前不写实现；收掉 B36、B38、B40 | 大 | 评审方设计，用户审 | 用户 2026-09-29 |
 | B45 | 第二个项目接入前：`adopt`（探测语言、源码目录、测试与 lint 命令，渐进档位，已有配置幂等合并，AGENTS.md 受管块）与 TypeScript 语言插件 | 大 | 评审方 | 用户 2026-09-29（面向开源、接入无感） |
 | B42 | harness 测试（Agent-Notification 的 `tests/test_harness*.py`）移植到本仓库：改为基于夹具项目，本仓库单独即可验证；那边只留消费方契约测试 | 中 | 评审方 | Agent-Notification T008 |
@@ -28,6 +29,8 @@
 |---|---|---|---|---|
 | B50 | 第三方走通遗留的项目专属内容：`base-tests` 只支持 unittest 与固定 `tests/` 目录（需可配置测试命令，随 B45 的 adopt）；守卫拒绝文案与周报里仍有原项目的事故编号（v0.8.0）、设计章节号和 `docs/review/weekly/` 路径（随 B47 国际化清理）；B48 的工作流未在真实 GitHub 仓库上跑过，只做了本地等价验证，首个真实仓库（第二个项目）接入时核对 | 中 | 评审方 | B48 |
 | B51 | 升级时自动检测配置缺口（对照新版引擎列出缺失的必填或建议配置，替代只靠 CHANGELOG 的 Migration 条目）；与 B45 的 adopt 一起做。已完成部分：拒绝非 main 提交、打印 Migration 条目、`docs/upgrading.md`（PR #3） | 小 | 评审方 | B48 后 Agent-Notification 升级流程讨论 |
+| B52 | 审计账本覆盖「被拦下」（关闭未合并）的 PR：v0.2 只做已合并（用户 2026-09-29 定），被拦下的 PR 目前只在本机库里 | 中 | 评审方 | 可观测性设计 4.1 |
+| B54 | 任务拆分评审工具化：`bin/dispatch review-plan`（复用独立评审的材料包与提示词，材料为设计、追溯表与全部任务书），现按 `docs/task-splitting.md` 手工执行 | 中 | 评审方 | 用户 2026-09-29 |
 | B47 | 开源化其余项：界面与提示词国际化（en、zh-CN）、可配置的目录约定与默认分支、执行方宿主适配器（Pi 之外）、`platform` 一键平台设置与 App manifest | 中 | 评审方 | 用户 2026-09-29 |
 | B49 | 自举：本仓库装上自己的 Agent 层与 git 层守卫（目前只有服务端 ruleset 兜底） | 中（进行中：分支 chore/self-host） | 评审方 | 2026-09-29 迁移准备 |
 | B4 | 按改动行做变异测试（先只支持 Python），自动发现「测试写了但没测到东西」 | 出现一次这类逃逸再做；约 1 天，每个 PR 的 CI 多 1–4 分钟 | 评审方 | Agent-Notification 修复证据方案讨论（2026-09-26） |
