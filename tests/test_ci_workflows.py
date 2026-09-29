@@ -36,6 +36,20 @@ class FakeGitHub(dispatch.GitHub):
         return json.dumps(self.runs_by_workflow.get(workflow, []))
 
 
+class FlakyGitHub(FakeGitHub):
+    """前 failures 次查询抛 gh 失败，之后正常。"""
+
+    def __init__(self, failures, runs_by_workflow):
+        super().__init__(runs_by_workflow)
+        self.failures = failures
+
+    def _run(self, argv, cwd=None, agent=False, stdin=None):
+        if self.failures > 0:
+            self.failures -= 1
+            raise RuntimeError("gh run list 失败：EOF")
+        return super()._run(argv, cwd, agent, stdin)
+
+
 class CiWorkflowsTest(unittest.TestCase):
     def workflows(self, names):
         return mock.patch.object(common, "setting", lambda *a, **k: names)
@@ -80,6 +94,19 @@ class CiWorkflowsTest(unittest.TestCase):
                 mock.patch.object(dispatch.time, "sleep"), \
                 mock.patch.object(dispatch.time, "monotonic", side_effect=[0, 0, 1, 999]):
             self.assertFalse(github.wait_ci("b", SHA, 10)[0])
+
+    def test_wait_ci_survives_transient_gh_failures(self):
+        github = FlakyGitHub(dispatch.CI_QUERY_ATTEMPTS - 1, {"harness": [run_row()]})
+        with mock.patch.object(dispatch, "ci_workflows", return_value=["harness"]), \
+                mock.patch.object(dispatch.time, "sleep") as sleep:
+            self.assertEqual(github.wait_ci("b", SHA, 60), (True, ""))
+        self.assertEqual(sleep.call_count, dispatch.CI_QUERY_ATTEMPTS - 1)
+
+    def test_wait_ci_raises_after_repeated_gh_failures(self):
+        github = FlakyGitHub(dispatch.CI_QUERY_ATTEMPTS, {"harness": [run_row()]})
+        with mock.patch.object(dispatch, "ci_workflows", return_value=["harness"]), \
+                mock.patch.object(dispatch.time, "sleep"), self.assertRaises(RuntimeError):
+            github.wait_ci("b", SHA, 60)
 
     def test_branch_rounds_counts_distinct_commits_across_listed_workflows(self):
         table = {"ci": [run_row(SHA), run_row("b" * 40)], "harness": [run_row(SHA), run_row("c" * 40, event="push")]}

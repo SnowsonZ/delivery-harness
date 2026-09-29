@@ -44,6 +44,8 @@ from engine.core.common import ENGINE_DIR, ROOT, ci_workflows, git, load_rules, 
 
 PROMPT_TEMPLATE = ENGINE_DIR / "prompts" / "dispatch_prompt.md"
 ESCALATION_FILE = "build/dispatch/escalation.md"
+CI_QUERY_ATTEMPTS = 3  # 等 CI 时对 gh 查询的最多尝试次数
+CI_QUERY_RETRY_SECONDS = 5
 
 
 def agent_identity() -> tuple[str, str]:
@@ -541,6 +543,18 @@ class GitHub:
             argv += ["--label", label]
         self._run(argv, agent=True, stdin=body)
 
+    def _ci_runs(self, workflow: str, branch: str) -> list[dict]:
+        """查一个工作流在该分支上的运行。gh 瞬时失败（如网络断开）连续 CI_QUERY_ATTEMPTS 次才抛出，避免一次瞬断中止整个派发。"""
+        for attempt in range(1, CI_QUERY_ATTEMPTS + 1):
+            try:
+                return json.loads(self._run(["gh", "run", "list", "--workflow", workflow, "--branch", branch,
+                                             "--json", "headSha,status,conclusion,databaseId,url", "--limit", "10"]))
+            except (RuntimeError, json.JSONDecodeError):
+                if attempt == CI_QUERY_ATTEMPTS:
+                    raise
+                time.sleep(CI_QUERY_RETRY_SECONDS)
+        return []
+
     def wait_ci(self, branch: str, sha: str, timeout: float) -> tuple[bool, str]:
         """等 rules.toml [dispatch] ci_workflows 列出的每个工作流在该提交上跑完；全部成功才算通过。"""
         workflows = ci_workflows()
@@ -548,8 +562,7 @@ class GitHub:
         while time.monotonic() < deadline:
             found = {}
             for workflow in workflows:
-                runs = json.loads(self._run(["gh", "run", "list", "--workflow", workflow, "--branch", branch,
-                                             "--json", "headSha,status,conclusion,databaseId,url", "--limit", "10"]))
+                runs = self._ci_runs(workflow, branch)
                 run = next((item for item in runs if item["headSha"] == sha), None)
                 if run and run["status"] == "completed":
                     found[workflow] = run

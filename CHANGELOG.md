@@ -17,6 +17,7 @@ First release as a standalone engine, extracted from [Agent-Notification](https:
 - **Migration:** the delivery metrics and weekly report no longer print the built-in "v0.8.0 baseline" (it was the originating project's history). A project that wants a baseline line registers it under `[metrics.baseline]` (`label`, `values`) in `checks.toml`.
 - `upgrade` refuses an engine checkout whose commit is not on `origin/main` (override: `--allow-dirty`) and prints the entries that start with `**Migration:**` of this changelog newer than the project's current lock; procedure in `docs/upgrading.md`.
 - The CI workflows that decide "CI passed" and count CI rounds (`dispatch`, merge routing, delivery metrics, weekly report) are configurable (`rules.toml` `[dispatch] ci_workflows`, default `["harness"]`) instead of the hard-coded name `build`; dispatch waits for every listed workflow on the pushed commit.
+- `dispatch` retries a failed `gh run list` query up to three times while waiting for CI, so a single network drop no longer aborts a dispatch.
 - **Migration:** a project whose CI workflow is not named `harness` (for example one that still uses `build`) must set `[dispatch] ci_workflows` in `.harness/config/rules.toml`, otherwise dispatch waits for a workflow that does not exist.
 - Migration aid: when `origin/main` still has the flat `harness/` layout, the git guard and dispatch read rules and export guards from the old location. Remove once all consumers have migrated.
 
