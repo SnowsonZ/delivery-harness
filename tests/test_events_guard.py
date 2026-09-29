@@ -258,6 +258,29 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(len(self.events_rows()), 2)  # 失败的写入不留半条事件，原事件原样保留
         self.assertEqual(events_db.verify(), [])
 
+    def test_failure_isolation_scope(self):
+        """失败隔离的范围（合同 C0）：库版本更新与不可写库都不改变判定，放行保持安静。"""
+        payload = '{"tool_name": "Bash", "tool_input": {"command": "git push --force origin feature-x"}}'
+        argv = ["--format", "claude", "--role", "implementer"]
+        baseline = self.guard(COMMAND_GUARD, argv, stdin=payload)
+        self.assertEqual(baseline.returncode, 2, baseline.stderr)
+        self.assertEqual(len(self.events_rows()), 1)
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("PRAGMA user_version=9")
+            conn.commit()
+        newer = self.guard(COMMAND_GUARD, argv, stdin=payload)
+        self.assertEqual(newer.returncode, 2, newer.stderr)
+        self.assertEqual(newer.stderr, baseline.stderr)  # 新库只读不写：不写事件也无失败提示
+        self.assertEqual(len(self.events_rows()), 1)
+        self.db_path.unlink()
+        self.db_path.mkdir()  # 库不可用时放行：无事件、无提示、退出码 0
+        allow = self.guard(COMMAND_GUARD, ["--format", "json", "--role", "designer"],
+                           stdin='{"command": "git status --short"}')
+        self.assertEqual(allow.returncode, 0, allow.stderr)
+        self.assertEqual(allow.stderr, "")
+        shutil.rmtree(self.db_path)
+        self.assertEqual(self.events_rows(), [])
+
 
 if __name__ == "__main__":
     unittest.main()
