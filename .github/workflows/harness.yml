@@ -1,0 +1,81 @@
+name: harness
+
+# 每个 PR 与 main 上的机器判定：verify（项目检查取自 .harness/config/checks.toml）、卫生、基线测试、
+# 风险等级、运行记录、修复证据、交付度量。风险等级与证据由机器生成，写入 job summary。
+# 本文件安装后归项目所有：依赖安装、操作系统矩阵等按项目需要改（改动属于 R3）。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # job 名 `harness` 是 ruleset 要求的状态检查名（.github/rulesets/*.json）；改名须同步。
+  harness:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read  # 交付度量读取本分支的运行记录（CI 轮次）
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # 项目自己的依赖与工具链（verify 的项目检查要用）。按需替换；只有引擎自身不需要任何依赖。
+      - name: Prepare project
+        run: |
+          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt; fi
+
+      - name: Resolve base
+        id: base
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          base="${PR_BASE:-$PUSH_BEFORE}"
+          case "$base" in ""|0000000000000000000000000000000000000000) base=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD) ;; esac
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Verify
+        run: python .harness/engine/cli.py verify --full
+
+      - name: Hygiene of changes
+        run: python .harness/engine/cli.py hygiene --range "${{ steps.base.outputs.sha }}"
+
+      # 已有判定器以 base 为准：追加或新增的测试代码不能让已有测试失效。
+      - name: Existing tests (base version) on head
+        if: github.event_name == 'pull_request'
+        run: python .harness/engine/cli.py base-tests --base "${{ steps.base.outputs.sha }}"
+
+      # 前面的检查失败时，风险等级与证据仍要生成，评审才看得到全貌。
+      - name: Risk level
+        id: risk
+        if: ${{ !cancelled() }}
+        run: python .harness/engine/cli.py risk --base "${{ steps.base.outputs.sha }}" --github
+
+      # 声明 R1 时，改到的变异目标得分不得低于基线（未配置变异目标则无事可做）。
+      - name: Mutation score of changed targets (R1 claims)
+        if: ${{ !cancelled() && steps.risk.outputs.claimed_r1 == 'true' }}
+        run: python .harness/engine/cli.py mutate --check --changed-since "${{ steps.base.outputs.sha }}"
+
+      # 实现任务书的 PR：归属 trailer 与运行记录（只报告；是否自动合并由 auto-merge 的 policy 判定）。
+      - name: Run record (task PRs)
+        if: ${{ !cancelled() }}
+        run: python .harness/engine/cli.py run-check --base "${{ steps.base.outputs.sha }}" --github
+
+      - name: Fix evidence
+        if: ${{ !cancelled() }}
+        run: python .harness/engine/cli.py evidence --base "${{ steps.base.outputs.sha }}" --markdown "$GITHUB_STEP_SUMMARY"
+
+      - name: Delivery metrics
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python .harness/engine/cli.py metrics --base "${{ steps.base.outputs.sha }}" --github --markdown "$GITHUB_STEP_SUMMARY"

@@ -70,6 +70,8 @@
 
 开发入口与规则见 [AGENTS.md](AGENTS.md)；未关闭事项见 [docs/backlog.md](docs/backlog.md)，路线与已定设计见 [docs/plans/2026-09-29-roadmap.md](docs/plans/2026-09-29-roadmap.md)。
 
+本仓库用自己的引擎开发：`.harness/`、`bin/`、git 与 Agent 钩子、`.github/workflows/` 是本项目自己的实例（`.harness/engine/` 是上一次合并的引擎的内置副本），不属于产品；产品是 `engine/` 与 `templates/`。
+
 ## 维护
 
 - 引擎仓库的每个改动都属于护栏本身，经 PR 由维护者批准；发布版本号由维护者确定后打 tag。

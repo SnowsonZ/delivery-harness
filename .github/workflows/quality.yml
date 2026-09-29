@@ -1,0 +1,51 @@
+name: quality
+
+# 每周的测试强度与熵治理检查：较慢，不放在每次提交的门禁里。周报汇总交付指标，写进固定的「每周质量报告」议题；
+# 检查失败也照样出周报。未配置变异目标、回放用例时，对应检查无事可做。
+on:
+  schedule:
+    - cron: '17 2 * * 1'  # 每周一 02:17 UTC
+    - cron: '43 6 * * 1'  # GitHub 定时在高负载时可能延迟或丢弃：第二个时刻兜底，周报更新同一议题，检查幂等
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read        # 周报：harness 与 quality 的运行
+      contents: read
+      issues: write        # 周报：更新「每周质量报告」议题、创建登记用标签
+      pull-requests: read  # 周报：本周合并的 PR
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # 周报按合并提交重算风险
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Prepare project
+        run: |
+          if [ -f requirements-dev.txt ]; then python -m pip install -r requirements-dev.txt; fi
+
+      - name: Mutation score not below baseline
+        run: python .harness/engine/cli.py mutate --check
+
+      - name: Incident replay
+        if: ${{ !cancelled() }}
+        run: python .harness/engine/cli.py replay
+
+      - name: Complexity ratchet
+        if: ${{ !cancelled() }}
+        run: python .harness/engine/cli.py quality
+
+      - name: Weekly report
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python .harness/engine/cli.py weekly --publish | tee -a "$GITHUB_STEP_SUMMARY"

@@ -11,7 +11,7 @@ AI 编码 Agent 的可验证交付引擎：判定器、护栏、风险判级与�
 ## 开发与验证
 
 - 引擎在 `engine/`，只依赖 Python 标准库（≥ 3.11）；安装模板在 `templates/`；测试在 `tests/`。
-- 验证：`python3 -m ruff check engine tests`（版本 0.16.8）与 `python3 -W error::ResourceWarning -m unittest discover -s tests -v`，与 CI（Ubuntu、macOS）同口径。通过与否只认命令与 CI 输出，不手写。
+- 验证：`bin/verify --full`（含下面两条）；或直接 `python3 -m ruff check engine tests`（版本 0.16.8）与 `python3 -W error::ResourceWarning -m unittest discover -s tests -v`，与 CI（Ubuntu、macOS）同口径。通过与否只认命令与 CI 输出，不手写。
 - 在真实项目上验证（改判定逻辑、守卫、派发、配置读取时必做）：在 Agent-Notification 的独立 worktree 中运行 `python3 <本仓库>/engine/cli.py upgrade --target <worktree> --allow-dirty`，再跑它的 `bin/verify --full`（harness 契约测试 `tests/test_harness*.py` 暂在那边，待办 B42）。不在其主目录试装。
 - 升级已接入的项目（如 Agent-Notification）按 `docs/upgrading.md`；改配置项、命令接口或模板配合方式时，在 CHANGELOG 写 `**Migration:**` 条目，`upgrade` 靠它提示。
 - 引擎与模板里不得出现使用者自己的值（账号、邮箱、模型、App、本机路径、项目名）：`tests/test_install.py` 的 OwnValuesTest 拦截；新增项目相关的值一律走 `.harness/config/` 配置，缺必填项明确报错。
@@ -26,5 +26,5 @@ AI 编码 Agent 的可验证交付引擎：判定器、护栏、风险判级与�
 
 ## 本机注意
 
-- 本仓库还没有装自己的 Agent 层与 git 层守卫（自举在待办），推 main、改写历史等本机不拦，只有服务端 ruleset 兜底：不要依赖本机拦截，按上面的流程操作。
+- 本仓库已自举（B49）：装有自己的内置引擎副本（`.harness/engine/`，是上一次合并的引擎，引擎改动合并后要再走 `upgrade` PR 才对本仓库自己生效）、`bin/verify`、`bin/dispatch`、git 层与 Agent 层守卫。新环境先 `bin/harness guard-git install`（`pip install -r requirements-dev.txt` 装 ruff），提交前 `bin/verify`。
 - 用户在对话中要的总结、解释直接在对话里答，不落文档（除非明确要求）。

@@ -1,0 +1,70 @@
+# delivery-harness 项目配置：身份、运行时、源码与语言、verify 检查清单、发版、变异目标。
+# 改动本文件属于 R3（护栏本身），由用户批准。
+schema = 1
+
+[identity]
+# 必填：执行方与 Agent 推送、开 PR、评论使用的 GitHub 账号（与仓库所有者不同，合并须由非推送者批准）。
+agent_login = "Snowson"
+# 可选：提交邮箱，缺省为 <login>@users.noreply.github.com。
+# agent_email = ""
+
+[platform]
+# 自动合并的批准方式（.github/workflows/auto-merge.yml 读取；ruleset 见 .github/rulesets/）：
+#   "app"（默认）  两个账号：Agent 用单独的 GitHub 账号，自动合并的 PR 由批准 App 批准。
+#   "none"         单账号：ruleset 不要求批准，用 GITHUB_TOKEN 合并；此时 [identity] agent_login 填你自己的账号，
+#                  风险见 SECURITY.md「Single-account mode」。
+# approval = "app"
+# 批准 App 的仓库变量名（App 的 client id）、密钥名与放密钥的 environment 名；缺省如下，仅在与现有命名冲突时改。
+# app_client_id_var = "HARNESS_APP_CLIENT_ID"
+# app_private_key_secret = "HARNESS_APP_PRIVATE_KEY"
+# environment = "harness-auto-merge"
+
+[runtime]
+# 可选：bin/harness 与 git 钩子优先使用的解释器（相对仓库根），缺省用 PATH 上的 python3。
+# python = ".venv/bin/python"
+# 派发槽位清理未跟踪文件时保留、并以符号链接指向主目录的路径（如本地虚拟环境）。
+preserve = []
+
+[sources]
+# 产品代码（R1 判定只看这些路径）。
+code = ["engine/**", "templates/**"]
+# UI 代码：改动不自动合并。
+ui = []
+# 质量棘轮：Python 目录（ruff C901 与体量）、Swift 目录（轻量解析）。
+python_dirs = ["engine"]
+# 引擎是多层包，递归统计文件体量。
+python_glob = "**/*.py"
+swift_dirs = []
+
+[verify]
+# 锁定版本的 Python 工具（在 requirements 文件中写 tool==版本）。
+requirements = "requirements-dev.txt"
+pinned_tools = ["ruff"]
+# 检查顺序：引擎检查（tools、hygiene、quality、docs、acceptance、taskbook、integrity、replay）与下面的项目检查混排。
+order = []
+
+# 项目检查：name、tiers（quick/default/full）、command（`{python}` 换成当前解释器）或 shell、requires = "macos"。
+[[verify.checks]]
+name = "lint"
+tiers = ["quick", "default", "full"]
+command = ["{python}", "-m", "ruff", "check", "engine", "tests"]
+
+[[verify.checks]]
+name = "tests"
+tiers = ["default", "full"]
+command = ["{python}", "-W", "error::ResourceWarning", "-m", "unittest", "discover", "-s", "tests"]
+
+[release]
+version_file = "engine/__init__.py"
+short_version_var = "__version__"
+
+# [[mutation.targets]]
+# name = "关键函数"
+# file = "src/module.py"
+# functions = ["fn"]
+# tests = ["test_module"]
+
+# 交付度量与周报并列的历史基线（可选）：label 显示在「<label> 基线：」前。
+# [metrics.baseline]
+# label = "v1.0"
+# values = { "评审轮次" = 5 }

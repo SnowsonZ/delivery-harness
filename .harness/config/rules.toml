@@ -1,0 +1,127 @@
+# delivery-harness 规则：仓库卫生、按路径判级、任务书准入、派发、独立评审、git 守卫。
+# 改动本文件、.harness/ 下任何文件或 .githooks/ 都属于 R3（护栏本身），由用户批准。
+# 这是通用骨架：按项目实际目录调整 [risk] 与 [taskbook]，并在 PR 中说明。
+
+[hygiene]
+# 已跟踪文件或暂存区命中即失败：本地运行时、编译产物、数据库、系统文件。
+forbidden = [
+    "build/**",
+    ".venv/**",
+    "node_modules/**",
+    "**/__pycache__/**",
+    "**/*.pyc",
+    "**/*.sqlite",
+    "**/.DS_Store",
+    ".env",
+    ".env.*",
+]
+# 命中 forbidden 但允许入库的具体文件（逐个列出，不用通配）。
+allowed = []
+max_file_kb = 1024
+# 新增行命中即失败：凭据。
+secret_patterns = [
+    'ghp_[A-Za-z0-9]{30,}',
+    'github_pat_[A-Za-z0-9_]{40,}',
+    'sk-[A-Za-z0-9_-]{32,}',
+    'AKIA[0-9A-Z]{16}',
+    'xox[baprs]-[A-Za-z0-9-]{10,}',
+    '-----BEGIN [A-Z ]*PRIVATE KEY-----',
+]
+# 新增行命中即失败：本机真实用户目录（隐私）。夹具请用占位用户名。
+home_path_pattern = '(/Users/|/home/|C:\\Users\\)(?!(x|you|me|user|name|example|test|someone)[/\\])[A-Za-z0-9._-]+[/\\]'
+
+[risk]
+# 按改动路径取最高等级；未命中任何规则的路径按 R2 处理。
+# R3：护栏、CI 与发布、依赖清单、运行时入口。
+r3 = [
+    ".github/**",
+    ".githooks/**",
+    ".claude/**",
+    ".opencode/**",
+    ".pi/**",
+    ".zcode/**",
+    ".codex/**",
+    ".harness/**",
+    "bin/**",
+    ".gitignore",
+    # 整个仓库都是护栏本身：引擎与模板按 R3 对待。
+    "engine/**",
+    "templates/**",
+]
+# R2：产品代码与现役合同（产品代码目录见 checks.toml [sources]，未列出的路径同样按 R2）。
+r2 = [
+    "docs/specs/**",
+    "AGENTS.md",
+    "LICENSE",
+]
+# R0：说明性文档。测试目录单独判定（只新增为 R0，改动或删除已有测试升为 R2 并标记）。
+r0 = [
+    "docs/plans/**",
+    "docs/research/**",
+    "docs/review/**",
+    "docs/decisions/**",
+    "docs/runs/**",
+    "README*.md",
+]
+tests = ["tests/**"]
+# 合同：模板与待办清单须经用户审，先于 r0 判定。
+contracts = [
+    "docs/templates/**",
+    "docs/plans/backlog.md",
+]
+# 任务书按头部类别判定：K7、K8 与 architecture: true 为 R2，其余为 R0（实现 PR 仍按实际改动路径判级）。
+taskbooks = ["docs/plans/task-*.md"]
+# 只能缩减的清单：只删不增时按 R0。
+shrink_only = [".harness/state/acceptance-gaps.txt", ".harness/state/taskbook-exempt.txt"]
+# 黄金快照：任何改动都意味着行为变化，不能算 R1。
+golden = ["tests/golden/**"]
+
+[taskbook]
+# 触及这些路径的任务属护栏与流程类（K7）。
+guard_paths = [
+    ".github/**",
+    ".githooks/**",
+    ".claude/**",
+    ".opencode/**",
+    ".pi/**",
+    ".zcode/**",
+    ".codex/**",
+    ".harness/**",
+    "bin/**",
+    "engine/**",
+    "templates/**",
+]
+# 架构级：数据迁移、新增依赖、公共接口。
+architecture_paths = ["tests/golden/**"]
+# 模块：步骤涉及两个及以上模块即为架构级。按项目目录填写，例如 backend = ["src/server/**"]。
+[taskbook.modules]
+engine = ["engine/**"]
+templates = ["templates/**"]
+tests = ["tests/**"]
+
+[dispatch]
+# 派发：仓库同级的固定槽位数、卡死判定与等待 CI 的上限。
+slots = 3
+stall_minutes = 15
+ci_timeout_minutes = 60
+
+[review]
+# 独立评审：默认评审方（opencode、pi、codex、claude-code）与各评审方的模型；不填模型时沿用评审方工具自己的默认设置。
+# 不配置 reviewer 时按设计方自动选择另一家；换评审方或模型后应在校准集上重跑 TPR、TNR 再比较。
+# 默认由 OpenCode（只读的 plan 代理）评审，避开执行方 Pi；Pi、Codex 可选。本仓库没有评审校准集，首批评审结论由设计方复核后再采信。
+reviewer = "opencode"
+opencode_model = "zai-coding-plan/glm-5.3"
+pi_model = "zai-coding-cn/glm-5.3"
+codex_model = "gpt-6-sol"
+codex_reasoning_effort = "max"
+timeout_minutes = 30
+
+[guard]
+# git 层守卫。以下操作被拒绝，除非人显式设置覆盖变量（Agent 层守卫会拒绝设置这些变量的命令）：
+#   在保护分支上提交、推送保护分支      HARNESS_ALLOW_MAIN=1
+#   推送 tag（发版由用户执行）          HARNESS_ALLOW_TAG=1
+#   本地改写或删除保护分支、移动或删除 tag、强制推送   HARNESS_ALLOW_REWRITE=1
+#   pre-push 前跳过 verify              HARNESS_SKIP_VERIFY=1
+protected_branches = ["main"]
+# 执行方另外不能编辑的项目文件（引擎固定保护 .github、.githooks、.harness 与各 Agent 配置目录）。
+implementer_protected = ["requirements-dev.txt", "ruff.toml"]

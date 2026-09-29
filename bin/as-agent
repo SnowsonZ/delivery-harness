@@ -1,0 +1,37 @@
+#!/bin/sh
+# 以 Agent 的 GitHub 身份运行一条命令。
+# 用法：bin/as-agent opencode run "$(cat build/task-prompt.txt)"
+#       bin/as-agent git push -u origin task/xxx
+#       bin/as-agent gh pr create ...
+# 只影响这条命令及其子进程：gh 与 git 推送用 Agent 账号的令牌，提交作者与提交者为 Agent 账号；
+# 不改 gh 的当前账号，也不改仓库或全局 git 配置。
+set -eu
+
+# 身份取自 .harness/config/checks.toml [identity]；环境变量 AGENT_LOGIN、AGENT_EMAIL 可临时覆盖。
+if [ -z "${AGENT_LOGIN:-}" ] || [ -z "${AGENT_EMAIL:-}" ]; then
+  identity=$("$(dirname -- "$0")/harness" identity) || exit 1
+  AGENT_LOGIN=${AGENT_LOGIN:-${identity%% *}}
+  AGENT_EMAIL=${AGENT_EMAIL:-${identity#* }}
+fi
+
+if [ "$#" -eq 0 ]; then
+  echo "用法：bin/as-agent <命令> [参数…]" >&2
+  exit 2
+fi
+
+if ! token=$(gh auth token --hostname github.com --user "$AGENT_LOGIN" 2>/dev/null) || [ -z "$token" ]; then
+  echo "gh 里没有 $AGENT_LOGIN 的登录。由用户执行一次：" >&2
+  echo "  gh auth login --hostname github.com   # 以 $AGENT_LOGIN 登录" >&2
+  echo "  gh auth switch --user <你自己的账号>   # 切回自己的账号" >&2
+  exit 1
+fi
+
+export GH_TOKEN="$token"
+export GIT_AUTHOR_NAME="$AGENT_LOGIN" GIT_AUTHOR_EMAIL="$AGENT_EMAIL"
+export GIT_COMMITTER_NAME="$AGENT_LOGIN" GIT_COMMITTER_EMAIL="$AGENT_EMAIL"
+# git 推送走 gh 的凭据助手（它优先用 GH_TOKEN）；先清空已有助手，免得钥匙串里的用户凭据先被用上。
+export GIT_CONFIG_COUNT=2
+export GIT_CONFIG_KEY_0=credential.https://github.com.helper GIT_CONFIG_VALUE_0=
+export GIT_CONFIG_KEY_1=credential.https://github.com.helper GIT_CONFIG_VALUE_1='!gh auth git-credential'
+
+exec "$@"

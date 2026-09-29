@@ -1,0 +1,4 @@
+#!/bin/sh
+# 禁推保护分支与 tag、禁强制推送；推送前完整 verify（.harness/engine/guards/git_guard.py）。
+. "$(dirname -- "$0")/_runtime"
+exec "$HARNESS_PY" "$HARNESS_CLI" guard-git pre-push "$@"

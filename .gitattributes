@@ -1,0 +1,2 @@
+# 本仓库用自己的引擎开发：.harness/engine 是引擎的内置副本（由 upgrade 生成），不是源码。
+.harness/engine/** linguist-generated=true -diff
