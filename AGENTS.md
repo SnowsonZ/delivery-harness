@@ -5,6 +5,7 @@ AI 编码 Agent 的可验证交付引擎：判定器、护栏、风险判级与�
 ## 开工先读
 
 - 未关闭事项只记在 `docs/backlog.md`（待办清单）：开工和恢复中断时先读；新增、开始、关闭的规则见该文件「使用规则」。
+- B46拆分入口：`docs/plans/2026-09-29-observability-execution-plan.md`；写任务书/派发前读取其追溯表与共用合同，依赖完成且用户逐次下令才执行。
 - 路线与已定设计：`docs/plans/2026-09-29-roadmap.md`（阶段划分、安装形态、面向开源原则、接入无感化、可观测性设计要点）。
 - 首个使用方是 [Agent-Notification](https://github.com/SnowsonZ/Agent-Notification)（本机 `../session-manager`，主目录只留给用户）；抽离决定见其 `docs/decisions/0001-harness-extraction.md`。
 

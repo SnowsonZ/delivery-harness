@@ -76,3 +76,5 @@
 
 - 引擎仓库的每个改动都属于护栏本身，经 PR 由维护者批准；发布版本号由维护者确定后打 tag。
 - 新增或删除组件时同步更新本文件的「组成」与「原则与落点」。
+
+B46可观测性实施拆分草案：[执行计划](docs/plans/2026-09-29-observability-execution-plan.md)、[共用合同](docs/plans/2026-09-29-observability-task-contracts.md)、[需求追溯表](docs/plans/2026-09-29-observability-traceability.md)。OpenCode第二轮已给可提交结论，当前仍待用户审定设计细化。
