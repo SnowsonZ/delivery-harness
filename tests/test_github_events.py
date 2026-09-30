@@ -1,6 +1,7 @@
 """T304 GitHub 事实同步测试：假 gh 三种合并（人批准/App 批准/无批准）的全字段事实、抽样与合并后新
 escape 的不可变快照（旧事实保留、新事实另起新链）、分页与重复同步幂等（读 API 次数不影响事件哈希）、
-API 失败明确报告事实缺失且只读（不推送/合并/批准，工作流步骤 continue-on-error 隔离）。
+API 失败明确报告事实缺失且只读（不推送/合并/批准，工作流步骤 continue-on-error 隔离），以及修订二轮
+修复的单亲「标题 (#N)」提交判 squash（真 rebase 不误判、squash 形式 push 标题解析出 PR 号）。
 
 夹具沿用 tests/test_trace_events_cli.py 的模式：匿名临时 git 仓库、隔离 events_db.ROOT、递增冻结时钟、
 假 gh 桩（可配置失败与页容量，记录全部调用）；另经真实 cli install 安装布局与 PATH 上的假 gh 可执行
@@ -424,6 +425,52 @@ class ObservabilityTaskTest(unittest.TestCase):
         job = text.split("\n  harness:\n", 1)[1].split("\n  #", 1)[0]
         for permission in ("pull-requests: read", "issues: read", "contents: read"):
             self.assertIn(permission, job.split("- uses:", 1)[0])  # 同步所需只读权限，不升写权限
+
+    # ---- 修订二轮：单亲「标题 (#N)」提交判 squash；真 rebase 不误判；squash 形式标题解析 PR 号 ----
+
+    def test_squash_and_rebase_merge_methods(self):
+        squash_merge, squash_head = "a7" * 20, "a8" * 20
+        rebase_merge, rebase_head = "a9" * 20, "b0" * 20
+        gh = FakeGh(
+            pulls={55: {"number": 55, "state": "closed", "merged": True, "merged_at": TS,
+                        "merge_commit_sha": squash_merge, "title": "Fix the thing",
+                        "head": {"ref": "task/squash", "sha": squash_head},
+                        "merged_by": {"login": "alice", "type": "User"}, "labels": []},
+                   66: self.merged_pr(66, "task/rebased", head=rebase_head, merge_sha=rebase_merge,
+                                      merged_by={"login": "bob", "type": "User"}),
+                   77: {**self.merged_pr(77, "task/edited", head=NONE_HEAD, merge_sha=NONE_MERGE,
+                                         merged_by={"login": "carol", "type": "User"}),
+                        "title": "Rename things"}},
+            reviews={55: [], 66: [], 77: []},
+            commits={squash_merge: {"commit": {"message": "Fix the thing (#55)\n\n* one\n* two"},
+                                    "parents": [{"sha": "p1"}]},   # squash：单亲，主题 = 标题 (#55)
+                     rebase_merge: {"commit": {"message": "fix bug (#12)"},
+                                    "parents": [{"sha": "p2"}]},   # 真 rebase：顶提交碰巧以「(#N)」结尾
+                     NONE_MERGE: {"commit": {"message": "Rename things WIP (#77)"},
+                                  "parents": [{"sha": "p3"}]}},    # 尾注号对但主题≠标题：不判 squash
+            pr_commits={55: [{"sha": "x1"}, {"sha": "x2"}],    # squash 自多提交 PR，旧启发式会误判 rebase
+                        66: [{"sha": "y1"}, {"sha": "y2"}],
+                        77: [{"sha": "z1"}, {"sha": "z2"}]},
+        )
+        # squash 形式 push 标题解析出 PR 号：缺省路径不带 --pr 也同步（旧版报 no_pr），方式记 squash
+        code, out, err = self.run_sync("--head", squash_merge, gh=gh)
+        self.assertEqual(code, 0, err)
+        self.assertIn("PR #55", out)
+        row = self.merge_row("task/squash")
+        self.assertEqual(row["outputs"]["merge_method"], "squash")
+        self.assertEqual(row["outputs"]["merger"], "alice")
+
+        # 真 rebase：单亲、PR 多于一个提交、顶提交以「(#N)」结尾——仍记 rebase，不误判成 squash
+        code, _, err = self.run_sync("--pr", "66", gh=gh)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.merge_row("task/rebased")["outputs"]["merge_method"], "rebase")
+
+        # 反例：尾注 PR 号对但提交主题不是「标题 (#PR号)」（如合并后改过标题）——不判 squash
+        code, _, err = self.run_sync("--pr", "77", gh=gh)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.merge_row("task/edited")["outputs"]["merge_method"], "rebase")
+        self.assert_read_only(gh)
+        self.assertEqual(events_db.verify(), [])
 
     # ---- 步骤 2：安装布局经 PATH 上的假 gh 调用真实脚本入口；增量 --since 与幂等 ----
 

@@ -2,13 +2,15 @@
 
     python .harness/engine/reports/github_events.py [--pr <号>] [--head <提交>] [--since <UTC 时间>]
 
---pr 同步指定 PR；缺省从 push 合并提交的信息解析关联 PR（head 缺省取 GITHUB_SHA，本地为 HEAD）。
-手工合并与 App 合并都经 push 到 main 到达这里，不靠 auto-merge job 独占触发。--since 只增量读取该
+--pr 同步指定 PR；缺省从 push 合并提交的信息解析关联 PR（merge 形式以「Merge pull request #N from」
+开头，squash 形式主题为「标题 (#N)」；head 缺省取 GITHUB_SHA，本地为 HEAD）。手工合并与 App 合并都经
+push 到 main 到达这里，不靠 auto-merge job 独占触发。--since 只增量读取该
 时间后更新的 escape 议题（登记后顺带增量同步，不引入 watcher）；省略则全量读。只被合并后 main 上的
 harness 工作流模板调用，不注册进 cli.py（观察旁路；查询与渲染不追加自身事件，共用合同 C1）。
 
 merge 事件记录设计 3.5 全字段：批准者 login/type、批准绑定提交是否等于合并 head、合并者、合并方式
-与合并时标签；缺批准（单账号 none）记 "none"，不捏造 App；无法确定合并方式记 "unknown"。
+（merge / squash / rebase）与合并时标签；缺批准（单账号 none）记 "none"，不捏造 App；无法确定合并方式
+记 "unknown"。
 audit_sample 与 escape 按任务书用 stage=ci，不新增 STAGES 枚举。
 
 每类事实各成不可变快照：source = github:<PR号>:<规范化事实 sha256>（键排序紧凑 JSON 的 sha256），
@@ -44,6 +46,7 @@ ESCAPE_LABEL = "escape"
 AUDIT_LABEL = "audit"
 _CLASS_PREFIX = "class:"
 _MERGE_PR_RE = re.compile(r"Merge pull request #(\d+) from ")
+_SQUASH_PR_RE = re.compile(r"\(#(\d+)\)$")
 _REF_RE = re.compile(r"#(\d+)")
 _PAGE_LIMIT = 50
 _NONE = "none"
@@ -101,19 +104,30 @@ def _collect_pages(client, route: str, what: str, findings: list[dict]) -> list[
     return None
 
 
+def _squash_pr(message: str) -> int | None:
+    """squash 合并提交的主题是「<PR 标题> (#N)」：从首行尾注解析 PR 号，非该形式返回 None。"""
+    match = _SQUASH_PR_RE.search(message.split("\n", 1)[0].strip())
+    return int(match[1]) if match else None
+
+
 def _resolve_pr(client, repo: str, head: str, findings: list[dict]) -> int | None:
-    """从 push 合并提交的信息解析关联 PR：消息以「Merge pull request #N from」开头。"""
+    """从 push 合并提交的信息解析关联 PR：merge 形式以「Merge pull request #N from」开头，
+    squash 形式（手工 squash 合并也经 push 到 main 到达）主题以「标题 (#N)」结尾。"""
     try:
         commit = client.api(f"repos/{repo}/commits/{head}")
     except (RuntimeError, ValueError, AttributeError) as exc:
         findings.append(_finding("api", f"读取提交 {head[:12]}… 失败：{exc}"))
         return None
     message = commit.get("commit", {}).get("message") if isinstance(commit, dict) else None
-    match = _MERGE_PR_RE.match(message) if isinstance(message, str) else None
-    if match is None:
-        findings.append(_finding("no_pr", f"提交 {head[:12]}… 不是关联 PR 的合并提交，未同步"))
-        return None
-    return int(match[1])
+    if isinstance(message, str):
+        merge = _MERGE_PR_RE.match(message)
+        if merge is not None:
+            return int(merge[1])
+        squash = _squash_pr(message)
+        if squash is not None:
+            return squash
+    findings.append(_finding("no_pr", f"提交 {head[:12]}… 不是关联 PR 的合并提交，未同步"))
+    return None
 
 
 def _pull(client, repo: str, pr: int, findings: list[dict]) -> dict | None:
@@ -151,19 +165,32 @@ def _approval_fact(reviews: list[dict], head_sha: str | None) -> dict:
             "approval_bound": (commit == head_sha) if commit and head_sha else None}
 
 
-def _merge_method(client, repo: str, pr: int, merge_sha: str | None, findings: list[dict]) -> str:
-    """合并方式：双亲为 merge；单亲且 PR 多于一个提交为 rebase；其余（含无法取回）如实记 unknown。"""
+def _is_squash_subject(message, title: str | None, pr: int) -> bool:
+    """单亲提交判 squash 的核对：提交首行恰为「<PR 标题> (#PR号)」，标题与尾注都核对上才算，
+    碰巧以「(#N)」结尾的普通提交或真 rebase 的顶提交不会误判。"""
+    if not isinstance(message, str) or not isinstance(title, str) or not title.strip():
+        return False
+    return message.split("\n", 1)[0].strip() == f"{title.strip()} (#{pr})"
+
+
+def _merge_method(client, repo: str, pr: int, title: str | None,
+                  merge_sha: str | None, findings: list[dict]) -> str:
+    """合并方式：双亲为 merge；单亲且主题恰为「PR 标题 (#PR号)」判 squash；单亲且 PR 多于一个
+    提交为 rebase；其余（含无法取回）如实记 unknown。"""
     if not merge_sha:
         return _UNKNOWN
     try:
         commit = client.api(f"repos/{repo}/commits/{merge_sha}")
         parents = commit.get("parents") if isinstance(commit, dict) else None
+        message = commit.get("commit", {}).get("message") if isinstance(commit, dict) else None
     except (RuntimeError, ValueError, AttributeError) as exc:
         findings.append(_finding("api", f"读取合并提交 {merge_sha[:12]}… 失败：{exc}（合并方式记 unknown）"))
         return _UNKNOWN
     if isinstance(parents, list) and len(parents) == 2:
         return "merge"
     if isinstance(parents, list) and len(parents) == 1:
+        if _is_squash_subject(message, title, pr):
+            return "squash"
         commits = _collect_pages(client, f"repos/{repo}/pulls/{pr}/commits", f"PR {pr} 提交列表", findings)
         if commits is not None and len(commits) > 1:
             return "rebase"
@@ -222,7 +249,7 @@ def _sync_merge(client, repo: str, pr: int, pull: dict, trace: str,
                     "approval_commit": None, "approval_bound": None}
     else:
         approval = _approval_fact(reviews, head_sha)
-    method = _merge_method(client, repo, pr, merge_sha, findings)
+    method = _merge_method(client, repo, pr, pull.get("title"), merge_sha, findings)
     facts = {"kind": "merge", "pr": pr, "repository": events_io._repo_identity(repo),
              "head_ref": _head_ref(pull), "head_sha": head_sha,
              "merge_sha": merge_sha, "merged_at": _text(pull.get("merged_at")),
