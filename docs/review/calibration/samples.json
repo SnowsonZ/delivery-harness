@@ -1,0 +1,38 @@
+[
+  {
+    "pr": 49,
+    "head": "bce25432cbc2644d6c11336e302f3e1b97f1c21b",
+    "expected": "不通过",
+    "reason": "空洞接线断言 + macOS CI 失败（第二轮真实评审结论）"
+  },
+  {
+    "pr": 49,
+    "head": "639bf1cedb7729aa4d6d7d1fa4426c60a40464b7",
+    "expected": "通过",
+    "reason": "确定性锁用例修复后的第三轮真实评审结论"
+  },
+  {
+    "pr": 51,
+    "head": "48ad84b1e5e8572ea35c69a52fcf9c9b1e75135a",
+    "expected": "不通过",
+    "reason": "未知键回显（严重）+ 消费方旧格式误拒（G2 实测违约）"
+  },
+  {
+    "pr": 41,
+    "head": "80203b88605e8cdd30ff3c1c0cb175e64dc422f9",
+    "expected": "通过",
+    "reason": "T113 全链复核通过的真实任务 PR"
+  },
+  {
+    "pr": 33,
+    "head": "b8e48fb99223faa7615b15707e214d2478db4366",
+    "expected": "不通过",
+    "reason": "缺 [events] Migration 条目（首轮真实评审结论）"
+  },
+  {
+    "pr": 43,
+    "head": "7fcd54bf3a2c4fa4bde18e9e454689b5e9f196ee",
+    "expected": "通过",
+    "reason": "T201 全链复核通过的真实任务 PR"
+  }
+]
