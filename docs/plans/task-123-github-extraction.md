@@ -30,6 +30,7 @@ rollback: git revert（仅在用户授权后）
 - `engine/agents/github.py`（新增）
 - `engine/agents/dispatch.py`（仅删除搬移代码与新增一行再导出 import）
 - `tests/test_github_extraction.py`（新增）
+- `tests/test_ci_workflows.py`（仅限 9 处模块属性目标的机械替换，见修订记录）
 
 ## 非目标
 
@@ -64,3 +65,13 @@ rollback: git revert（仅在用户授权后）
 ## 交付与升级
 
 完成项目检查 `bin/verify --full`。设计方另做逐行验收与定向变异复核（删除再导出行，行 2 必须失败；在 github.py 改一处类行为，行 1 的既有测试必须失败）。纯搬移：G2 免（556 对照由设计方抽查）。同一失败连续三轮无新证据时停止该路径；不得自行扩大白名单、改原任务书、实现非目标。
+
+
+## 修订记录（2026-09-30，设计方裁决执行方升级 #70）
+
+执行方前置核对发现三约束（既有测试零修改 / 纯搬移 / 单行再导出）与 `tests/test_ci_workflows.py` 的 9 处模块属性引用结构性冲突（`dispatch.CI_QUERY_ATTEMPTS` ×3、`patch.object(dispatch, "ci_workflows")` ×6——搬移后 patch 拦截不到 github 命名空间的解析，且有 ruff F401 两头堵）。设计方核实逐行属实。裁决：
+
+- **采纳方案 1**：`tests/test_ci_workflows.py` 纳入白名单，允许 9 处机械替换（6 处 `dispatch.ci_workflows` → `github.ci_workflows`；3 处 `dispatch.CI_QUERY_ATTEMPTS` → `github.CI_QUERY_ATTEMPTS`；文件头补 `from engine.agents import github` 导入）——测试基建的模块属性对齐，T105 假体先例同类。
+- **验收行 1 口径修订**：「既有全部测试零修改逐字通过」改为「除 `tests/test_ci_workflows.py` 上述 9 处模块属性目标外零修改」；该文件断言语义不变。
+- **问题 2 裁决**：`dispatch.py` 维持单行 `from engine.agents.github import GitHub`，不额外再导出常量（方案 1 下测试改指 github 后无必要）。
+- 其余目标终态、验收行 2/3、白名单其余条目不变。升级工单 #70 随修订合并关闭。
