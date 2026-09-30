@@ -373,6 +373,24 @@ def _parse_utc(value) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+def _remove_expired_artifact(directory: Path, digest: str) -> str | None:
+    """删除过期产物文件；返回问题描述（None 表示已删除或本就缺失）。不追随符号链接。"""
+    target = directory / digest
+    try:
+        info = os.lstat(target)
+    except FileNotFoundError:
+        return None  # 文件已不在：过期的索引行一并清理
+    except OSError as exc:
+        return f"产物无法确认，已跳过：{exc.strerror or exc}"
+    if not stat.S_ISREG(info.st_mode):
+        return "产物位置不是普通文件（可能是符号链接），已跳过"
+    try:
+        target.unlink()
+    except OSError as exc:
+        return f"产物删除失败，已跳过：{exc.strerror or exc}"
+    return None
+
+
 def cleanup_artifacts(cutoff: datetime) -> list[str]:
     """删除过期本机产物：以 UTC created 判定（早于 cutoff 才过期），文件与索引行一起清。
 
@@ -394,23 +412,10 @@ def cleanup_artifacts(cutoff: datetime) -> list[str]:
             if not _HASH_NAME.fullmatch(str(digest)):
                 problems.append("产物索引名字不合法，已跳过（不删除）")
                 continue
-            target = directory / digest
-            try:
-                info = os.lstat(target)
-            except FileNotFoundError:
-                pass  # 文件已不在：过期的索引行一并清理
-            except OSError as exc:
-                problems.append(f"产物无法确认，已跳过：{exc.strerror or exc}")
+            problem = _remove_expired_artifact(directory, str(digest))
+            if problem:
+                problems.append(problem)
                 continue
-            else:
-                if not stat.S_ISREG(info.st_mode):
-                    problems.append("产物位置不是普通文件（可能是符号链接），已跳过")
-                    continue
-                try:
-                    target.unlink()
-                except OSError as exc:
-                    problems.append(f"产物删除失败，已跳过：{exc.strerror or exc}")
-                    continue
             conn.execute("DELETE FROM artifacts WHERE sha256=?", (digest,))
     return problems
 
@@ -484,6 +489,37 @@ def _delete_expired_stream(path: Path, cutoff_ts: float) -> list[str]:
     return []
 
 
+def _cleanup_attempt_streams(attempt_dir: Path, cutoff_ts: float) -> list[str]:
+    """删除一个 attempt 目录里的过期 round-N.jsonl；目录异常跳过并报告，符号链接不追随。"""
+    if not _is_real_dir(attempt_dir):
+        return ["attempt 目录不是普通目录，已跳过"]
+    try:
+        rounds = sorted(attempt_dir.iterdir())
+    except OSError:
+        return ["原始流目录无法读取，已跳过"]
+    problems: list[str] = []
+    for round_file in rounds:
+        if _ROUND_NAME.fullmatch(round_file.name):
+            problems.extend(_delete_expired_stream(round_file, cutoff_ts))
+    return problems
+
+
+def _cleanup_task_streams(task_dir: Path, protected: set[str], cutoff_ts: float) -> list[str]:
+    """一个任务目录的原始流清理：活动锁保护的任务连同全部 attempt 目录整目录跳过。"""
+    if task_dir.name in protected:
+        return []
+    if not _is_real_dir(task_dir):
+        return ["原始流任务目录不是普通目录，已跳过"]
+    try:
+        attempt_dirs = sorted(task_dir.iterdir())
+    except OSError:
+        return ["attempt 目录无法读取，已跳过"]
+    problems: list[str] = []
+    for attempt_dir in attempt_dirs:
+        problems.extend(_cleanup_attempt_streams(attempt_dir, cutoff_ts))
+    return problems
+
+
 def cleanup_dispatch_streams(runs: Path, cutoff: datetime) -> list[str]:
     """删除已终止运行的过期派发原始流（runs/<任务>/<attempt>/round-N.jsonl）。
 
@@ -497,33 +533,13 @@ def cleanup_dispatch_streams(runs: Path, cutoff: datetime) -> list[str]:
     if not _is_real_dir(runs):
         return []
     cutoff_ts = cutoff.timestamp()
-    problems: list[str] = []
     try:
         task_dirs = sorted(runs.iterdir())
     except OSError:
         return ["原始流目录无法读取"]
+    problems: list[str] = []
     for task_dir in task_dirs:
-        if task_dir.name in protected or not _is_real_dir(task_dir):
-            if task_dir.name not in protected:
-                problems.append("原始流任务目录不是普通目录，已跳过")
-            continue
-        try:
-            attempt_dirs = sorted(task_dir.iterdir())
-        except OSError:
-            problems.append("attempt 目录无法读取，已跳过")
-            continue
-        for attempt_dir in attempt_dirs:
-            if not _is_real_dir(attempt_dir):
-                problems.append("attempt 目录不是普通目录，已跳过")
-                continue
-            try:
-                rounds = sorted(attempt_dir.iterdir())
-            except OSError:
-                problems.append("原始流目录无法读取，已跳过")
-                continue
-            for round_file in rounds:
-                if _ROUND_NAME.fullmatch(round_file.name):
-                    problems.extend(_delete_expired_stream(round_file, cutoff_ts))
+        problems.extend(_cleanup_task_streams(task_dir, protected, cutoff_ts))
     return problems
 
 
