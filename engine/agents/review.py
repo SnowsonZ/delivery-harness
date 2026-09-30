@@ -38,7 +38,7 @@ from pathlib import Path
 from queue import Queue
 from typing import ClassVar
 
-from engine.agents import dispatch, dispatch_host
+from engine.agents import dispatch, dispatch_host, review_pack_io
 from engine.agents import dispatch_observation as observation
 from engine.core.common import ENGINE_DIR, ROOT, changed_files, commit_field, git, load_rules
 from engine.routing import run_check
@@ -330,8 +330,7 @@ def write_materials(workspace: Path, base: str, pr_text: str, task_text: str, ci
     (folder / "pr.md").write_text(pr_text, encoding="utf-8")
     (folder / "task.md").write_text(task_text or "无", encoding="utf-8")
     (folder / "ci.md").write_text(ci_text or "（校准样本没有 CI 运行）", encoding="utf-8")
-    diff = git("diff", "--no-color", f"{base}...HEAD", cwd=workspace)
-    (folder / "diff.patch").write_text(diff[:200_000], encoding="utf-8")
+    review_pack_io.write_diff(workspace, base)  # T124：diff 不再 200K 截断，超 2MB 按文件边界分片
     # 评审材料用被评审提交自己的引擎生成；迁移前的旧布局提交里引擎在 harness/ 平铺。
     entry = workspace / ".harness" / "engine" / "cli.py"
     command = [str(entry), "review-pack"] if entry.exists() else [str(workspace / "harness" / "review_pack.py")]
