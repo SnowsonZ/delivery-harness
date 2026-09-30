@@ -1,9 +1,11 @@
-"""Swift 语言插件（只用标准库的轻量解析）。
+r"""Swift 语言插件（只用标准库的轻量解析）。
 
 函数体量与嵌套深度：先把注释（含嵌套块注释）与字符串字面量（普通、多行三引号、带 # 的原始字符串）抹成空格，
-再配对大括号。「函数」指 func、init、deinit 与计算属性（`var x: T {`，SwiftUI 的 body 即此类）；函数体行数从
-`{` 所在行数到匹配的 `}` 所在行，嵌套深度以函数体自身为 1，闭包与控制流都计入。解析不求完美（如 #if 分支、
-正则字面量不处理），只需对同一份代码稳定。签名按声明文本比对，重载按多个签名计；新增 import 即算新依赖。
+再配对大括号。字符串插值 `\(...)` 里的代码连同内嵌的字符串字面量一起抹平，不让内层引号提前终止外层字符串。
+「函数」指 func、init、deinit 与计算属性（`var x: T {`，SwiftUI 的 body 即此类）；协议成员只有声明要求、
+没有实现体（如 `var x: T { get }`），不计入。函数体行数从 `{` 所在行数到匹配的 `}` 所在行，嵌套深度以函数体
+自身为 1，闭包与控制流都计入。解析不求完美（如 #if 分支、正则字面量不处理），只需对同一份代码稳定。
+签名按声明文本比对，重载按多个签名计；新增 import 即算新依赖。
 """
 
 from __future__ import annotations
@@ -23,6 +25,67 @@ _SWIFT_DECL = re.compile(
     r"(?<![.\w])(?:func\s+(?P<func>[^\s(<]+)|(?P<init>init|deinit)\b[?!]?|var\s+(?P<var>\w+)\s*:\s*[^=\n{};]+?\{)"
 )
 _DECL_KEYWORD = re.compile(r"(?<![.\w])(?:func|var|let|init|case|struct|class|enum|protocol|extension)\b")
+_PROTOCOL = re.compile(r"(?<![.\w])protocol\s+\w+")
+
+
+def _string_end(source: str, start: int, hashes: str, quote: str) -> int:
+    r"""从 opening 之后扫描字符串字面量，返回结束位置（closing 之后）。
+
+    识别插值 `\(...)` / `\#(...)`：插值内的嵌套字符串递归配对，不让内层引号提前终止外层字符串。
+    单行字符串未闭合时吞到行尾或文件尾（与既有行为一致）。
+    """
+    closing = quote + hashes
+    multiline = quote == '"""'
+    n = len(source)
+    j = start
+    while j < n:
+        ch = source[j]
+        if ch == "\\":
+            if source.startswith(hashes + "(", j + 1):
+                j = _interp_end(source, j + 2 + len(hashes), hashes, multiline)
+                continue
+            if not hashes:  # 普通字符串的转义 `\x`；原始字符串没有转义
+                j += 2
+                continue
+        if source.startswith(closing, j):
+            return j + len(closing)
+        if ch == "\n" and not multiline:
+            return j
+        j += 1
+    return n
+
+
+def _interp_end(source: str, start: int, hashes: str, multiline: bool) -> int:
+    r"""扫描插值表达式，返回配对 `)` 之后的位置；插值内是代码上下文。
+
+    圆括号计深度；字符串字面量（含插值，可递归）整体配对后跳过；单行字符串的插值遇到
+    换行视为未闭合，停在该换行处。
+    """
+    n = len(source)
+    depth = 1
+    j = start
+    while j < n:
+        ch = source[j]
+        if ch == '"':
+            match = _STRING_START.match(source, j)
+            if match:
+                j = _string_end(source, match.end(), match.group(1), match.group(2))
+                continue
+        elif ch == "#":
+            match = _STRING_START.match(source, j)
+            if match and match.group(1):  # 插值里的原始字符串 `#"…"#`
+                j = _string_end(source, match.end(), match.group(1), match.group(2))
+                continue
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        elif ch == "\n" and not multiline:
+            return j
+        j += 1
+    return n
 
 
 def strip(source: str) -> str:
@@ -54,19 +117,7 @@ def strip(source: str) -> str:
             continue
         match = _STRING_START.match(source, i)
         if match and (match.group(1) or ch == '"'):
-            hashes, quote = match.group(1), match.group(2)
-            closing = quote + hashes
-            j = match.end()
-            while j < n:
-                if not hashes and source[j] == "\\":
-                    j += 2
-                    continue
-                if source.startswith(closing, j):
-                    j += len(closing)
-                    break
-                if quote == '"' and source[j] == "\n":
-                    break
-                j += 1
+            j = _string_end(source, match.end(), match.group(1), match.group(2))
             out.append("".join("\n" if c == "\n" else " " for c in source[i:j]))
             i = j
             continue
@@ -94,7 +145,7 @@ def _body_open(text: str, index: int) -> int | None:
 
 
 def functions(source: str) -> list[tuple[str, int, int, int]]:
-    """返回 (名字, 声明行号, 函数体行数, 最大嵌套深度)。"""
+    """返回 (名字, 声明行号, 函数体行数, 最大嵌套深度)。协议成员只有要求、没有实现体，不计入。"""
     text = strip(source)
     closing: dict[int, int] = {}
     stack: list[int] = []
@@ -103,10 +154,17 @@ def functions(source: str) -> list[tuple[str, int, int, int]]:
             stack.append(index)
         elif ch == "}" and stack:
             closing[stack.pop()] = index
+    protocols: list[tuple[int, int]] = []
+    for match in _PROTOCOL.finditer(text):
+        open_at = _body_open(text, match.end())
+        if open_at is not None and open_at in closing:
+            protocols.append((open_at, closing[open_at]))
     functions = []
     for decl in _SWIFT_DECL.finditer(text):
         open_at = decl.end() - 1 if decl.group("var") else _body_open(text, decl.end())
         if open_at is None or open_at not in closing:
+            continue
+        if any(lo <= open_at <= hi for lo, hi in protocols):
             continue
         close_at = closing[open_at]
         depth = deepest = 0
