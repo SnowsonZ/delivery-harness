@@ -17,6 +17,7 @@ import urllib.request
 from pathlib import Path
 
 from engine.checks import evidence
+from engine.core import events
 from engine.core.cases import load_project_cases
 from engine.core.common import ROOT, added_lines, ci_workflows, git, setting
 from engine.routing import risk, run_check
@@ -98,6 +99,24 @@ def collect(base: str, head: str = "HEAD", use_github: bool = False, cwd: Path =
     return data
 
 
+def _record(data: dict, base: str, head: str) -> None:
+    """观察旁路：每个数值度量一条事件；列表度量拆成计数与逐条目，避免嵌套结构被过滤丢弃。"""
+    try:
+        inputs = [events.ref("rev", base), events.ref("rev", head)]
+        for key, value in data.items():
+            if isinstance(value, list):
+                events.emit(stage="ci", step="metrics", status="ok", inputs=inputs,
+                            outputs={"metric": key, "count": len(value)})
+                for item in value:
+                    events.emit(stage="ci", step="metrics", status="ok", inputs=inputs,
+                                outputs={"metric": key, "item": str(item)})
+            else:
+                events.emit(stage="ci", step="metrics", status="ok", inputs=inputs,
+                            outputs={"metric": key, "value": value})
+    except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
+        return
+
+
 def render(data: dict) -> str:
     lines = [f"### 交付度量（`{data['base']}` → `{data['head']}`）", "", "| 指标 | 本次 |", "|---|---|"]
     for key, value in data.items():
@@ -118,7 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--markdown", help="追加写入该文件（CI 写 job summary）")
     args = parser.parse_args(argv)
-    data = collect(args.base, args.head, args.github)
+    data = collect(args.base, args.head, args.github, cwd=ROOT)
+    _record(data, args.base, args.head)  # 观察：全部数值度量逐项
     text = json.dumps(data, ensure_ascii=False, indent=2) if args.json else render(data)
     print(text)
     if args.markdown:

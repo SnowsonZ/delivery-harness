@@ -40,7 +40,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from engine.agents import dispatch_host
+from engine.agents import dispatch_host, run_timeline
 from engine.agents import dispatch_observation as observation
 from engine.checks import acceptance, taskbook
 from engine.core.common import ENGINE_DIR, ROOT, ci_workflows, git, load_rules, setting
@@ -392,6 +392,9 @@ class Dispatcher:
             "cost": attempt.usage.get("cost"),
             "escalation": None if attempt.ok else attempt.exit,
         }
+        # T201 时间线：落盘前取本机链头，stages/anchors 安全摘要写进记录；记录提交后固定 run_record 锚点。
+        timeline, head = run_timeline.record_fields(task.branch)
+        record.update(timeline)
         (folder / f"{number}.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
         paths = [str(folder / f"{number}.json"), str(folder / f"{number}.prompt.md")]
         git("add", "--", *paths, cwd=slot)
@@ -402,6 +405,7 @@ class Dispatcher:
             message += "Risk: R1\n"  # 与执行方的提交一致，否则 R1 声明会被这次记录提交打断
         subprocess.run(["git", "commit", "--quiet", "-m", message], cwd=slot, env={**os.environ, **self.identity},
                        check=True)
+        run_timeline.fix_anchor(task.branch, head)
         return record["prompt_sha256"]
 
     # ---- 主流程 ----

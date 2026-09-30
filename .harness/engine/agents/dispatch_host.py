@@ -33,6 +33,7 @@ class RunResult:
     model: str = ""
     usage: dict = field(default_factory=dict)
     guard_denials: dict[str, int] = field(default_factory=dict)
+    guard_allowed: int = 0  # 守卫放行的工具调用数（含普通失败；被守卫拒绝的调用不计入）
 
 
 def executor_env(base: dict[str, str], identity: dict[str, str], gh_config_dir: Path) -> dict[str, str]:
@@ -156,3 +157,22 @@ class PiHost:
         if "cost" in result:
             result["cost"] = round(result["cost"], 6)
         return model, result, dict(denials)
+
+    def parse_observability(self, events: Path) -> dict:
+        """观察计数（B46 T105）：按每个 tool_execution_end 计一次完成——结果带守卫拒绝标记的计
+        guard_denied（一次调用一次，拒绝理由条数不冒充调用数），其余（成功或普通失败）计
+        guard_allowed（守卫放行，不代表工具成功）。missing_context 供 T202 填充，本任务恒为空列表。"""
+        counts = {"guard_allowed": 0, "guard_denied": 0, "missing_context": []}
+        if not events.exists():
+            return counts
+        for line in events.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") != "tool_execution_end":
+                continue
+            content = (event.get("result") or {}).get("content") or []
+            text = "\n".join(part.get("text", "") for part in content if isinstance(part, dict))
+            counts["guard_denied" if GUARD_DENIAL in text else "guard_allowed"] += 1
+        return counts

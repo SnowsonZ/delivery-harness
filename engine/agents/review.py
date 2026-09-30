@@ -1,7 +1,9 @@
 """独立评审：R2 及以上的 PR 由非任务设计方的 Agent 评审，结论写回 PR 供用户参考（目标态设计 8.3，决定 5）。
 
 分离规则：评审方不是该任务的设计方（任务书头部 designer；没有任务书时按提交的 Co-Authored-By 判断）；
-也不看执行方轨迹，只看任务书、PR 描述、diff 与证据包。默认评审方与各评审方的模型由 rules.toml [review]
+也不看执行方轨迹，只看任务书、PR 描述、diff 与证据包。材料里的任务书在既有探测（run_check.scope）
+未命中时，从 PR 标题与正文的 `docs/plans/task-*.md` 引用回退（B68），探测命中时行为不变。
+默认评审方与各评审方的模型由 rules.toml [review]
 指定（不配模型时沿用评审方工具自己的默认设置）；评审方与执行方同一宿主时在评论中标出，供用户判断独立性。
 
 结构上保证只读：评审在单独的 worktree（<仓库名>-review）里进行，Pi 只开放 read、grep、find、ls 且不加载
@@ -22,6 +24,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -303,6 +306,20 @@ def ci_summary(number: int, github) -> str:
     return "\n".join(f"- {item['name']}：{item['state']}（{item['link']}）" for item in checks) or "没有 CI 检查。"
 
 
+def taskbook_from_pr_text(base: str, title: str, body: str, workspace: Path) -> tuple[str, str]:
+    """B68 回退：既有任务书探测（run_check.scope）未命中时，从 PR 标题与正文提取 `docs/plans/task-*.md`
+    引用；引用文件在 base 上存在且 head 工作区仍可读时，返回 (相对路径, 全文)（与探测成功同一读取方式），
+    否则返回 ("", "")（task.md 维持「无」）。只读 base 与工作区，不影响 designer_of 与评审只读性。"""
+    for rel in dict.fromkeys(re.findall(r"docs/plans/task-[\w.-]+\.md", f"{title}\n{body}")):
+        if not git("show", f"{base}:{rel}", cwd=workspace, check=False):
+            continue  # base 上没有这份任务书
+        try:
+            return rel, (workspace / rel).read_text(encoding="utf-8")
+        except OSError:
+            continue  # head 上已被本 PR 删除：task_v1 无法按 路径@head 复取，视为未命中
+    return "", ""
+
+
 def write_materials(workspace: Path, base: str, pr_text: str, task_text: str, ci_text: str = "") -> None:
     folder = workspace / "build" / "review"
     folder.mkdir(parents=True, exist_ok=True)
@@ -376,9 +393,11 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
         return 2
     target = run_check.scope(base, "HEAD", pr["headRefName"], workspace)
     task_text = (workspace / target.taskbook).read_text(encoding="utf-8") if target and target.taskbook else ""
+    taskbook_rel = target.taskbook if target and target.taskbook else ""
+    if not taskbook_rel:  # 探测未命中才回退，命中时行为逐字不变
+        taskbook_rel, task_text = taskbook_from_pr_text(base, pr["title"], pr["body"] or "", workspace)
     write_materials(workspace, base, f"# {pr['title']}\n\n{pr['body']}", task_text, ci_summary(number, github))
-    materials = observation.review_materials(
-        workspace, base, head, target.taskbook if target and target.taskbook else None, number)
+    materials = observation.review_materials(workspace, base, head, taskbook_rel or None, number)
     executors = {record.get("gen_ai.agent.name") for record in run_check_records(workspace, base)}
     independent = None if designer is None else name != designer
     verdict, model, seconds = run_reviewer(make_reviewer(name), workspace, load_rules().get("review", {}).get(

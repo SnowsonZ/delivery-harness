@@ -54,8 +54,21 @@ def enabled() -> bool:
 
 
 def default_source() -> str:
-    """事件来源：CI 环境（CI=true）为 "ci"，否则 "local"。"""
-    return "ci" if os.environ.get("CI") == "true" else "local"
+    """事件来源：真实 Actions（run_id/run_attempt/job 三键齐全）为
+    "ci:<run_id>:<run_attempt>:<job>"（来源链隔离）；缺键的 CI 环境兼容返回 "ci"；否则 "local"。"""
+    if os.environ.get("CI") == "true":
+        run_id = os.environ.get("GITHUB_RUN_ID")
+        run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT")
+        job = os.environ.get("GITHUB_JOB")
+        if run_id and run_attempt and job:
+            return f"ci:{run_id}:{run_attempt}:{job}"
+        return "ci"
+    return "local"
+
+
+def _host_class(source: str) -> str:
+    """actor.host 缺省值：链来源的显示分类（隔离后的 ci:<run_id>:… 仍显示为 "ci"，其余沿用 source）。"""
+    return "ci" if source.startswith("ci") else source
 
 
 def _short_head() -> str:
@@ -104,9 +117,17 @@ def file_ref(kind: str, path: Path, rev: str | None = None) -> dict:
     return {"kind": kind, "ref": relative, "sha256": digest, "size": len(content)}
 
 
-def store_artifact(data: bytes | Path) -> dict:
-    """内容寻址保存到 artifacts/<sha256>（已存在则不重复写）并登记 artifacts 表，返回引用字典。"""
-    content = Path(data).read_bytes() if isinstance(data, Path) else bytes(data)
+def store_artifact(data: bytes | Path) -> dict | None:
+    """内容寻址保存到 artifacts/<sha256>（已存在则不重复写）并登记 artifacts 表，返回引用字典。
+
+    Path 读取或 bytes 转换失败同样不抛异常：提示一次并返回 None；调用方把 None 放进 inputs
+    时会被引用过滤器丢弃并计入 redacted，不产生半条引用。
+    """
+    try:
+        content = Path(data).read_bytes() if isinstance(data, Path) else bytes(data)
+    except Exception:  # noqa: BLE001  设计要求：观察失败不得影响调用方
+        _warn_once()
+        return None
     digest = hashlib.sha256(content).hexdigest()
     entry = {"kind": "artifact", "ref": digest, "sha256": digest, "size": len(content)}
     try:
@@ -188,8 +209,11 @@ def _filter_inputs(inputs) -> tuple[list[dict], int]:
     for item in inputs:
         item_clean, item_dropped = _filter_known(item, {"kind": _MAX_STR, "ref": _MAX_REF,
                                                         "sha256": _MAX_STR, "size": _MAX_STR})
-        clean.append(item_clean)
-        dropped += item_dropped
+        if any(value is not None for value in item_clean.values()):
+            clean.append(item_clean)
+            dropped += item_dropped
+        else:
+            dropped += max(item_dropped, 1)  # 过滤后为空的引用整条丢弃（不入表、不进哈希），至少计 1
     return clean, dropped
 
 
@@ -225,19 +249,23 @@ def emit(stage: str, step: str, status: str, *, trace_id: str | None = None,
          source: str | None = None) -> int | None:
     """写一个事件，返回事件 id；关闭、失败、被过滤掉整条事件时返回 None。永不抛异常。
 
-    trace_id 缺省 current_trace()；source 缺省按环境取 "ci"/"local"；
-    actor 缺省 {"role": "engine", "host": <source>}。
+    trace_id 缺省 current_trace()；source 缺省按环境取（真实 Actions 为 ci:<run_id>:<run_attempt>:<job>，
+    其余 CI 为 "ci"，本地为 "local"）；actor 缺省 {"role": "engine", "host": <来源的显示分类>}。
+    step 先去首尾空白（含换行）再按字符串隐私规则过滤：非法整条不写，合法写清洗后的值。
     """
     try:
         if not enabled():
             return None
-        if stage not in STAGES or status not in STATUSES or not str(step or "").strip():
+        step_text = str(step or "").strip()
+        if stage not in STAGES or status not in STATUSES or not step_text:
+            return None
+        if _clean_str(step_text, _MAX_STR) is None:
             return None
         source = source or default_source()
-        payload, clean_inputs = _build_payload(stage, str(step), status, source,
+        payload, clean_inputs = _build_payload(stage, step_text, status, source,
                                                trace_id or current_trace(), duration_ms,
                                                outputs, decision, error,
-                                               actor or {"role": "engine", "host": source}, inputs)
+                                               actor or {"role": "engine", "host": _host_class(source)}, inputs)
         return events_db.insert_event(payload, clean_inputs)
     except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
         _warn_once()
@@ -246,6 +274,9 @@ def emit(stage: str, step: str, status: str, *, trace_id: str | None = None,
 
 class Span:
     """span 上下文：块内可设置 status（默认 ok）、inputs、outputs、decision、error。"""
+
+    _FIXED_KEYS = frozenset(("trace_id", "duration_ms", "inputs", "outputs",
+                             "decision", "error", "actor", "source"))
 
     def __init__(self, stage: str, step: str, fixed: dict):
         self.stage = stage
@@ -264,7 +295,8 @@ def span(stage: str, step: str, **fixed) -> Iterator[Span]:
     """计时包装：退出时 emit 一个事件（duration_ms 为块耗时）。
 
     块内抛异常：status 设为 "error"、error={"kind": 异常类型名}，事件写入后重新抛出原异常。
-    fixed 里的键（trace_id、actor、source 等）原样传给 emit。
+    fixed 里 emit 认可的键（trace_id、actor、source 等）原样传递；未知键丢弃——
+    观察侧失败不得传播，也不得遮盖块内的业务异常。
     """
     holder = Span(stage, step, dict(fixed))
     holder._start = time.monotonic()
@@ -281,7 +313,7 @@ def span(stage: str, step: str, **fixed) -> Iterator[Span]:
             "inputs": holder.inputs, "outputs": holder.outputs,
             "decision": holder.decision, "error": holder.error,
         }
-        kwargs.update(holder.fixed)
+        kwargs.update({key: value for key, value in holder.fixed.items() if key in Span._FIXED_KEYS})
         emit(**kwargs)
 
 
