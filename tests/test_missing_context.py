@@ -439,6 +439,40 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(record["missing_context"], [])
         self.assertEqual(record["missing_context_status"], "unknown")
 
+        # 场景 E：宿主 parse_context 抛异常 → 按 unknown 降级，原任务照常完成（C0 失败隔离）
+        class BrokenContextHost(RecordingHost):
+            def parse_context(self, events_path):
+                raise RuntimeError("boom")
+
+        rel = "docs/plans/task-220-e.md"
+        self.write_taskbook(rel, self.header("T220-E"))
+        self.stub_taskbook(rel, self.header("T220-E"))
+        gh = FakeGitHub(self.repo)
+        code = self.run_dispatch(rel, BrokenContextHost(
+            [], executor_script(context_stream(report_line([VALID_TOOL_ITEM])))), gh)
+        self.assertEqual(code, 0)
+        self.assertIn(("open_pr", "task/220-e"), gh.calls)
+        record = self.record("task-220-e", 1)
+        self.assertEqual(record["missing_context"], [])
+        self.assertEqual(record["missing_context_status"], "unknown")
+
+        # 场景 F：事件关闭（HARNESS_EVENTS=off）→ 记录两键照写、澄清升级照常，只是不写新事件
+        rel = "docs/plans/task-220-f.md"
+        self.write_taskbook(rel, self.header("T220-F"))
+        self.stub_taskbook(rel, self.header("T220-F"))
+        events_before = len(self.all_events())
+        os.environ["HARNESS_EVENTS"] = "off"
+        try:
+            code = self.run_dispatch(rel, RecordingHost(
+                [], executor_script(stream, note="缺上下文")), FakeGitHub(self.repo))
+        finally:
+            os.environ.pop("HARNESS_EVENTS", None)
+        self.assertEqual(code, 1)
+        record = self.record("task-220-f", 1)
+        self.assertEqual(record["missing_context"], [VALID_TOOL_ITEM, VALID_SPEC_ITEM])
+        self.assertEqual(record["missing_context_status"], "reported")
+        self.assertEqual(len(self.all_events()), events_before)
+
 
 if __name__ == "__main__":
     unittest.main()
