@@ -23,8 +23,7 @@ from pathlib import Path
 from unittest import mock
 
 from engine.checks import taskbook
-from engine.core import common, events, events_db
-from engine.guards import command_guard
+from engine.core import common, events, events_db, shell_structure
 from engine.routing import policy, run_check
 
 GIT_ENV = {
@@ -82,9 +81,11 @@ rollback: git revert
 |---|---|---|---|---|
 | 不挂规格：B46 夹具 | 夹具 | 人工 | 人工核对 | 断言失败 |
 """
-# 可信内置规则理由从已批准代码的规则表静态取得（与 run_check 的例外集合同源）。
-RESET_HARD_REASON = next(reason for _pattern, key, reason in command_guard.COMMAND_RULES if key == "reset_hard")
-MERGE_REASON = command_guard.MERGE_REASON
+# 可信内置规则理由取引擎内置常量（与 run_check 的静态例外集合同源，评审 #51）。
+RESET_HARD_REASON = shell_structure.RESET_HARD
+MERGE_REASON = shell_structure.MERGE
+OVERRIDE_REASON = shell_structure.OVERRIDE
+CLEAN_X_PREFIX = shell_structure.CLEAN_X.split("{paths}")[0]
 
 
 def valid_stages() -> list[dict]:
@@ -266,6 +267,10 @@ class ObservabilityTaskTest(unittest.TestCase):
              lambda r: r.update(prompt_path="C:\\Users\\someone\\1.prompt.md"), "本机路径"),
             ("C06 可信理由追加正文", lambda r: r.update(guard_denials={RESET_HARD_REASON + "；再跑一遍": 1}),
              "未知理由"),
+            ("C06 CLEAN_X 前缀后追加正文", lambda r: r.update(guard_denials={CLEAN_X_PREFIX + "伪造的追加说明": 1}),
+             "未知理由"),
+            ("C06 CLEAN_X 前缀后非 -e 清单形态", lambda r: r.update(guard_denials={CLEAN_X_PREFIX + "-e a b c": 1}),
+             "未知理由"),
             ("C06 看似理由但不在可信集合", lambda r: r.update(guard_denials={"执行者不能编辑判定器": 1}),
              "未知理由"),
             ("C07 无标记自然语言正文", note("the executor explained the failure at length"), "未知自由文本"),
@@ -293,6 +298,9 @@ class ObservabilityTaskTest(unittest.TestCase):
              lambda r: r["stages"][1]["inputs"].append({"kind": "pattern", "ref": "engine/**"}), None),
             ("A04 提及命令与连接符的可信理由",
              lambda r: r.update(guard_denials={RESET_HARD_REASON: 2, MERGE_REASON: 1}), None),
+            ("A04 OVERRIDE 与 CLEAN_X 派生的结构化理由",
+             lambda r: r.update(guard_denials={OVERRIDE_REASON: 1,
+                                               CLEAN_X_PREFIX + "-e .venv、-e build/cache": 2}), None),
             ("A05 missing_context 按规定类别/原因/工具 ID",
              lambda r: r.update(missing_context=[{"category": "tool", "summary": "required_tool_unavailable",
                                                   "ref": "python"}], missing_context_status="reported"), None),

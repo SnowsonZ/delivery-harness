@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import itertools
 import json
 import math
 import os
@@ -32,9 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engine.checks import taskbook
-from engine.core import events
+from engine.core import events, shell_structure
 from engine.core.common import ROOT, changed_files, commit_field, git
-from engine.guards import command_guard
 
 RECORD_FIELDS = (
     "task", "class", "attempt", "branch", "gen_ai.agent.name", "host_version", "gen_ai.request.model",
@@ -153,9 +151,9 @@ def check_record(base: str, head: str, target: Scope, branch: str, cwd: Path) ->
 #
 # 先对所有键/值拒绝本机路径、换行、超长、会话/命令形态与 shell 结构，再按已知字段校验声明语法；
 # 未知自由文本 fail-closed。guard_denials 的键只有与内置 guard 规则理由完全相等的旧摘要可保留
-# （即使理由提及命令或连接符），且该例外仍不能含路径或换行；例外集合从本模块运行处的已批准代码
-# （COMMAND_RULES/TOOL_RULES 及 implementer 规则）静态取得，不执行 PR 代码。检查只读记录内容，
-# 不读事件库。
+# （即使理由提及命令或连接符），且该例外仍不能含路径或换行；例外集合是 shell_structure 固定理由
+# 常量与命令表字面量的静态清单（评审 #51：不迭代规则表拼装，与常量不同步时按主线代码修订）。检查只读
+# 记录内容，不读事件库。
 
 _MAX_TEXT = 200  # 与 events 的 decision.reason 上限同档：更长的字符串按超长拒绝，不截断
 _MAX_PROBLEMS = 8  # 失败原因里最多列出的命中处数（超出只报总数，不回显内容）
@@ -177,12 +175,25 @@ _BARE_COMMAND_RE = re.compile(r"(?i)\s*(?:" + "|".join(_EXECUTABLES) + r")\s*\Z"
 _SHELL_META = ("|", ";", "`", ">", "<", "$(", "&&", "||")
 _LOCAL_PATHS = ("/Users/", "/home/", "C:\\")
 
-# 内置规则理由的精确集合（旧 guard_denials 摘要例外）；主线上是已批准代码，CI 侧原只报告。
-_TRUSTED_GUARD_REASONS = frozenset(
-    reason for _pattern, _key, reason in itertools.chain(
-        command_guard.COMMAND_RULES, command_guard.IMPLEMENTER_COMMAND_RULES,
-        command_guard.TOOL_RULES, command_guard.IMPLEMENTER_TOOL_RULES)
-)
+# 可信守卫理由的静态清单（旧 guard_denials 摘要例外）：shell_structure 的固定理由常量（含结构化
+# 规则专有的 OVERRIDE）加上命令表 clean_keep 兜底规则的独立字面量；COMMAND_RULES/TOOL_RULES 及
+# implementer 规则的取值与这些常量一致（评审 #51：静态并入，宁可少误拒；理由本身是引擎内置
+# 常量、非记录内容）。主线上是已批准代码，CI 侧原只报告。
+_TRUSTED_GUARD_REASONS = frozenset((
+    shell_structure.FILTER, shell_structure.FORCE, shell_structure.FORCE_REFSPEC,
+    shell_structure.BATCH, shell_structure.PUSH_MAIN, shell_structure.PUSH_TAG,
+    shell_structure.TAG, shell_structure.UPDATE_REF, shell_structure.NO_VERIFY,
+    shell_structure.NO_VERIFY_SHORT, shell_structure.HOOKS_PATH, shell_structure.OVERRIDE,
+    shell_structure.RESET_HARD, shell_structure.RM_OUTSIDE, shell_structure.RELEASE,
+    shell_structure.ISSUE_DELETE, shell_structure.LABEL_ERASE, shell_structure.ISSUE_IMPLEMENTER,
+    shell_structure.DELETE_REMOTE, shell_structure.API_WRITE, shell_structure.MERGE,
+    shell_structure.APPROVE,
+    "git clean -x 会删除本地运行时等被忽略的文件；用 -e 排除 checks.toml [runtime] preserve 登记的路径",
+))
+# CLEAN_X 的派生理由（{paths} 以「-e 路径」清单填充）：按模板前缀 + 填充形态精确匹配，不是
+# starts-with/contains 例外（C06）——追加任意正文不匹配。
+_CLEAN_X_DERIVED_RE = re.compile(
+    re.escape(shell_structure.CLEAN_X.split("{paths}")[0]) + r"-e [A-Za-z0-9.@_/-]+(?:、-e [A-Za-z0-9.@_/-]+)*\Z")
 _K_CLASSES = frozenset(f"K{level}" for level in range(8))
 _EXIT_WORDS = frozenset(("ok", "timeout", "stall", "stopped", "error", "loop", "retries", "clarify"))
 _ALERT_REASONS = frozenset((
@@ -437,7 +448,7 @@ def _p_guard_denials(value, location, problems) -> None:
         hit = _forbidden(key, length=False)
         if hit in ("换行", "本机路径"):
             problems.append((location, hit))
-        elif key not in _TRUSTED_GUARD_REASONS:
+        elif key not in _TRUSTED_GUARD_REASONS and not _CLEAN_X_DERIVED_RE.fullmatch(key):
             problems.append((location, "未知理由"))
         elif not _is_int(count) or count < 0:
             problems.append((location, "非法类型"))
