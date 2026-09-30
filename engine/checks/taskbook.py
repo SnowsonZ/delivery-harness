@@ -64,7 +64,12 @@ BUDGET_LIMITS = {"ci_rounds": 3, "retries": 2}
 REQUIRED = ["task", "class", "risk", "designer", "size", "architecture", "budget", "rollback"]
 NEW_REF = re.compile(r"^新增[:：]\s*(?P<spec>[^#\s]+)#(?P<id>[A-Z]{1,3}\d+)$")
 NO_SPEC = re.compile(r"^不挂规格[:：]\s*(?P<reason>\S.*)$")
-PATH_TOKEN = re.compile(r"`([A-Za-z0-9_.*-]+(?:/[A-Za-z0-9_.*-]+)+|[A-Za-z0-9_-]+\.(?:py|swift|md|toml|txt|json))`")
+# 步骤里的文件路径：多级路径、根目录单点与多点文件名（README.zh-CN.md，B61）都完整识别，
+# 否则多点文件名被截断、不参与类别/风险的交叉核对。
+PATH_TOKEN = re.compile(
+    r"`([A-Za-z0-9_.*-]+(?:/[A-Za-z0-9_.*-]+)+"
+    r"|[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.(?:py|swift|md|toml|txt|json))`"
+)
 
 
 class HeaderError(ValueError):
