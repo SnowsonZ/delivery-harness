@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -423,6 +424,112 @@ class ObservabilityTaskTest(unittest.TestCase):
         job = text.split("\n  harness:\n", 1)[1].split("\n  #", 1)[0]
         for permission in ("pull-requests: read", "issues: read", "contents: read"):
             self.assertIn(permission, job.split("- uses:", 1)[0])  # 同步所需只读权限，不升写权限
+
+    # ---- 步骤 2：安装布局经 PATH 上的假 gh 调用真实脚本入口；增量 --since 与幂等 ----
+
+    def test_installed_entry_with_fake_gh(self):
+        project = self.fresh_repo("installed")
+        env = {**{k: v for k, v in os.environ.items() if not k.startswith(CLEAN_PREFIXES)}, **GIT_ENV,
+               "PYTHONDONTWRITEBYTECODE": "1"}
+        result = subprocess.run([sys.executable, str(CLI), "install", "--target", str(project),
+                                 "--allow-dirty"], capture_output=True, text=True, env=env, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        entry = project / ".harness/engine/reports/github_events.py"
+        self.assertTrue(entry.exists())
+        state_path = self.tmp / "fake-gh-state.json"
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        script = bin_dir / "gh"
+        script.write_text(self._FAKE_GH, encoding="utf-8")
+        script.chmod(script.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        state = {
+            "repo": REPO,
+            "pulls": {"7": self.merged_pr(7, "task/installed", head=HUMAN_HEAD, merge_sha=HUMAN_MERGE,
+                                          merged_by={"login": "alice", "type": "User"},
+                                          labels=("class:K3",))},
+            "reviews": {"7": [{"state": "APPROVED", "user": {"login": "alice", "type": "User"},
+                               "commit_id": HUMAN_HEAD}]},
+            "pr_commits": {},
+            "commits": {HUMAN_MERGE: {"parents": [{"sha": "p1"}, {"sha": "p2"}]}},
+            "issues": {"audit": [], "escape": []},
+        }
+
+        def run(*args: str) -> subprocess.CompletedProcess:
+            state_path.write_text(canonical(state), encoding="utf-8")
+            return subprocess.run([sys.executable, ".harness/engine/reports/github_events.py", *args],
+                                  cwd=project, capture_output=True, text=True, check=False, timeout=120,
+                                  env={**env, "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}",
+                                       "GITHUB_REPOSITORY": REPO, "GH_TOKEN": "fake-token",
+                                       "FAKE_GH_STATE": str(state_path)})
+
+        done = run("--pr", "7")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        with mock.patch.object(events_db, "ROOT", project):
+            rows = events_io.query(source="github")
+            merge_output = next(row["outputs"] for row in rows if row["step"] == "github.merge")
+            self.assertEqual(merge_output,
+                             {"pr": 7, "approver": "alice", "approver_type": "User",
+                              "approval_commit": HUMAN_HEAD, "approval_bound": True,
+                              "merger": "alice", "merger_type": "User",
+                              "merge_method": "merge", "label_count": 1, "merged_at": TS})
+            total = len(rows)
+        # 登记后增量读取（--since）+ 幂等：第三跑不再新增
+        state["issues"]["escape"].append(self.issue(700, "Escape: late", "introduced by PR #7.",
+                                                    ("escape", "class:K3"), TS2))
+        again = run("--pr", "7", "--since", TS)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        with mock.patch.object(events_db, "ROOT", project):
+            rows = events_io.query(source="github")
+            self.assertEqual([row["outputs"] for row in rows if row["step"] == "github.escape"],
+                             [{"pr": 7, "issue": 700, "class": "K3", "state": "open"}])
+            self.assertEqual(len(events_io.query(source="github")), total + 1)
+        third = run("--pr", "7", "--since", TS)
+        self.assertEqual(third.returncode, 0, third.stderr)
+        with mock.patch.object(events_db, "ROOT", project):
+            self.assertEqual(len(events_io.query(source="github")), total + 1)
+
+    # 假 gh 可执行脚本：serve 状态文件里的只读 API 响应（页参数生效；fail 子串命中即 403）。
+    _FAKE_GH = """#!/usr/bin/env python3
+import json
+import os
+import re
+import sys
+from pathlib import Path
+from urllib.parse import parse_qs
+
+state = json.loads(Path(os.environ["FAKE_GH_STATE"]).read_text(encoding="utf-8"))
+args = sys.argv[1:]
+if not args or args[0] != "api":
+    print(json.dumps({"nameWithOwner": state["repo"]}))
+    sys.exit(0)
+route = args[1]
+for pattern in state.get("fail", []):
+    if pattern in route:
+        sys.stderr.write("HTTP 403: 权限不足（夹具）\\n")
+        sys.exit(4)
+path, _, query = route.partition("?")
+params = parse_qs(query)
+
+
+def page(items):
+    per = int(params.get("per_page", ["30"])[0])
+    number = int(params.get("page", ["1"])[0])
+    return items[(number - 1) * per:number * per]
+
+
+if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\\d+)", path):
+    print(json.dumps(state["pulls"][match[1]]))
+elif match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\\d+)/reviews", path):
+    print(json.dumps(page(state["reviews"].get(match[1], []))))
+elif match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\\d+)/commits", path):
+    print(json.dumps(page(state["pr_commits"].get(match[1], []))))
+elif match := re.fullmatch(r"repos/[^/]+/[^/]+/commits/([0-9a-f]+)", path):
+    print(json.dumps(state["commits"][match[1]]))
+elif path.endswith("/issues"):
+    print(json.dumps(page(state["issues"].get(params.get("labels", [""])[0], []))))
+else:
+    print("{}")
+"""
 
 
 if __name__ == "__main__":
