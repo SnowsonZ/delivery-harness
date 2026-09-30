@@ -16,8 +16,7 @@
 
 | 编号 | 事项 | 估计成本 | 负责 | 来源 |
 |---|---|---|---|---|
-| B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、`audit`、即时告警；收掉 B36、B38、B40。设计已审定（`docs/plans/2026-09-29-observability-design.md`），T101 事件库已合并，进行中：分支 `codex/observability-task-breakdown`；剩余25份任务书（23份可派发，含 2026-09-29 修订新增的 T110；2份设计方文档），OpenCode第二轮可提交，F1–F9已解决、4条非阻断建议已澄清；追溯表/共用合同C8的F10细化待用户明确审定，按 `docs/task-splitting.md` 整包提交（`docs/plans/2026-09-29-observability-execution-plan.md`） | 大 | 评审方 | 用户 2026-09-29 |
-| B63 | T109 独立评审遗留（一般级两条，处置：PR #20 先合并再跟进）：① `engine/core/events.py` `emit` 的 step 合法性检查基于 strip 后的 `step_text`，写入 payload 却是未 strip 的原值，含首尾空白/换行的 step 绕过 `_clean_str` 规则以原值入库，与「非法整条不写」口径边界不一致——随 B46 P1 收掉（T102–T105 再触 events 时修，最晚 T107 前），修法：对实际写入值执行同一清洗（或统一写 `step_text`）并补尾部换行负例断言；② T109 行为变化（`default_source` 真实取值变为 `ci:<run_id>:<run_attempt>:<job>`、`store_artifact` 失败改返回 `None`、`verify` 拒校验新版库）未记 CHANGELOG——归 T107 的 `p1_changelog`，G2 前必须落实 | 小 | 评审方（设计方复核定修法） | T109 独立评审（PR #20，2026-09-29） |
+| B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、`audit`、即时告警；收掉 B36、B38、B40。设计已审定，P1 实现全部合并（T101–T109、T110、T106、T111、T112，并行度经 #24 修订）；T107 文档收尾 PR #33 待合并；随后 P1 期门禁 G1（自举升级）/G2（消费方等价，含契约测试修复原子合并）；P2–P6 按追溯表顺序。设计与合同见 `docs/plans/2026-09-29-observability-*.md` | 大 | 评审方 | 用户 2026-09-29 |
 | B45 | 第二个项目接入前：`adopt`（探测语言、源码目录、测试与 lint 命令，渐进档位，已有配置幂等合并，AGENTS.md 受管块）与 TypeScript 语言插件 | 大 | 评审方 | 用户 2026-09-29（面向开源、接入无感） |
 | B42 | harness 测试（Agent-Notification 的 `tests/test_harness*.py`）移植到本仓库：改为基于夹具项目，本仓库单独即可验证；那边只留消费方契约测试 | 中 | 评审方 | Agent-Notification T008 |
 | B44 | 本仓库 CI 加消费方契约测试：检出 Agent-Notification main，用待测引擎 upgrade 后跑其 harness 测试与 `verify --quick` | 小 | 评审方 | Agent-Notification T008 |
@@ -31,15 +30,11 @@
 | B51 | 升级时自动检测配置缺口（对照新版引擎列出缺失的必填或建议配置，替代只靠 CHANGELOG 的 Migration 条目）；与 B45 的 adopt 一起做。已完成部分：拒绝非 main 提交、打印 Migration 条目、`docs/upgrading.md`（PR #3） | 小 | 评审方 | B48 后 Agent-Notification 升级流程讨论 |
 | B52 | 审计账本覆盖「被拦下」（关闭未合并）的 PR：v0.2 只做已合并（用户 2026-09-29 定），被拦下的 PR 目前只在本机库里 | 中 | 评审方 | 可观测性设计 4.1 |
 | B54 | 任务拆分评审工具化：`bin/dispatch review-plan`（复用独立评审的材料包与提示词，材料为设计、追溯表与全部任务书），现按 `docs/task-splitting.md` 手工执行 | 中 | 评审方 | 用户 2026-09-29 |
-| B57 | `dispatch.pr_body` 固定写「需要人工验收的部分：见任务书验收表中的人工条目」，任务书没有人工条目时落空；只在有人工条目时才写，否则写「无」。T101 独立评审指出；随 T111 收掉 | 小 | 评审方 | T101 评审 |
 | B58 | 第三方没有 `docs/templates/review-checklist.md`：评审提示词与材料包（`review_prompt.md`、`review_pack.py`）引用它。随模板提供一份通用清单，并在清单里加「每条验收说明未实现时会怎么失败」一项。T101 独立评审指出 | 中 | 评审方 | T101 评审 |
 | B59 | 独立评审的测试强度核查：T101 的 OpenCode 评审通过，但没发现设计方变异检查抓出的两个未被抓住的变异。本仓库没有评审校准集；建立校准集（含「测试恒真、变异未被抓住」类样本）并按其结果选评审方与提示词 | 中 | 评审方 | T101 复核 |
-| B60 | 命令守卫误报：`command_guard` 会扫描 heredoc 正文，把正文里出现的 `HARNESS_*=…` 字样当成「设置覆盖变量」拒绝（同样的文字放在 `echo` 引号里则放行，说明引号内已按数据处理，heredoc 正文没有）。改为按 shell 结构解析，heredoc 正文与引号内文字一律当数据，只在真正的赋值、`env`、`export` 位置判定；补回归测试（heredoc、here-string、引号、真赋值各一）。2026-09-29 修改文档时被设计方守卫误拦 | 小 | 评审方 | 可观测性文档修改时暴露 |
-| B61 | 任务书步骤文件解析漏掉根目录多点文件名（如 README.zh-CN.md）：`taskbook.step_files` 的 PATH_TOKEN 只识别单点根文件名，导致这类步骤路径不参与类别/风险交叉核对。补解析与回归，不能只靠合格任务书数量；本次拆分用直接读取「涉及文件」列补核对，不在文档拆分中改判定器 | 小 | 评审方 | B46拆分结构核对，2026-09-29 |
-| B66 | T105 验收追认与体量治理：`tests/test_events_agents.py` 超任务书 800 行约束——用户合并 PR #31 即为追认；后续瘦身随 T201/T205 的外置文件模式（执行计划既有安排），不另立任务 | 小 | 评审方 | PR #31 评审（2026-09-30） |
-| B65 | 第一轮派发评审遗留（均一般级，处置：随小型修复任务收掉，最晚 T107 前）：① `engine/cli.py` `_record_dispatch` 的延迟导入与 emit 未包异常保护——引擎副本损坏时 ImportError 会顶替原 SystemExit/业务异常，违反 C0 三态等价；② `tests/test_events_verify.py` `test_reference_failure_keeps_check_result` 只比 (返回码, stdout) 未比 stderr，C0 要求三态分别比对；另 PR #25/#26/#27 标题「TXX：TXX：」重复前缀属同一派发模板小修，随 B57 一并处理 | 小 | 评审方（设计方复核定修法） | PR #26 评审（2026-09-30） |
 | B64 | 引擎任务书校验的 DESIGNERS 枚举扩展（现仅 claude-code/codex）：支持任意设计方标识（如 zcode），免得新设计方沿用旧席位署名；现以「Zcode 代行 codex 席位」过渡（T110 头部 designer: codex）。触发：设计方席位再变更或新增执行方宿主时 | 小 | 评审方 | PR #23 第二轮评审，2026-09-29 |
 | B62 | 凭据规则缺少词边界：普通长task文件名的尾部被误识别为密钥；T602文档迁移任务名在暂存后扫描触发9处误报。改进凭据模式边界并补真实凭据/普通标识符正反例；本次只缩短新任务书slug，不改护栏规则 | 小 | 评审方 | B46提交前卫生检查，2026-09-29 |
+| B67 | `routing` 的 r1 检查在仓库尚无 main 提交（空仓库首个 PR）时的既有缺陷：#35（T106）独立评审发现，等价夹具覆盖到该分支；修法与回归随 T112 后的小修轮或并入 B45 adopt | 小 | 评审方 | PR #35 独立评审（2026-09-30） |
 | B47 | 开源化其余项：界面与提示词国际化（en、zh-CN）、可配置的目录约定与默认分支、执行方宿主适配器（Pi 之外）、`platform` 一键平台设置与 App manifest | 中 | 评审方 | 用户 2026-09-29 |
 | B49 | 自举：本仓库装上自己的 Agent 层与 git 层守卫（目前只有服务端 ruleset 兜底） | 中（进行中：分支 chore/self-host） | 评审方 | 2026-09-29 迁移准备 |
 | B4 | 按改动行做变异测试（先只支持 Python），自动发现「测试写了但没测到东西」 | 出现一次这类逃逸再做；约 1 天，每个 PR 的 CI 多 1–4 分钟 | 评审方 | Agent-Notification 修复证据方案讨论（2026-09-26） |
@@ -64,6 +59,12 @@ B34–B41 的处理建议（B35 与 B36 先做、B41 放弃等）用户 2026-09-
 
 | 编号 | 事项 | 关闭 |
 |---|---|---|
+| B57 | `dispatch.pr_body` 固定写「需要人工验收的部分：见任务书验收表中的人工条目」，任务书没有人工条目时落空；只在有人工条目时才写，否则写「无」。T101 独立评审指出；随 T111 收掉 | 小 | 评审方 | T101… | 2026-09-30，delivery-harness #37（T111） |
+| B60 | 命令守卫误报：`command_guard` 会扫描 heredoc 正文，把正文里出现的 `HARNESS_*=…` 字样当成「设置覆盖变量」拒绝（同样的文字放在 `echo` 引号里则放行，说明引号内已按数据处理，heredoc … | 2026-09-30，delivery-harness #36（T112） |
+| B61 | 任务书步骤文件解析漏掉根目录多点文件名（如 README.zh-CN.md）：`taskbook.step_files` 的 PATH_TOKEN 只识别单点根文件名，导致这类步骤路径不参与类别/风险交叉核对。补解析与回归，不能只靠合… | 2026-09-30，delivery-harness #36（T112） |
+| B63 | T109 独立评审遗留（一般级两条，处置：PR #20 先合并再跟进）：① `engine/core/events.py` `emit` 的 step 合法性检查基于 strip 后的 `step_text`，写入 payload 却… | 2026-09-30，① T110（#29）、② T107（#33） |
+| B65 | 第一轮派发评审遗留（均一般级，处置：随小型修复任务收掉，最晚 T107 前）：① `engine/cli.py` `_record_dispatch` 的延迟导入与 emit 未包异常保护——引擎副本损坏时 ImportError 会… | 2026-09-30，delivery-harness #37（T111） |
+| B66 | T105 验收追认与体量治理：`tests/test_events_agents.py` 超任务书 800 行约束——用户合并 PR #31 即为追认；后续瘦身随 T201/T205 的外置文件模式（执行计划既有安排），不另立任务 |… | 2026-09-30，追认随 #31 合并；瘦身随 T201/T205 外置模式 |
 | — | 引擎抽离与 Agent-Notification 迁移（阶段 A、B） | 2026-09-29，delivery-harness #1、Agent-Notification #66 |
 | B48 | 第三方可走通：通用 CI 工作流、两套 ruleset、`[platform]` 批准方式与 App 变量名可配置、单账号模式与风险说明；README「Platform setup」 | 2026-09-29，delivery-harness #3 |
 | B53 | CI 工作流名可配置（`[dispatch] ci_workflows`），dispatch 等待全部必需工作流；T001 冒烟暴露 | 2026-09-29，delivery-harness #11 |
