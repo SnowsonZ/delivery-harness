@@ -67,6 +67,29 @@ jobs:
           BASE_BRANCH: ${{ github.event.repository.default_branch }}
         run: python .harness/engine/cli.py policy --base "origin/$BASE_BRANCH" --head "$HEAD_SHA" ${PR:+--pr "$PR"} --branch "$HEAD_BRANCH" --github
 
+      # 事件导出与 summary 与 harness 工作流同款（观察旁路：判定失败也执行，自身失败不改变 job 结果）。
+      # 判定在默认分支检出的引擎上运行，head 只是被 fetch 的数据；导出的只有本 job 链的事件 JSON。
+      - name: Export harness events
+        if: ${{ always() }}
+        continue-on-error: true
+        run: python .harness/engine/reports/ci_events.py export --target "$RUNNER_TEMP/harness-events"
+
+      - name: Upload harness events
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-events-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: ${{ runner.temp }}/harness-events
+          retention-days: 90
+
+      - name: Harness event summary
+        if: ${{ always() }}
+        continue-on-error: true
+        run: >-
+          python .harness/engine/reports/ci_events.py summary
+          --bundle "$RUNNER_TEMP/harness-events/harness-events.json" >> "$GITHUB_STEP_SUMMARY"
+
   # 不自动合并的：打类别标签并请仓库所有者评审，PR 出现在其待评审列表里。只「请求评审」，不批准。
   # 所有者自己开的 PR（单账号）不能请自己评审，GitHub 拒绝时只记日志、不算失败：这类 PR 由所有者直接合并。
   request-review:
