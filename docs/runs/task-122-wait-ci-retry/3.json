@@ -1,0 +1,5874 @@
+{
+  "task": "T122",
+  "class": "K7",
+  "attempt": 3,
+  "branch": "task/122-wait-ci-retry",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "18ea04b7401eed289e641476178b82c34c5c793f887ffc1acaf7d551dc49450b",
+  "prompt_path": "docs/runs/task-122-wait-ci-retry/3.prompt.md",
+  "guard_ref": "0858f1f9e6ad2bece1def765fe753f7255f546f7",
+  "started_at": "2026-09-30T19:13:20+00:00",
+  "ended_at": "2026-09-30T19:51:50+00:00",
+  "executor_seconds": 2138.3,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [
+    {
+      "category": "context",
+      "summary": "context_unavailable",
+      "ref": "docs/plans/task-122-wait-ci-retry.md"
+    }
+  ],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 3725578,
+  "gen_ai.usage.output_tokens": 55830,
+  "cost": 0.152148,
+  "escalation": null,
+  "trace_id": "task/122-wait-ci-retry",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:15.415Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-122-wait-ci-retry.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "b77b7324c30871f0b5d56353ec9cf742c01bee252172c1ba88c9f0e8e90a0c01",
+          "size": 3742
+        },
+        {
+          "kind": "rev",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        }
+      ],
+      "outputs": {
+        "ci_rounds": 2,
+        "class": "K7",
+        "retries": 1,
+        "task": "T122",
+        "wall_clock_min": 60
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "deb282143f88a855b216228feb7c4516a082fb0bf2438b5073f4fa21381a7c55"
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:17.365Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "rev",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        }
+      ],
+      "outputs": {
+        "denied": true
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "2d208f054dfae0b0602ca12707071b75b380b8fd8a0c32a0322039fc3403b2dd"
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:19.175Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "rev",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        }
+      ],
+      "outputs": {
+        "slot": 1,
+        "start": "6740d633d238e4ee393a1868748de114565bfeb5"
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "faed1c4b8552deb0e4145baad9a4a2319fedb2a1d752ca02562ec84f41c96780"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tools",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.384Z",
+      "duration_ms": 43,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "default"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "0bd2b344c7bcf48ef8337fa13258cb89cb0399c7bf6859921bfa1d99e4a2bd74",
+        "log.sha256": "0bd2b344c7bcf48ef8337fa13258cb89cb0399c7bf6859921bfa1d99e4a2bd74",
+        "log.size": 59,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "af4186dcb41fd1f0cebccfbdcdf4997d8a0b4fa7314883e67cd0883521803b33"
+    },
+    {
+      "stage": "verify",
+      "step": "integrity",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.456Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "lock",
+          "ref": ".harness/engine.lock",
+          "sha256": "0c393b1f8f27103af4d948f1dca50fe2587cd0a3831e7f6b9b0ccae96f9cdee6",
+          "size": 198
+        }
+      ],
+      "outputs": {
+        "changed": 0,
+        "files": 48,
+        "lock.tree": "sha256:1ed5c4fd917aaf55c23baa290bd5fa3d24ee9ac57929f1f12d8d067e2c5d7f49",
+        "tree": "sha256:1ed5c4fd917aaf55c23baa290bd5fa3d24ee9ac57929f1f12d8d067e2c5d7f49"
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "e299889441f5e261543a27da8b608f1298566357a43134aa1de04079e52ccd1b"
+    },
+    {
+      "stage": "verify",
+      "step": "cli.integrity",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.470Z",
+      "duration_ms": 51,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "921b6d49bbbd7bd9dd4e5e8d819de32723679f240d2a3a57cfc5bf2549bd010d"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.integrity",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.499Z",
+      "duration_ms": 88,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "default"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "f275f0398d904ba9efc89ae34246f0a32ba4740b89d7f8304630407617529fef",
+        "log.sha256": "f275f0398d904ba9efc89ae34246f0a32ba4740b89d7f8304630407617529fef",
+        "log.size": 53,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "8e3d039ffa6b256be60cae8864652c6ee3fb82270004f6a2e29ac6e37254a79b"
+    },
+    {
+      "stage": "ci",
+      "step": "hygiene.summary",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.717Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "scope": "tracked",
+        "violations": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "73f5553c858d9c56f08614362e7ecaff3ab07b5e9d7734ba3dc545dae194a041"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.hygiene",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.732Z",
+      "duration_ms": 200,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "532891e8fb581c69bda9534b0a8002722caa9fb34cf7cc8a2f4a676a6611caa1"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.hygiene",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.768Z",
+      "duration_ms": 239,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "default"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "8f446c829eb658d177572069aabfad8d915eacc1c6d853c0302b102d7ab4c617",
+        "log.sha256": "8f446c829eb658d177572069aabfad8d915eacc1c6d853c0302b102d7ab4c617",
+        "log.size": 25,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d6ee5f7294a1d1e7da026f42187e3418e10418a2bb9da7fa2f9bef886fe1e3a6"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.886Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 11,
+        "metric": "complex_functions",
+        "ratcheted": true,
+        "value": 11
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "368d16b555257cb04a18a0aa84cf898afc73744cf0436577f1825baaa5f529a3"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.907Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 636,
+        "metric": "largest_file_lines",
+        "ratcheted": false,
+        "value": 797
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "85da7a56831838ec06ad010c2f0737945a150f79ee11074b810d0fb564308eaf"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.921Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 0,
+        "metric": "files_over_800",
+        "ratcheted": true,
+        "value": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "833a6127c9886d64153cb214b48351aba434cea0e15afb130c7a803b60f5b24f"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.935Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 0,
+        "metric": "swift_files_over_500",
+        "ratcheted": true,
+        "value": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "0db9bb936fc39afb479ee039384f51eb5b280ff7ef57b11c7fdd031e678c9bc8"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.949Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 0,
+        "metric": "swift_long_functions",
+        "ratcheted": true,
+        "value": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "104e4f7184bae573178523b4db6e007f46746133c7d5a7e0e766f3a084c0010e"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.963Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 0,
+        "metric": "swift_deep_functions",
+        "ratcheted": true,
+        "value": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1dc68178dfee3db3bed4f82c43c40e43c7b957c0824169650717b2bb5b45a165"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:21.976Z",
+      "duration_ms": 176,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "4e3d458dc834f84df5326d783498947fee8da3ab105accfbc89441302d94574e"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.008Z",
+      "duration_ms": 214,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "default"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "77d81aa3507c8c90c50894ae1c8d3f97de65cd26c43660e60ddc248e2ab6e2e6",
+        "log.sha256": "77d81aa3507c8c90c50894ae1c8d3f97de65cd26c43660e60ddc248e2ab6e2e6",
+        "log.size": 309,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "f14b116c6e90d2484a734b570fb976f1497ba2474d66ca86f8a30f7877b33e2b"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.docs",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.091Z",
+      "duration_ms": 48,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "7f00b7f0160b24878663bbe74c20488d050e87297cfdf2b5296d75d4af95069b"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.docs",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.126Z",
+      "duration_ms": 89,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "default"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "8f2b6a50ae0d23eb319cfa9b761f85f13f461b30e3e5cf1cb6bf56c646c639ee",
+        "log.sha256": "8f2b6a50ae0d23eb319cfa9b761f85f13f461b30e3e5cf1cb6bf56c646c639ee",
+        "log.size": 86,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "689f20de7bee1d77a3e635ae9e4dfcf74e8d1d449225c144e5e673f081ad68c4"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.acceptance",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.183Z",
+      "duration_ms": 22,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "068b3127cba79bfc7fab937183d2170b35fc80c33793d2f082d3599fa6bbec10"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.acceptance",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.213Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "default"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "179443ecbe06df7a628e36295830534b0da496505e57986f12c186698dbafa98",
+        "log.sha256": "179443ecbe06df7a628e36295830534b0da496505e57986f12c186698dbafa98",
+        "log.size": 84,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "7810f616fdbe048eb8b81f5c5bd836f062c4b35ef25acf6511c854853329480d"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.287Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-001-migration-notes-tests.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "f6f7093f4ff55e12dec2bf33ce498ce0acb1327d096e28320da9671c69c86d74",
+          "size": 3438
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "dde1dcd206e388a730a09ef889c21e69ef3f3b446f366c3d88981b7c4c884abb"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.300Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-101-events-core.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "c0f3702c5c53e13b9af0d998635962a3ed418c0f5ab32e4dbfc2013dd921b56c",
+          "size": 15819
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d90b1151576dce93a053500ffac946e0e401a2dc8a4fc1b6c4ff8a79d7dc6931"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.312Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-102-events-verify.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "6474d3bd62847ad0c179051aed6b0fd35257ae9bba047e8b6cb9449b4f55bc4d",
+          "size": 6899
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1e9d21fb3309af859288ddb67d564c6e3fe1bb2f671c37224f6b3da231cd57e0"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.326Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-103-events-route.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "6c3cdfa36d32f8eea37ad90a5ebc7f09cf8a305f384e40b416583aa2c2967d85",
+          "size": 6019
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "aa3564290f8bf851022484e0ea1e2d834cf358041fba3375a36c95f062646c73"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.339Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-104-events-guard.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "f6c405a82af72da882c28b96cb0e626114be2e74a91794d90d858725959b5c85",
+          "size": 5878
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "f23cbfd5f3f47f8d017212c03ff897083d790346146b4e491c609bc05460c756"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.353Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-105-events-agents.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "ed860672b60f5320e2e38853065ef5ba66b85992560bf3a8415c92549c8bcbae",
+          "size": 7512
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "0085acae78790f057742cefcf4d5314fb35dbf22d4ca4bd1e184f6ba74011d82"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.366Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-106-events-equivalence.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "21852c8b8b69fc024eaadf1bd8258f4777121070193b314e270a6b8db3dcda07",
+          "size": 6300
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "385b5055929ba8af8cffeee64956211c6a5d74f792714376fbf94857e011b316"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.384Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-107-events-docs.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "c427a19388c27e350d95a02c7c2d95f2ead71df2808f89143c333418a1f8d107",
+          "size": 5042
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "fef9e4aeaf9359b166000a2af0c93d9ca40a232a599b974f5f4b6b9fd6ce1684"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.399Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-108-events-checks.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "72739dbe8d32affe11d92cb094a5229bcd8c3d10a4bd056d3932672022afd8bd",
+          "size": 6533
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d7cebf8c2da0175abc0f7fdc0c8abf08c3c9ba0e5724baf60aed733a5c54f0a0"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.413Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-109-events-hardening.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "53398fb02ff4e45b736f6816fd298b70140778da0badd538eeb17599675cab9d",
+          "size": 6911
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "c58cdb66aee00a9ef8ba7fb1862320f14c75c9ba53a8c0f5dacc81a97f636e2e"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.433Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-110-step-clean.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "750b153d194a572357af321ddc056d85af0eb8b76205b25a4808db1c11a41b26",
+          "size": 4174
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "5fca824cdf20925895dad32d72c2b2b437ec0c45fd01e0a37b8f76bc82ca17d8"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.451Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-111-dispatch-template-fixes.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "97614782e1a28c7889dc699e91f231a2cbb073e85ae2405077c0a8f3c840ade6",
+          "size": 5468
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "432439fe90a38e19d4522cfe5db550cecd89993a1840f046e3907c17d834247a"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.469Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-112-guard-and-path-parsing.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "7d925be38ce3ff7ad1e53448374196a6da9704d0952884ac7ff68f983219aae7",
+          "size": 5700
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "4866b4e8fc45ab1dac73f88adf4e002471bd790c3beab9a747830e56ff839096"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.484Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-113-r1-missing-base.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "c4924b0f4878ec59c53301ca7a89d4086d73c05079d25edae694622312f35de3",
+          "size": 4236
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "cc9ebe3902337484b24fd36820c1669b5972a982717ec6b9a59c95c3ba505dfe"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.499Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-114-review-pack-taskbook.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "53eea98ec1899206db0e424f801015099ec6f93762d2bd344fc1f8e27241bd83",
+          "size": 4212
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "c854d464c9ee061a243a2461f891dc8f94f22d2e7594562676de91e507514806"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.513Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-115-consumer-contract-ci.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "b7da0ec5f0e86f2891d5ee4850b6cf08afc74a7081c3aefbad4fc1363cf3a2c7",
+          "size": 4402
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "4caa3627db7347dc40e140b875ddc339bc65b5307b4c7b981a129ade1b335bc3"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.527Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-116-read-events-busy-timeout.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "bd9fad3fcb593f10a5d54627ea90411f49517b2388b4c4c7bab0cab9e8fd95b8",
+          "size": 3821
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "43b99d7fd08add28a8d80459c1975e5801c288c1acbae755f789dbcad4a9c8fe"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.541Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-117-swift-parser-limits.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "12a93165fad33c0eac3d93cff483622694f9810f1a56da5b3c7606e9c770a814",
+          "size": 4058
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "79ba96d60476100d45acbb4ed77c3552c59a6c0e9ffc91846f14cd7681a8fb43"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.561Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-118-harness-contract-port.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "3f50cd204a46f67e85fa84f38b9bdc6ac6e8d661eb30db55b09431fa82ae130f",
+          "size": 4695
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "052632af85ef2d68c44087a8abf6b8944deffc600294a84d4fc681f8f23e9873"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.582Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-119-review-calibration.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "8fe9789f796479aca4547255ebb571caf9b0c1d3f92ba6c4343ec1407e3a6b42",
+          "size": 8092
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "167cd98445a09014dd91ab12e76b2d88ac53aa7230e8c396e435a32348e8e861"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.600Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-120-review-plan.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "aad477bdcc1943c856e48cda2b45913efe4d293c2e82e1ef9d847b618a3be055",
+          "size": 6439
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "9c908d951426ab83de72e75e395447524f3029e99ce10f8f5292967e34d66f6c"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.619Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-121-resume-reuse-pr.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "882f40475d39726d86359a3c88ad211c1daa53c0a73d4b105dead9d20e9ccf2a",
+          "size": 4809
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "f4f0826283c4c84fd18cd91a875fba571868205d69929042f464de555fc8f18f"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.667Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-122-wait-ci-retry.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "b77b7324c30871f0b5d56353ec9cf742c01bee252172c1ba88c9f0e8e90a0c01",
+          "size": 3742
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "38fadbef113b63c19300ed21f4986cbd68e28f6e90556147639cdef20c79e9a0"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.686Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-123-github-extraction.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "cec803627f81ef9f7387eccc3e4dfa2766d29a78f474f073ce79d9973594de49",
+          "size": 5888
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "2219baa433c9cf57cd322d709f387eb5a88f09408bff20bc1511854fe4dfcb25"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.703Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-201-run-timeline.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "987d3bbd65762ca011c0d0e26a27df8ce3075532ed0d0d84394dfbc95d9500a6",
+          "size": 6636
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "37b31467168d61ac97a47b8f9469f863b78cde65034fe9d6de6c233359ee2a87"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.720Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-202-missing-context.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "bc36cc6b69e33e8a96f637ab04a38bd4a4dbefd002ea8de93624254c340b88fc",
+          "size": 8069
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "469a3bc161564ee9e05770d5bc59d786f82b5c1a024bd046aedadf9c1ff462dc"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.739Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-203-run-record-privacy.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "2c905135a7995dd0e68bc53c666d3b4b5de5fc2173795aea22624f1ac632a5cc",
+          "size": 8327
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "552ae50407c64473343882f6ab059a9c1f7cfaf9b12458448e0281cc68172848"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.761Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-204-artifact-retention.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "fb1cc06bb7ea399dd27242c60c353422afa42bfe6a3d0619bc1c960e4af3b097",
+          "size": 7447
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "85be0672d9040efb683eed55690f36b2aaa9606d0febb6f88879bea5359d16ad"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.776Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-205-dispatch-alerts.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "ca3c8ed5eecd28d134b53dd56a9fd238194a8b7c63c8c85bd5b755fce2f30cb1",
+          "size": 6658
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "c19db1ead20fe5c8eacdf315520a05dd5c5dcb6092bdfcb8ec2da76893a83a51"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.793Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-301-events-io.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "b1c6cac0591c18f85e7d897eb498bf2a0525057bcd60715b292efcb313c8e4f5",
+          "size": 7511
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "9a5733b25385e3b0da3fc8ed308bb350dff9f22342dc89a5ac37136115af3290"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.810Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-302-trace-events-cli.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "ddc43a26519405870774258674a22f0456eb9555078c35bf6db6b5b6aaeec4b1",
+          "size": 7648
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "96f78caaa15485ac8d64839055139f84c7a44f189919334b717ed1e0153f10a2"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.832Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-303-ci-events.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "89f5ebd2c9638642dc4693af369928fcf770547e7f80a700644029ba31cc9a4b",
+          "size": 6502
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "039f07f4c1cc90b6a41ccd3df4641255cfbf54d971c1aa40f3cccb42c57d863b"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.863Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-304-github-events.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "d5c8c6515c29d5b3810716efd68d51f6c111368ad80d6767a9bc46d6f7bfc2ac",
+          "size": 6208
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "5996c1f5cfc33b69b82e3a44ad396b78ea4680836a081643388df6f455e839e7"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.883Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-305-audit-ledger.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "5fb47f9f97be4fa0615d269ef3ad7def4f88bedff52aeb73cfb9db67e1993c76",
+          "size": 7295
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "baf087f487b40b4005e135b1710165edc425d1af348978474e1a4e5b14d39dab"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.902Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-401-audit-reconstruction.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "3c45042965eef2e4363834fea6e302ea997820e15673ce6155ff4c87817b23d0",
+          "size": 6353
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "445ccf15de6369dfb0c7cdbe381a5e58930067f9e79fc47be863f5f4e630334a"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.920Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-402-audit-completeness.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "172e979cf8a3ad1161bc7095432024dcf68c3ae0607015965cb64b6cb6192fc2",
+          "size": 6369
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "15933ff41c82fc8749cef5d9bdbd59c7199b85c9394bfee65506374fd00dc03a"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.935Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-403-alert-cli-workflows.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "ac98a1d9ce031e0e2069289577c77fcc55bba520aa50d846e3b66bb278db185f",
+          "size": 7056
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "c4087f92ca2a8d1925a7bb920323fe6e4e093d610a7d4399a52218db8a90fb61"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:22.977Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-501-weekly-events.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "4bb4490dc94babfc5ef2345f05a4bdf023984074d912aca1bf710007d7333964",
+          "size": 5964
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "771ccdac472e716bc7343686586d5e88d1a528eafdad4cbdf8528023e64a0f5e"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:23.006Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-601-observability-e2e.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "18788a5077f52acf55bac90643cf05e802101d7b30fb38bb3f1b85b4ed4d7e54",
+          "size": 6248
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "30cea5463a97d6f056ce0d155f629aa6aee7889ca6faa4f754c26b6a96cb4a21"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:23.035Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-602-docs-migration.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "e305265aa71a8568cc50079cc0e2e3c8716df8f8a1af0d785768809b412aeddc",
+          "size": 5942
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "26de6f0ac88877c454f1919e0a3361b1337672acb708a87a98d8cdceda074204"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.taskbook",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:23.062Z",
+      "duration_ms": 805,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b0a5a66267052b2a7ca8758f1a73b19ebaaa313ff2d665c26f6cdeb5ad440893"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.taskbook",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:23.097Z",
+      "duration_ms": 857,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "default"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "41f10c276c6415f5e76809beb12012bcebf21b6cce64ccf5723f7b5ce66f6326",
+        "log.sha256": "41f10c276c6415f5e76809beb12012bcebf21b6cce64ccf5723f7b5ce66f6326",
+        "log.size": 43,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "c08d366dcafb77b06d8a0eb3dfe72ad91c77064e2fd7f324d3c21ec8344cc45b"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.lint",
+      "status": "ok",
+      "ts": "2026-09-30T16:41:23.167Z",
+      "duration_ms": 41,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "default"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+        "log.sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+        "log.size": 19,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d8d01d8ca31183271546f18fdac04a106aac342840b1db81fcbbef657c6831af"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:40.343Z",
+      "duration_ms": 71,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "445f10d4a8e8b21541c5f995fb11fa36751b7d9b175aafb5d30722db206248ff"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:40.489Z",
+      "duration_ms": 59,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "e1381c627d302f1c85edcb4a89e964d471667e8d00f04db1b85f5c30cb15f83e"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:42.147Z",
+      "duration_ms": 67,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "eda21281cbf4c2191efd907cd148680a68f3b0905c0fe9082cb0a9f514630fd2"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.upgrade",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:42.742Z",
+      "duration_ms": 59,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d77114d28f26af55f5f89662dcc26b8038eb7731b91bad33910fb6539364d86e"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:43.029Z",
+      "duration_ms": 64,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "3d0df0095f5029dc9e77e9044d5999a7738d2e60bf8faa4350ed0c108aed2676"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:44.352Z",
+      "duration_ms": 64,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d345ac69df8dda2fe3bd40321d126ceb2a4da9fb2f6d1bd426c8113cccc59239"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:44.988Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "2ac22a0e338cfd1a0f412210402e5bdf2c6477cc1bd201d35b6717ae8f56b698"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:46.055Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "cf4d9849a070ebcc253da26392c91d690c76987b021f621793fb94238ee573b8"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:46.666Z",
+      "duration_ms": 61,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "bf3153c8ffc0827017bbf810fc1cc8f2fd1c6a44fc962005a54d839e76f7c146"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:47.891Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "fd3251cc96ebfc77719d63ccb13583e770630ab61febab8fd0c5ba7041f92228"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:48.001Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "782b39cbc6290f4eb03b43dca8ff9f83faf33d0a9bc98c6c33a08e44a85d69a0"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:42:48.162Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1c73bed9f1bf790db75063701e289ec292d12f6292eb52786218213fd670effc"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tests",
+      "status": "ok",
+      "ts": "2026-09-30T16:43:14.376Z",
+      "duration_ms": 111179,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "default"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "2290e1c7120bbe64bc0e8bed8a71abe7da317e192d3f84d6653447734150f7a3",
+        "log.sha256": "2290e1c7120bbe64bc0e8bed8a71abe7da317e192d3f84d6653447734150f7a3",
+        "log.size": 2483,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "8cf2a43e7ecc9dd5b21d0662363f65d0e2c200f44aac00d353931061af6056c0"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "ok",
+      "ts": "2026-09-30T16:43:14.390Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "default"
+        }
+      ],
+      "outputs": {
+        "dirty": false,
+        "ok": true,
+        "tier": "default"
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "86a12301e1c2140db79838aa9fdb107d369918e89984cf243596bd89440ff5af"
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "ok",
+      "ts": "2026-09-30T16:43:14.404Z",
+      "duration_ms": 113117,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "e10a29b2989a830e1fb01c969e6218aefb9dda88571a1724a9a08ba7cc80e003"
+    },
+    {
+      "stage": "dispatch",
+      "step": "claim",
+      "status": "ok",
+      "ts": "2026-09-30T16:43:16.309Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "branch",
+          "ref": "task/122-wait-ci-retry"
+        }
+      ],
+      "outputs": {
+        "claimed": true
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "639cdd1ca40f5f6ab7f9970d675bb45a1d5e9ef04412c5c98ca4f59838da8c03"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:49:54.887Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-122-wait-ci-retry.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "b77b7324c30871f0b5d56353ec9cf742c01bee252172c1ba88c9f0e8e90a0c01",
+          "size": 3742
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "595dee8204644f31968412d42fc3c49c44d8f52d23a840d3d1c97d49e734e501"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.taskbook",
+      "status": "ok",
+      "ts": "2026-09-30T16:49:54.911Z",
+      "duration_ms": 101,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "ad4bf8752b5d4041af5d68a99ffecdfe374995cdf1c34922c80df563b7704d82"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tools",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:56.831Z",
+      "duration_ms": 33,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "0bd2b344c7bcf48ef8337fa13258cb89cb0399c7bf6859921bfa1d99e4a2bd74",
+        "log.sha256": "0bd2b344c7bcf48ef8337fa13258cb89cb0399c7bf6859921bfa1d99e4a2bd74",
+        "log.size": 59,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "93a6ccf9d032a076a9ae4556c7896637765539d4ce46a3bc73f73a2322d13cee"
+    },
+    {
+      "stage": "verify",
+      "step": "integrity",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:56.918Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "lock",
+          "ref": ".harness/engine.lock",
+          "sha256": "0c393b1f8f27103af4d948f1dca50fe2587cd0a3831e7f6b9b0ccae96f9cdee6",
+          "size": 198
+        }
+      ],
+      "outputs": {
+        "changed": 0,
+        "files": 48,
+        "lock.tree": "sha256:1ed5c4fd917aaf55c23baa290bd5fa3d24ee9ac57929f1f12d8d067e2c5d7f49",
+        "tree": "sha256:1ed5c4fd917aaf55c23baa290bd5fa3d24ee9ac57929f1f12d8d067e2c5d7f49"
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "a24e63b4e706403a45b19444267a6309826d160e570ede84345f2fab84c95091"
+    },
+    {
+      "stage": "verify",
+      "step": "cli.integrity",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:56.941Z",
+      "duration_ms": 67,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "732f0bf1bb5dcff07dd24bd4f7a73467d4ab49bb7b3af830fbaf17107fcf2e7f"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.integrity",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:56.987Z",
+      "duration_ms": 114,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "f275f0398d904ba9efc89ae34246f0a32ba4740b89d7f8304630407617529fef",
+        "log.sha256": "f275f0398d904ba9efc89ae34246f0a32ba4740b89d7f8304630407617529fef",
+        "log.size": 53,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "6d9726879989ad81976ca9d95d09d8b11a8d526291c7240c181256c85dd42d11"
+    },
+    {
+      "stage": "ci",
+      "step": "hygiene.summary",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.220Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "scope": "tracked",
+        "violations": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "fc6e9be8dc31efcc8cebc5663d99028a3bc143caa79592fbab085a1ca58b886d"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.hygiene",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.243Z",
+      "duration_ms": 215,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b94fdd2153d20a5fa43dc8f6a38aa552b93f1afc5096f5878e6d539a9956a15d"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.hygiene",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.295Z",
+      "duration_ms": 261,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "8f446c829eb658d177572069aabfad8d915eacc1c6d853c0302b102d7ab4c617",
+        "log.sha256": "8f446c829eb658d177572069aabfad8d915eacc1c6d853c0302b102d7ab4c617",
+        "log.size": 25,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "6a7b65edeb07c15e148ee3d87ccd0eb577e0350c112345ff02013063d8409cea"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.393Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 11,
+        "metric": "complex_functions",
+        "ratcheted": true,
+        "value": 11
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b42a4602a4333e29ac439d0ae21f30bdf50cd38c0c0855da4be6a771038bfd04"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.416Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 636,
+        "metric": "largest_file_lines",
+        "ratcheted": false,
+        "value": 797
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "ed56d53fec124f5ab5b14b0c80daf58ba3184ea01c5701f486719982b6da9d2a"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.438Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 0,
+        "metric": "files_over_800",
+        "ratcheted": true,
+        "value": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "3a635b068c5512fc308330c41a9a747cab3cba1031f7405b1f261c7826c4ad0a"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.459Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 0,
+        "metric": "swift_files_over_500",
+        "ratcheted": true,
+        "value": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "347944e00ac781cfe83ec127dfd5a1279d66fb3bcce5a8c86ceba6c45e1b30ab"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.480Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 0,
+        "metric": "swift_long_functions",
+        "ratcheted": true,
+        "value": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "4efed44a4d60a24a07a44547f4200bd5cceaf9bc2f0e8eeb316bbc331ea59dbc"
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.501Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "baseline",
+          "ref": ".harness/state/quality-baseline.json@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "dbb6bd3485c87c5e87a59087474b2201981c698713200d3c4a854b5519a5fea9",
+          "size": 169
+        }
+      ],
+      "outputs": {
+        "baseline": 0,
+        "metric": "swift_deep_functions",
+        "ratcheted": true,
+        "value": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1a930ef8bc72c7287c5ce08216810f3bee9959089f1eabde8eb5904985b4b89e"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.523Z",
+      "duration_ms": 189,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "2f4dc6646d5fdf6ac7b77993ae55526170252e2aabb0f6aaaef564084badd315"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.quality",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.572Z",
+      "duration_ms": 233,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "77d81aa3507c8c90c50894ae1c8d3f97de65cd26c43660e60ddc248e2ab6e2e6",
+        "log.sha256": "77d81aa3507c8c90c50894ae1c8d3f97de65cd26c43660e60ddc248e2ab6e2e6",
+        "log.size": 309,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "093842ec7a5b1ad5c595c538c7f0546b93f28a35344ffb007dbae490ecc8a049"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.docs",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.658Z",
+      "duration_ms": 47,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "de521e2d72d02fc9fb30c0a1ddfe3bb0ba5db95008fc6183e9351f6c08d97116"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.docs",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.718Z",
+      "duration_ms": 90,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "8f2b6a50ae0d23eb319cfa9b761f85f13f461b30e3e5cf1cb6bf56c646c639ee",
+        "log.sha256": "8f2b6a50ae0d23eb319cfa9b761f85f13f461b30e3e5cf1cb6bf56c646c639ee",
+        "log.size": 86,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b6a28d06166c238e614e435de50d4c1b725e29428bd449d72713201183635108"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.acceptance",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.781Z",
+      "duration_ms": 20,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b5509a12ed465256cac50f307817962c0c98fdf242c906c174c35a768ec10472"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.acceptance",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.833Z",
+      "duration_ms": 68,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "179443ecbe06df7a628e36295830534b0da496505e57986f12c186698dbafa98",
+        "log.sha256": "179443ecbe06df7a628e36295830534b0da496505e57986f12c186698dbafa98",
+        "log.size": 84,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "5a477664b671d2b401a0d09f8c95e4327a1f44050d08d39539081c46a0e07f95"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.912Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-001-migration-notes-tests.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "f6f7093f4ff55e12dec2bf33ce498ce0acb1327d096e28320da9671c69c86d74",
+          "size": 3438
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1673428b714495b3e57de3b71c754428bbc28cc8b79ceadf79218ff339ab87b6"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.934Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-101-events-core.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "c0f3702c5c53e13b9af0d998635962a3ed418c0f5ab32e4dbfc2013dd921b56c",
+          "size": 15819
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "7e8d45cb3441bbf95d2d66bbd322f66a8a43b60d74158a02bf97e43da970a25e"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.956Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-102-events-verify.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "6474d3bd62847ad0c179051aed6b0fd35257ae9bba047e8b6cb9449b4f55bc4d",
+          "size": 6899
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "9230f71250f33923db2140549a6a52265c81a6f858090e0e27e2c217a9e00cc3"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:57.978Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-103-events-route.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "6c3cdfa36d32f8eea37ad90a5ebc7f09cf8a305f384e40b416583aa2c2967d85",
+          "size": 6019
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1093d2c0a806b51a7d0d7aa5678ddddeb50851b6f8c4aa634e214b41ee7d577a"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.000Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-104-events-guard.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "f6c405a82af72da882c28b96cb0e626114be2e74a91794d90d858725959b5c85",
+          "size": 5878
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "ad0bfb103774bc94bbcb6db261d6a5435092e5c85ba0fada77f8d121a9ff42b0"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.024Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-105-events-agents.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "ed860672b60f5320e2e38853065ef5ba66b85992560bf3a8415c92549c8bcbae",
+          "size": 7512
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "037e41bf1b25c737d34619069e4e042737aee3daa0fe4b7c610dfaa420cf3122"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.048Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-106-events-equivalence.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "21852c8b8b69fc024eaadf1bd8258f4777121070193b314e270a6b8db3dcda07",
+          "size": 6300
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "59a8979d4efe5215532dc50a64e778cb722c9dffd6c1bd9890cb0a3d7c8e05dc"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.070Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-107-events-docs.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "c427a19388c27e350d95a02c7c2d95f2ead71df2808f89143c333418a1f8d107",
+          "size": 5042
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "97108f5a50ac86fc1a935be4607405959cdecc6afb9362a59111e0edbe07520f"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.092Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-108-events-checks.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "72739dbe8d32affe11d92cb094a5229bcd8c3d10a4bd056d3932672022afd8bd",
+          "size": 6533
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "3a33fc07f6f46a0dffacbe75c41000d014f1722516b315af36010140965d29cb"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.115Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-109-events-hardening.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "53398fb02ff4e45b736f6816fd298b70140778da0badd538eeb17599675cab9d",
+          "size": 6911
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b5937a19e7734c190fd0f6759f5c0f6ece8914bd11324b20bbc4d66632244994"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.138Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-110-step-clean.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "750b153d194a572357af321ddc056d85af0eb8b76205b25a4808db1c11a41b26",
+          "size": 4174
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d6d18b36f38af3b36025ca6b72dc48844b2012b1d0a2b9f574fd2f2f44a2fb1e"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.159Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-111-dispatch-template-fixes.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "97614782e1a28c7889dc699e91f231a2cbb073e85ae2405077c0a8f3c840ade6",
+          "size": 5468
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "948ddd35de551314653dcf47c84562164dd8d234ec2e799f47e1b83298d4fe18"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.179Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-112-guard-and-path-parsing.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "7d925be38ce3ff7ad1e53448374196a6da9704d0952884ac7ff68f983219aae7",
+          "size": 5700
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "dd9bc05cb80cbdf019caf50dac382f87581bc27fddc6991ac4a9b78b63d926b1"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.201Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-113-r1-missing-base.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "c4924b0f4878ec59c53301ca7a89d4086d73c05079d25edae694622312f35de3",
+          "size": 4236
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "a67a7d56a2cfc5bd1cfc09e8ba45fc517124d1cd37d19dea140fe33ff2df50ad"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.222Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-114-review-pack-taskbook.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "53eea98ec1899206db0e424f801015099ec6f93762d2bd344fc1f8e27241bd83",
+          "size": 4212
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "9e9c446bc0bb410cf49627cfea9d81af530b0f63cb6fa01eff0def5b6f33c165"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.243Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-115-consumer-contract-ci.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "b7da0ec5f0e86f2891d5ee4850b6cf08afc74a7081c3aefbad4fc1363cf3a2c7",
+          "size": 4402
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "504438e8593eb92409d178d7af12013e93e19773dcc7e115f3739bfb4343a7b2"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.264Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-116-read-events-busy-timeout.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "bd9fad3fcb593f10a5d54627ea90411f49517b2388b4c4c7bab0cab9e8fd95b8",
+          "size": 3821
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "8e5b4c8009752d2f44a4ed584ba35da8a729e3ece32637b277a5456070a386a8"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.285Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-117-swift-parser-limits.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "12a93165fad33c0eac3d93cff483622694f9810f1a56da5b3c7606e9c770a814",
+          "size": 4058
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "0569c34210d80ba3102016d1ba8a349a44c7571d6bbb4cff63bf831162e8d6fb"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.305Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-118-harness-contract-port.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "3f50cd204a46f67e85fa84f38b9bdc6ac6e8d661eb30db55b09431fa82ae130f",
+          "size": 4695
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "eb1221460470d61f5809113ec6212de22afb9bbcead53ca7960ceb78b204838f"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.325Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-119-review-calibration.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "8fe9789f796479aca4547255ebb571caf9b0c1d3f92ba6c4343ec1407e3a6b42",
+          "size": 8092
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "834d6c05bc50881184a5387c863dd9f8a0cf812458319fdcd763e7409804cc61"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.346Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-120-review-plan.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "aad477bdcc1943c856e48cda2b45913efe4d293c2e82e1ef9d847b618a3be055",
+          "size": 6439
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "dd6a0408dd72ab25ac3b9ede31258fa2facff88c2ad7fab9e5dcaeb3d7ee2ff1"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.366Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-121-resume-reuse-pr.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "882f40475d39726d86359a3c88ad211c1daa53c0a73d4b105dead9d20e9ccf2a",
+          "size": 4809
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "930a1ba78e4a774090e46766d56ab97529ffc7e1a1ffcb30876a505ba582d357"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.386Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-122-wait-ci-retry.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "b77b7324c30871f0b5d56353ec9cf742c01bee252172c1ba88c9f0e8e90a0c01",
+          "size": 3742
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "a540f6bf348f65b0d67cc4e1285eb542f1d21c15097c79ec41e84feb0667390c"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.407Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-123-github-extraction.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "cec803627f81ef9f7387eccc3e4dfa2766d29a78f474f073ce79d9973594de49",
+          "size": 5888
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "7018497d0044e6bcc1aee0e8492c1a692d88c778e1f1a089239042e1af501d53"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.427Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-201-run-timeline.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "987d3bbd65762ca011c0d0e26a27df8ce3075532ed0d0d84394dfbc95d9500a6",
+          "size": 6636
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "4844091388cddfc110058e81dce736416a37953b1a25950bf36018cfa4c74465"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.447Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-202-missing-context.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "bc36cc6b69e33e8a96f637ab04a38bd4a4dbefd002ea8de93624254c340b88fc",
+          "size": 8069
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "ba6646041c3552123c1be439523495585980f48a71a40dcfefd00725b7a06d0b"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.469Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-203-run-record-privacy.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "2c905135a7995dd0e68bc53c666d3b4b5de5fc2173795aea22624f1ac632a5cc",
+          "size": 8327
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "f5f449293b8437e0f0afbfb3e4bb1660c99cb47b1f44bed2c182fdea60186e4b"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.490Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-204-artifact-retention.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "fb1cc06bb7ea399dd27242c60c353422afa42bfe6a3d0619bc1c960e4af3b097",
+          "size": 7447
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "481ed65a9c5ffee72f9111399ff0b349d7ecd97f0fa3fc34b8fc7b48b2d9ece6"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.512Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-205-dispatch-alerts.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "ca3c8ed5eecd28d134b53dd56a9fd238194a8b7c63c8c85bd5b755fce2f30cb1",
+          "size": 6658
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "46e1cb438a39c3d24b2b889d0e5ac123b8f37b49d87370619a79dac50264772a"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.534Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-301-events-io.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "b1c6cac0591c18f85e7d897eb498bf2a0525057bcd60715b292efcb313c8e4f5",
+          "size": 7511
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "51fcf4abd720671ec4349922f7c5294ed7e4116d36b99e6e055795559fad20ca"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.555Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-302-trace-events-cli.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "ddc43a26519405870774258674a22f0456eb9555078c35bf6db6b5b6aaeec4b1",
+          "size": 7648
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "cd27451d99111a35e89b64043d7c6b5b7bc414f39affce9f82de9df2686c9b44"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.576Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-303-ci-events.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "89f5ebd2c9638642dc4693af369928fcf770547e7f80a700644029ba31cc9a4b",
+          "size": 6502
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "523a04871e4f8d7999fe00d4d42946c66d8d03d521d34311a799a21c65757bcd"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.598Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-304-github-events.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "d5c8c6515c29d5b3810716efd68d51f6c111368ad80d6767a9bc46d6f7bfc2ac",
+          "size": 6208
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "250d780f5301033ae8356f32fa237221305da102e53ec0c51712c15374cf4e19"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.619Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-305-audit-ledger.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "5fb47f9f97be4fa0615d269ef3ad7def4f88bedff52aeb73cfb9db67e1993c76",
+          "size": 7295
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "7cbbbcfa3e28e5e97cccdeea278f2ec6a895b72e00dd049dba8f3e93f04a9886"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.649Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-401-audit-reconstruction.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "3c45042965eef2e4363834fea6e302ea997820e15673ce6155ff4c87817b23d0",
+          "size": 6353
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1af9c163a7047e088d39adbe69a49f6416c50f3daa2d02c14f4296dafe0ef2bf"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.670Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-402-audit-completeness.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "172e979cf8a3ad1161bc7095432024dcf68c3ae0607015965cb64b6cb6192fc2",
+          "size": 6369
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "9c173afcefe85580fd4b12aedd227ee58c00ec9c2a0fa07c0d8943cc5b53a137"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.691Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-403-alert-cli-workflows.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "ac98a1d9ce031e0e2069289577c77fcc55bba520aa50d846e3b66bb278db185f",
+          "size": 7056
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "23ea78c254352af47f7a049c32dfaf235ee87775b7b3225bb677ddf94a771ac2"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.712Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-501-weekly-events.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "4bb4490dc94babfc5ef2345f05a4bdf023984074d912aca1bf710007d7333964",
+          "size": 5964
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "fb11e325e8a92cee349714bf972ad4c607af35b06a267ab62d0d0a510e7776c3"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.734Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-601-observability-e2e.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "18788a5077f52acf55bac90643cf05e802101d7b30fb38bb3f1b85b4ed4d7e54",
+          "size": 6248
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1542ec52525ad610cb22253b2f3411f7f48427592bde16818f20408b82a94abe"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.759Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-602-docs-migration.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "e305265aa71a8568cc50079cc0e2e3c8716df8f8a1af0d785768809b412aeddc",
+          "size": 5942
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "2e7c03f4596f1a2b29a791f0538c9e75101c5ff05ca43bbd5a2ddc846cc8c9c7"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.taskbook",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.781Z",
+      "duration_ms": 908,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b6fff607d7ea243a4edba4a0390d3932a9888828e8011417071ab34104742ffd"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.taskbook",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.837Z",
+      "duration_ms": 953,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "41f10c276c6415f5e76809beb12012bcebf21b6cce64ccf5723f7b5ce66f6326",
+        "log.sha256": "41f10c276c6415f5e76809beb12012bcebf21b6cce64ccf5723f7b5ce66f6326",
+        "log.size": 43,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b5dcb99a45e8c0490cf0230e3c2f7152eb2cdee1693ba18e67a319110be34981"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.lint",
+      "status": "ok",
+      "ts": "2026-09-30T16:52:58.907Z",
+      "duration_ms": 27,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+        "log.sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+        "log.size": 19,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "2b4f4a8e997793eddcedee055d5f7c2397ad97fb87c02675a5a66c9816a453ae"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:54:57.135Z",
+      "duration_ms": 69,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d86a793f0b9b866fb249a84fd31f07b94b2ba6dc92cdaf12c799c93001191098"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:54:57.328Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b8758578cfb746ac70e29ade04d6ef4d69d7e9c2e47efd97604acb9d72a1fe94"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:54:59.007Z",
+      "duration_ms": 64,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "dc78d280dbc7b9267f2083fad0513e8698492421b328113d23c997e2ee01f3be"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.upgrade",
+      "status": "ok",
+      "ts": "2026-09-30T16:54:59.844Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "e4f51d17ae81a74f741952134e68bb9b4b9a6579f8e37fcdbd2cf8ab575cf3e8"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:00.214Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "ddd3fd57e4363a9f60de875501019302d9719d4ada761f6df147763c931a2d76"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:02.193Z",
+      "duration_ms": 67,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d348df0c527fa40f3b282179c3c75862c35d439af83eb4a193cff8d136ad75d3"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:02.958Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d69b21c3f885fa6f83a4fc40b40f3349e45ba5f16856ee7afbafdc7fbc7ad72a"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:04.717Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "67e6f60f14041bab333f6c9ed2bb70e09fce1ad946ed151dea63957f5c73e142"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:06.010Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "0dfbfc34b63b1532acc034cbc9d5ee27b80bfe44684071a7d4e0d00f0dabb943"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:08.123Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "8f96f255bc538ccc431a7fb05b637ff440aef72037783cdd3982443f9f5129c0"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:08.249Z",
+      "duration_ms": 61,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1331d49dc2ed369e3ef79dfec5f4fd29b18ff66099c0af5802d1365401166cc5"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:08.432Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "f540b35dcb504a0c6209ddce13ec4048a599a0ce84110661f14e0c259b1bc7c6"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tests",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:49.357Z",
+      "duration_ms": 170397,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "592609cf7764043e6a63daf80e056fa84c0c6097d3f0316d89781f82793e79ae",
+        "log.sha256": "592609cf7764043e6a63daf80e056fa84c0c6097d3f0316d89781f82793e79ae",
+        "log.size": 2485,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "9e4de1775f208be68de20daba0dc6d92fe47df07be7bbc3b4f29dac933e8f54c"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.replay",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:49.552Z",
+      "duration_ms": 149,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "58e31ca312fcd162ad75f5da641dd1d208ac18906b6abbcf32d3352533faf038"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.replay",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:49.607Z",
+      "duration_ms": 201,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "f980c598c8cff85c6470c11ed1d6f7e2cd72fca5ecf41ca53c16988ebf62e5bc",
+        "log.sha256": "f980c598c8cff85c6470c11ed1d6f7e2cd72fca5ecf41ca53c16988ebf62e5bc",
+        "log.size": 142,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "741c869d435ce26b8165fbea39181d11f2ade8b7811f7535d0229fa13cafd869"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:49.630Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "full"
+        }
+      ],
+      "outputs": {
+        "dirty": true,
+        "ok": true,
+        "tier": "full"
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "6cee313e7651b0a292d45a819ef685cc769f15c272150b732ea4034c54fb287f"
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "ok",
+      "ts": "2026-09-30T16:55:49.656Z",
+      "duration_ms": 172928,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1fdfefd70f294c778e370f2745d061c6b2b6328bd0f0b5b7e564132eaf7f0ec3"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tools",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:00.820Z",
+      "duration_ms": 30,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "quick"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "0bd2b344c7bcf48ef8337fa13258cb89cb0399c7bf6859921bfa1d99e4a2bd74",
+        "log.sha256": "0bd2b344c7bcf48ef8337fa13258cb89cb0399c7bf6859921bfa1d99e4a2bd74",
+        "log.size": 59,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "53e2c4c47fa659c29a99fc35f48161566b0514b04993a3d83e99485786a9bc4a"
+    },
+    {
+      "stage": "verify",
+      "step": "integrity",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:00.889Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "lock",
+          "ref": ".harness/engine.lock",
+          "sha256": "0c393b1f8f27103af4d948f1dca50fe2587cd0a3831e7f6b9b0ccae96f9cdee6",
+          "size": 198
+        }
+      ],
+      "outputs": {
+        "changed": 0,
+        "files": 48,
+        "lock.tree": "sha256:1ed5c4fd917aaf55c23baa290bd5fa3d24ee9ac57929f1f12d8d067e2c5d7f49",
+        "tree": "sha256:1ed5c4fd917aaf55c23baa290bd5fa3d24ee9ac57929f1f12d8d067e2c5d7f49"
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "50d2a615dd13677162c4bd2078065acb601ad6366cb2dda0404fa09460e1dd0c"
+    },
+    {
+      "stage": "verify",
+      "step": "cli.integrity",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:00.903Z",
+      "duration_ms": 48,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "345c2a0aa170edf5f7257cc17ebee516687223a1218fc6aa212548af59fd83b1"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.integrity",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:00.933Z",
+      "duration_ms": 87,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "quick"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "f275f0398d904ba9efc89ae34246f0a32ba4740b89d7f8304630407617529fef",
+        "log.sha256": "f275f0398d904ba9efc89ae34246f0a32ba4740b89d7f8304630407617529fef",
+        "log.size": 53,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "2b2299b47d2ca69aaf89be73e0b3beba54ec792f4f153eb72ce49c50f7713a89"
+    },
+    {
+      "stage": "ci",
+      "step": "hygiene.summary",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.139Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "scope": "tracked",
+        "violations": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "63a134e471f6bbcbfea0f2640e32a82b00e5c5df8c0ec4a62b9463a83c004497"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.hygiene",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.155Z",
+      "duration_ms": 187,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b0ba36a663314b2714933c435e2c4c0cfd304e3fb4ef113f1deeb2c9b742d0f5"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.hygiene",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.186Z",
+      "duration_ms": 226,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "quick"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "8f446c829eb658d177572069aabfad8d915eacc1c6d853c0302b102d7ab4c617",
+        "log.sha256": "8f446c829eb658d177572069aabfad8d915eacc1c6d853c0302b102d7ab4c617",
+        "log.size": 25,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "fc048e4fd99f84c207bc427b593797aa7bdadde1c95a8aa1dcf30afedcabad60"
+    },
+    {
+      "stage": "ci",
+      "step": "cli.acceptance",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.241Z",
+      "duration_ms": 22,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [],
+      "outputs": {
+        "code": 0
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "5e0b306a5ad923406dfbae8540a04fb2dba3b6746007ad359feaf4a53d76f286"
+    },
+    {
+      "stage": "verify",
+      "step": "verify.acceptance",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.274Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "head",
+          "ref": "6740d633d238e4ee393a1868748de114565bfeb5"
+        },
+        {
+          "kind": "tier",
+          "ref": "quick"
+        }
+      ],
+      "outputs": {
+        "exit": 0,
+        "log.ref": "179443ecbe06df7a628e36295830534b0da496505e57986f12c186698dbafa98",
+        "log.sha256": "179443ecbe06df7a628e36295830534b0da496505e57986f12c186698dbafa98",
+        "log.size": 84,
+        "signature": null
+      },
+      "decision": null,
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d328a850a2d796ab6105e9d08719f6e704ebc6aeea65afa5caeda4f9908ff617"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.346Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-001-migration-notes-tests.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "f6f7093f4ff55e12dec2bf33ce498ce0acb1327d096e28320da9671c69c86d74",
+          "size": 3438
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "203004cdd8337820222f34e3479dc4a7e08f256ad3acc85484ee4727acbbd510"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.361Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-101-events-core.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "c0f3702c5c53e13b9af0d998635962a3ed418c0f5ab32e4dbfc2013dd921b56c",
+          "size": 15819
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "06074982b0fb4331c3c05f975c5ab83d41cc406def87c2c057b54d959d455ade"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.375Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-102-events-verify.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "6474d3bd62847ad0c179051aed6b0fd35257ae9bba047e8b6cb9449b4f55bc4d",
+          "size": 6899
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "65b9c54ba7e421077475718ad35c565ce99a451d44208f476b6617fab89798d8"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.389Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-103-events-route.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "6c3cdfa36d32f8eea37ad90a5ebc7f09cf8a305f384e40b416583aa2c2967d85",
+          "size": 6019
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "427e1ac4cb2ec080b9c3e1a16d1b3eb74727e2083799362d92c20e674973e6fe"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.403Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-104-events-guard.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "f6c405a82af72da882c28b96cb0e626114be2e74a91794d90d858725959b5c85",
+          "size": 5878
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "ff28039545a31d719dc4ea9d027e7075c81aebc3119fb2c262c51e6ff9e647df"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.418Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-105-events-agents.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "ed860672b60f5320e2e38853065ef5ba66b85992560bf3a8415c92549c8bcbae",
+          "size": 7512
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "a705eb9cc7611f2ed9c3e767885ffb53719157b5c6abc9d86335830b34498c32"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.432Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-106-events-equivalence.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "21852c8b8b69fc024eaadf1bd8258f4777121070193b314e270a6b8db3dcda07",
+          "size": 6300
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "eb19fe65f2a38930dbdf21025ccfc3728931e90808001cd9760f8e99666ee66a"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.446Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-107-events-docs.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "c427a19388c27e350d95a02c7c2d95f2ead71df2808f89143c333418a1f8d107",
+          "size": 5042
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "9804246765bfab663a02cce82753c94e5c09ec0ed300931337edfc8ac8608c4f"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.460Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-108-events-checks.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "72739dbe8d32affe11d92cb094a5229bcd8c3d10a4bd056d3932672022afd8bd",
+          "size": 6533
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "39cd9171ef3294477b9f6c4d42cf2bf4ea4323e1ec6920da693241c03a578235"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.474Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-109-events-hardening.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "53398fb02ff4e45b736f6816fd298b70140778da0badd538eeb17599675cab9d",
+          "size": 6911
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "13b9d4a942a296c34f4dc3ae0289883fb88f81072a0522b161a4d6ace6ef402b"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.488Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-110-step-clean.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "750b153d194a572357af321ddc056d85af0eb8b76205b25a4808db1c11a41b26",
+          "size": 4174
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b630ac99329a5f4a135dc7f338e55a729aceb23dcd491ca871ff43c61f79240b"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.502Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-111-dispatch-template-fixes.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "97614782e1a28c7889dc699e91f231a2cbb073e85ae2405077c0a8f3c840ade6",
+          "size": 5468
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "e3b46e3e9d2d9132fd914876944a32a654d3c7d783f3b3b73b0aadf7a7de9a6a"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.517Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-112-guard-and-path-parsing.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "7d925be38ce3ff7ad1e53448374196a6da9704d0952884ac7ff68f983219aae7",
+          "size": 5700
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "2c2873c0300a6c17a669d44a641430e59e5f252e5d93317b4305d612c5fda169"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.531Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-113-r1-missing-base.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "c4924b0f4878ec59c53301ca7a89d4086d73c05079d25edae694622312f35de3",
+          "size": 4236
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "1f9e6ced048477d358196d9a8c54621004ce18e89af878a4ca52da0b542990b9"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.544Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-114-review-pack-taskbook.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "53eea98ec1899206db0e424f801015099ec6f93762d2bd344fc1f8e27241bd83",
+          "size": 4212
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d506e63860b36aa8f5e04b2f446f3c28cb96d1816c7e16b1bddf8a14853da4b0"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.559Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-115-consumer-contract-ci.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "b7da0ec5f0e86f2891d5ee4850b6cf08afc74a7081c3aefbad4fc1363cf3a2c7",
+          "size": 4402
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "6c4616c46a54a2780332667a804518e3de23b7e7a792617bee0b91f9a8ad6403"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.573Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-116-read-events-busy-timeout.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "bd9fad3fcb593f10a5d54627ea90411f49517b2388b4c4c7bab0cab9e8fd95b8",
+          "size": 3821
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "e7a04b54bb7d534f5d74f44e6dece557a6e83dc1264a9168152bd891b0dfc164"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.588Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-117-swift-parser-limits.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "12a93165fad33c0eac3d93cff483622694f9810f1a56da5b3c7606e9c770a814",
+          "size": 4058
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "85fb165a37d26ec63f57a158a4fb4223043645a62e9af8d2511478d28408d886"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.603Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-118-harness-contract-port.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "3f50cd204a46f67e85fa84f38b9bdc6ac6e8d661eb30db55b09431fa82ae130f",
+          "size": 4695
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b997aa1efce1cc45c8b700959d3302d0b888b9f72315144ed64e020eab12268d"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.618Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-119-review-calibration.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "8fe9789f796479aca4547255ebb571caf9b0c1d3f92ba6c4343ec1407e3a6b42",
+          "size": 8092
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "b1e4dd816da3a447cbc4dab5b26071e576277c10da28f243efa47b29477d8a54"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.632Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-120-review-plan.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "aad477bdcc1943c856e48cda2b45913efe4d293c2e82e1ef9d847b618a3be055",
+          "size": 6439
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "c2029f0bd652ee5fbce936bcfeb4ec1c74df77d7a9a808181c79b55e26f3e762"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.646Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-121-resume-reuse-pr.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "882f40475d39726d86359a3c88ad211c1daa53c0a73d4b105dead9d20e9ccf2a",
+          "size": 4809
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "ffabcad239696002387d15ab69beb5eb07f30ab20b639b2bb43716fc8b0d6095"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.660Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-122-wait-ci-retry.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "b77b7324c30871f0b5d56353ec9cf742c01bee252172c1ba88c9f0e8e90a0c01",
+          "size": 3742
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "4d2d0471f51bb894b91a846002e68c016dfc422c05838daf2f8ac10f0da20859"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.674Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-123-github-extraction.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "cec803627f81ef9f7387eccc3e4dfa2766d29a78f474f073ce79d9973594de49",
+          "size": 5888
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "21d41304258aec92dfe58d4bf31a25a272837df6058cad722e0834160ba4077b"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.688Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-201-run-timeline.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "987d3bbd65762ca011c0d0e26a27df8ce3075532ed0d0d84394dfbc95d9500a6",
+          "size": 6636
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "d4282a9d4546554e165c8a10e09f11bde81e4336a304bbdce706085996a6531c"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.702Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-202-missing-context.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "bc36cc6b69e33e8a96f637ab04a38bd4a4dbefd002ea8de93624254c340b88fc",
+          "size": 8069
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "aacda17e450b11df3a36f1439d50b37c5182b0cb4b90e71a57b529309a0f2990"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.718Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-203-run-record-privacy.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "2c905135a7995dd0e68bc53c666d3b4b5de5fc2173795aea22624f1ac632a5cc",
+          "size": 8327
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "132de61350e567edcfd4403ce197d3ab5725c65bd73f1db2e928219c712e1f00"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.733Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-204-artifact-retention.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "fb1cc06bb7ea399dd27242c60c353422afa42bfe6a3d0619bc1c960e4af3b097",
+          "size": 7447
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "9df6891f9906264987e9ea0ff6ece746e7f7b9738997b30a5200c1b513054f4d"
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-09-30T16:56:01.746Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0,
+      "inputs": [
+        {
+          "kind": "taskbook",
+          "ref": "docs/plans/task-205-dispatch-alerts.md@6740d633d238e4ee393a1868748de114565bfeb5",
+          "sha256": "ca3c8ed5eecd28d134b53dd56a9fd238194a8b7c63c8c85bd5b755fce2f30cb1",
+          "size": 6658
+        }
+      ],
+      "outputs": {
+        "problems": 0,
+        "decision.reason.sha256": "c84ad61b176d11ef9a9e22fe00c8d8cf10cf7c6868d7654ce6f98b79f54ea419"
+      },
+      "decision": {
+        "by": "taskbook",
+        "rule": "admit",
+        "reason": "ok"
+      },
+      "actor": {
+        "role": "engine",
+        "host": "local"
+      },
+      "source": "local",
+      "head_hash": "f2d6a6ba573eac7039d5d5c90894285386711425e8f6115f77a2e4c6bec58f6b"
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "ee3162c82f1d251538c121c77c8925d9caf72f072cb637d59e39c31b34fa2824",
+      "fixed_in": "run_record"
+    }
+  ],
+  "stages_truncated": true,
+  "stages_total": 1421
+}

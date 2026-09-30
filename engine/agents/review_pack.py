@@ -3,7 +3,8 @@
     bin/harness review-pack --base origin/main [--head HEAD] [--output build/review/pack.md] [--no-run]
 
 内容：改动概要、风险等级（risk.py）、修复证据（evidence.py）、本地 verify 汇总（仅当与当前 head 一致）、
-本次改动涉及的验收编号及其中的人工项、评审清单入口（docs/templates/review-checklist.md）。
+本次改动涉及的验收编号及其中的人工项、评审清单入口（docs/templates/review-checklist.md）、评审 diff
+材料清单（T124：build/review/ 下的 diff 文件与行数，分片时在顶部声明无截断）。
 """
 
 from __future__ import annotations
@@ -55,6 +56,24 @@ def verify_section(head_sha: str, summary_path: Path = VERIFY_SUMMARY) -> list[s
     return lines
 
 
+def diff_materials(cwd: Path = ROOT) -> list[str]:
+    """评审 diff 材料清单（T124，作为 write_materials 落盘 diff 的消费方）：列出 build/review/ 下
+    全部 diff 文件与各自行数；分片时在清单顶部加一行「diff 分 N 片，无截断」。目录里没有 diff
+    文件（独立运行、旧引擎组装）时不加这一节。"""
+    folder = cwd / "build" / "review"
+    files = sorted(folder.glob("diff*.patch")) if folder.is_dir() else []
+    if not files:
+        return []
+    lines = []
+    for path in files:
+        data = path.read_bytes()
+        count = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+        lines.append(f"- `{path.name}`：{count} 行")
+    if len(files) > 1:
+        lines.insert(0, f"diff 分 {len(files)} 片，无截断。")
+    return [*lines, ""]
+
+
 def build(base: str, head: str = "HEAD", run_tests: bool = True, cwd: Path = ROOT) -> str:
     head_sha = git("rev-parse", head, cwd=cwd)
     commits = git("rev-list", "--count", f"{base}..{head}", cwd=cwd)
@@ -62,6 +81,7 @@ def build(base: str, head: str = "HEAD", run_tests: bool = True, cwd: Path = ROO
     parts = [
         f"# 评审证据包 `{git('rev-parse', '--short', base, cwd=cwd)}` → `{head_sha[:7]}`",
         "",
+        *diff_materials(cwd),
         f"{commits} 个提交；{files or '无改动'}。评审清单见 `docs/templates/review-checklist.md`。",
         "",
         risk.render_markdown(risk.classify(base, head, cwd)),
