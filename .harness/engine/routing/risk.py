@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engine.checks import r1_checks, taskbook
+from engine.core import events
 from engine.core.common import (
     ROOT,
     added_line_count,
@@ -76,24 +77,32 @@ class RiskReport:
         return f"R{self.level}"
 
 
-def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd: Path) -> tuple[FileRisk, str | None]:
+def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd: Path,
+                  *, trace_id: str | None = None) -> tuple[FileRisk, str | None]:
+    """判定单个文件的等级；trace_id 非空时附带写逐文件观察事件（路径、命中规则、等级），不影响返回值。"""
     risk = rules["risk"]
+
+    def record(rule: str, item: FileRisk, flag: str | None) -> tuple[FileRisk, str | None]:
+        events.emit("route", "risk.file", "ok", trace_id=trace_id,
+                    outputs={"path": item.path, "status": item.status, "level": item.level},
+                    decision={"by": "risk", "rule": rule, "reason": item.reason})
+        return item, flag
+
     if path_matches(path, risk["golden"]):
         if status == "A":
-            return FileRisk(path, status, 0, "新增黄金快照（新增测试）"), None
-        return FileRisk(path, status, 2, "黄金快照改动 = 行为变化"), f"黄金快照改动：`{path}`"
+            return record("golden", FileRisk(path, status, 0, "新增黄金快照（新增测试）"), None)
+        return record("golden", FileRisk(path, status, 2, "黄金快照改动 = 行为变化"), f"黄金快照改动：`{path}`")
     if path_matches(path, risk["tests"]):
         if status == "A":
-            return FileRisk(path, status, 0, "新增测试"), None
+            return record("tests", FileRisk(path, status, 0, "新增测试"), None)
         if status == "D":
-            return FileRisk(path, status, 2, "删除已有测试"), f"删除已有测试：`{path}`"
+            return record("tests", FileRisk(path, status, 2, "删除已有测试"), f"删除已有测试：`{path}`")
         removed = removed_line_count(base, head, path, cwd)
         if removed == 0:
-            return FileRisk(path, status, 0, "只在已有测试文件中追加"), None
-        return (
-            FileRisk(path, status, 2, f"改动已有测试（删改 {removed} 行）"),
-            f"改动已有测试：`{path}`（删改 {removed} 行），判定器被修改须由评审方确认",
-        )
+            return record("tests", FileRisk(path, status, 0, "只在已有测试文件中追加"), None)
+        return record("tests",
+                      FileRisk(path, status, 2, f"改动已有测试（删改 {removed} 行）"),
+                      f"改动已有测试：`{path}`（删改 {removed} 行），判定器被修改须由评审方确认")
     shrinking = (
         status == "M"
         and path_matches(path, risk.get("shrink_only", []))
@@ -101,22 +110,22 @@ def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd
         and removed_line_count(base, head, path, cwd)
     )
     if shrinking:
-        return FileRisk(path, status, 0, "只能缩减的清单被缩减"), None
+        return record("shrink_only", FileRisk(path, status, 0, "只能缩减的清单被缩减"), None)
     pattern = path_matches(path, risk["r3"])
     if pattern:
-        return FileRisk(path, status, 3, f"命中 R3 规则 `{pattern}`"), None
+        return record(pattern, FileRisk(path, status, 3, f"命中 R3 规则 `{pattern}`"), None)
     pattern = path_matches(path, risk.get("contracts", []))
     if pattern:
-        return FileRisk(path, status, 2, f"模板与待办清单须经用户审（`{pattern}`）"), None
+        return record(pattern, FileRisk(path, status, 2, f"模板与待办清单须经用户审（`{pattern}`）"), None)
     if path_matches(path, risk.get("taskbooks", [])):
-        return classify_taskbook(status, path, head, cwd), None
+        return record("taskbook", classify_taskbook(status, path, head, cwd), None)
     pattern = path_matches(path, risk["r0"])
     if pattern:
-        return FileRisk(path, status, 0, f"命中 R0 规则 `{pattern}`"), None
+        return record(pattern, FileRisk(path, status, 0, f"命中 R0 规则 `{pattern}`"), None)
     pattern = path_matches(path, risk["r2"])
     if pattern:
-        return FileRisk(path, status, 2, f"命中 R2 规则 `{pattern}`"), None
-    return FileRisk(path, status, 2, "未归类路径按 R2"), None
+        return record(pattern, FileRisk(path, status, 2, f"命中 R2 规则 `{pattern}`"), None)
+    return record("unclassified", FileRisk(path, status, 2, "未归类路径按 R2"), None)
 
 
 def classify_taskbook(status: str, path: str, head: str, cwd: Path) -> FileRisk:
@@ -147,11 +156,13 @@ def commits_claim_r1(base: str, head: str, cwd: Path) -> bool:
     return True
 
 
-def classify(base: str, head: str = "HEAD", cwd: Path = ROOT, rules: dict | None = None) -> RiskReport:
+def classify(base: str, head: str = "HEAD", cwd: Path = ROOT, rules: dict | None = None, *,
+             trace_id: str | None = None) -> RiskReport:
+    """判定整份改动的风险；trace_id 给出时事件用它，缺省由 emit 回退 current_trace()（旧调用仍有效）。"""
     rules = rules or load_rules()
     report = RiskReport()
     for status, path in changed_files(base, head, cwd):
-        file_risk, flag = classify_file(status, path, base, head, rules, cwd)
+        file_risk, flag = classify_file(status, path, base, head, rules, cwd, trace_id=trace_id)
         report.files.append(file_risk)
         if flag:
             report.flags.append(flag)
@@ -193,7 +204,19 @@ def classify(base: str, head: str = "HEAD", cwd: Path = ROOT, rules: dict | None
             report.r1_violations = strengthened
             report.notes.append("提交声明了 `Risk: R1`，但机器核对不满足（见上方标记、非代码路径或下列理由）→ 维持原等级")
             report.notes += [f"- {reason}" for reason in strengthened]
+    _emit_summary(report, base, head, trace_id)
     return report
+
+
+def _emit_summary(report: RiskReport, base: str, head: str, trace_id: str | None) -> None:
+    """风险汇总观察事件：最终等级、R1 声明与是否被降级、被改动的已有测试数（观察旁路，不影响判定）。"""
+    changed_tests = sum(1 for item in report.files if item.reason.startswith("改动已有测试"))
+    events.emit("route", "risk.summary", "ok", trace_id=trace_id,
+                inputs=[events.ref("rev", base), events.ref("rev", head)],
+                outputs={"risk": report.label, "level": report.level, "claimed_r1": report.claimed_r1,
+                         "downgraded": report.claimed_r1 and report.level != 1,
+                         "changed_tests": changed_tests},
+                decision={"by": "risk", "rule": "risk", "reason": f"{report.label}：{POLICY[report.level]}"})
 
 
 def render_markdown(report: RiskReport) -> str:

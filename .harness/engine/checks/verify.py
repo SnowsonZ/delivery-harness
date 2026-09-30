@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -22,6 +23,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 
+from engine.core import events
 from engine.core.common import CLI, ENGINE_REL, ROOT, clean_git_env, git, setting
 
 LOG_DIR = ROOT / "build" / "verify"
@@ -48,6 +50,7 @@ class Result:
     log: str = ""
     note: str = ""
     tail: list[str] = field(default_factory=list)
+    code: int | None = None  # 检查命令的退出码；未运行（--skip、strict 转换）为 None
 
 
 def pinned_version(package: str) -> str | None:
@@ -153,6 +156,49 @@ def build_checks(strict: bool = False) -> list[Check]:
     return [available[name] for name in names]
 
 
+# 最终 Result（含 --skip 与 --strict 转换）到事件状态的映射（设计 3.3）。
+STATUS_BY_RESULT = {"pass": "ok", "fail": "fail", "skip": "skip"}
+
+
+def _log_refs(log: str) -> dict:
+    """完整日志按原始字节算哈希并存为本机产物；读取或保存失败时省略对应字段，不影响判定。"""
+    if not log:
+        return {}
+    try:
+        data = (ROOT / log).read_bytes()
+    except OSError:
+        return {}
+    refs = {"log.sha256": hashlib.sha256(data).hexdigest(), "log.size": len(data)}
+    try:
+        stored = events.store_artifact(data)
+    except Exception:  # noqa: BLE001  观察准备失败不影响原判定
+        stored = None
+    if stored:
+        refs["log.ref"] = stored["ref"]
+    return refs
+
+
+def emit_result(result: Result, info: dict, tier: str) -> None:
+    """每项检查的最终 Result 之后写 verify.<name>（D029）：head、档位、退出码、时长、失败签名与日志哈希。"""
+    try:
+        events.emit(stage="verify", step=f"verify.{result.name}", status=STATUS_BY_RESULT[result.status],
+                    duration_ms=int(result.seconds * 1000),
+                    inputs=[events.ref("head", info["head"]), events.ref("tier", tier)],
+                    outputs={"exit": result.code, "signature": result.note or None, **_log_refs(result.log)})
+    except Exception:  # noqa: BLE001  观察失败不影响原判定
+        return
+
+
+def emit_summary(info: dict, tier: str, ok: bool) -> None:
+    """收尾写一条 verify.summary（D030）：档位、通过与工作区状态。"""
+    try:
+        events.emit(stage="verify", step="verify.summary", status="ok" if ok else "fail",
+                    inputs=[events.ref("head", info["head"]), events.ref("tier", tier)],
+                    outputs={"tier": tier, "ok": ok, "dirty": info["dirty"]})
+    except Exception:  # noqa: BLE001  观察失败不影响原判定
+        return
+
+
 def run_check(check: Check) -> Result:
     if check.requires == "macos" and not _is_macos():
         return Result(check.name, "skip", note=check.why_skipped)
@@ -179,9 +225,9 @@ def run_check(check: Check) -> Result:
     seconds = time.monotonic() - started
     relative = str(target.relative_to(ROOT))
     if code == 0:
-        return Result(check.name, "pass", seconds, relative)
+        return Result(check.name, "pass", seconds, relative, code=code)
     tail = target.read_text(errors="replace").splitlines()[-TAIL_LINES:]
-    return Result(check.name, "fail", seconds, relative, f"退出码 {code}", tail)
+    return Result(check.name, "fail", seconds, relative, f"退出码 {code}", tail, code=code)
 
 
 def head_info() -> dict:
@@ -237,6 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         if result.status == "skip" and args.strict:
             result = Result(check.name, "fail", note=f"--strict 下不允许跳过（{result.note}）")
         results.append(result)
+        emit_result(result, info, tier_name)  # 最终 Result（含 strict 转换）之后埋点，--skip 与 strict 都不漏
         mark = {"pass": "✓", "fail": "✗", "skip": "-"}[result.status]
         extra = f"  {result.note}" if result.note else ""
         print(f"{mark} {result.name:<15} {result.seconds:5.1f}s{extra}", flush=True)
@@ -259,6 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         "ok": not failed,
     }
     (LOG_DIR / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
+    emit_summary(info, tier_name, not failed)
     write_step_summary(results, info)
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2))

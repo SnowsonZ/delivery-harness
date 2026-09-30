@@ -17,6 +17,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from engine.core import events
 from engine.core.common import ROOT, git, load_rules, parse_added_lines, path_matches
 
 
@@ -141,6 +142,18 @@ def scan_range(base: str, head: str = "HEAD", cwd: Path = ROOT, rules: dict | No
     return check_paths(changed, rules) + check_sizes(sizes, rules) + check_added_lines(parse_added_lines(diff), rules)
 
 
+def _record(scope: str, violations: list[Violation]) -> None:
+    """观察旁路：每条违规一条事件（路径与规则名，不含命中内容），汇总一条（范围与条数）。"""
+    try:
+        for violation in violations:
+            events.emit(stage="ci", step="hygiene.violation", status="fail",
+                        outputs={"path": violation.path, "rule": violation.kind})
+        events.emit(stage="ci", step="hygiene.summary", status="fail" if violations else "ok",
+                    outputs={"scope": scope, "violations": len(violations)})
+    except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
+        return
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     scope = parser.add_mutually_exclusive_group()
@@ -149,13 +162,15 @@ def main(argv: list[str] | None = None) -> int:
     scope.add_argument("--range", metavar="BASE", help="BASE...HEAD 的改动")
     args = parser.parse_args(argv)
 
+    scope_name = "staged" if args.staged else f"range:{args.range}" if args.range else "tracked"
     if args.staged:
-        violations = scan_staged()
+        violations = scan_staged(cwd=ROOT)
     elif args.range:
-        violations = scan_range(args.range)
+        violations = scan_range(args.range, cwd=ROOT)
     else:
-        violations = scan_tracked()
+        violations = scan_tracked(cwd=ROOT)
 
+    _record(scope_name, violations)  # 观察：违规路径与规则名、范围与条数（不含命中内容）
     for violation in violations:
         print(violation.render())
     if violations:
