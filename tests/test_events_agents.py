@@ -167,6 +167,11 @@ class FakeGitHub:
             detail["run_ids"] = list(run_ids)
         return ok, summary
 
+    def existing_pr(self, branch):
+        """分支已有开放 PR 的桩（B70/T121）：测试设 `existing` 属性即视为该编号的开放 PR，缺省无；
+        不记入 calls，既有调用序列断言保持不变。"""
+        return getattr(self, "existing", None)
+
 
 class FakeReviewer:
     """假评审方：argv 启动固定脚本；read 按脚本返回展示模型与 model_basis（C6）。"""
@@ -879,6 +884,51 @@ class ObservabilityTaskTest(unittest.TestCase):
         task = dispatch.Task(rel, "T905T", "K7", "R3", {}, [], "task/905-t")
         body = dispatch.pr_body(task, dispatch.Attempt(ok=True, exit="ok"), 1, "a" * 64, root=self.repo)
         self.assertIn("## 需要人工验收的部分\n\n无\n", body)
+
+    # ---------- 验收 6：分支已有开放 PR 时复用编号，不重复开（B70/T121） ----------
+
+    def test_resume_reuses_existing_pr(self):
+        """分支已有开放 PR（resume）：open_pr 不被调用，既有编号复用进 CI 反馈与升级（B70）。"""
+        self.commit_guards()
+        rel = "docs/plans/task-905-u.md"
+        self.write_taskbook(rel, self.header("T905U"))
+        self.stub_taskbook(rel, self.header("T905U"))
+        self.git("push", "-q", "origin", "main:refs/heads/task/905-u")  # resume 从远端已有分支续跑
+        gh = FakeGitHub(self.repo, branch_exists=True, ci=(False, "CI 未通过：见摘要", [5]))
+        gh.existing = 77
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = self.make_dispatcher(RecordingHost([], executor_script(mixed_stream())), gh).run(rel, resume=True)
+        self.assertEqual(code, 1)
+        self.assertNotIn(("open_pr", "task/905-u"), gh.calls)  # 不新建 PR（B70 崩溃点）
+        self.assertEqual(gh.pr_bodies, [])
+        rows = self.trace_events("task/905-u")
+        self.assertNotIn("push_pr", [row["step"] for row in rows])
+        # 既有编号复用进后续反馈：CI 轮次与升级都落在 #77
+        self.assertEqual(next(row for row in rows if row["step"] == "ci_wait")["outputs"]["pr"], 77)
+        self.assertEqual(next(row for row in rows if row["step"] == "escalate")["outputs"]["pr"], 77)
+        self.assertIn(("comment", 77), gh.calls)
+        self.assertIn("budget-exceeded", gh.labels)
+
+    def test_no_existing_pr_unchanged(self):
+        """无既有 PR：新建路径与编号逐字不变（B70）。"""
+        self.commit_guards()
+        rel = "docs/plans/task-905-v.md"
+        self.write_taskbook(rel, self.header("T905V"))
+        self.stub_taskbook(rel, self.header("T905V"))
+        gh = FakeGitHub(self.repo, ci=(True, "", [7]))
+        code, out, _ = self.run_dispatch(rel, RecordingHost([], executor_script(mixed_stream())), gh)
+        self.assertEqual(code, 0)
+        self.assertIn("CI 通过", out)
+        rows = self.trace_events("task/905-v")
+        self.assertEqual([row["step"] for row in rows],
+                         ["admit", "guard_preflight", "slot", "claim", "executor_round", "local_verify",
+                          "push_pr", "ci_wait"])
+        self.assertEqual(gh.calls, [("remote_branch_exists", "task/905-v"), ("push", "task/905-v"),
+                                    ("push", "task/905-v"), ("open_pr", "task/905-v"),
+                                    ("wait_ci", "task/905-v")])  # 查询为空不改变既有调用序列与新建路径
+        self.assertEqual(rows[6]["outputs"]["pr"], 14)
+        self.assertEqual(rows[7]["outputs"]["pr"], 14)
 
 
 if __name__ == "__main__":
