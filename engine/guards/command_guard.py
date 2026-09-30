@@ -26,6 +26,7 @@ from pathlib import Path
 
 from engine.core import events, shell_structure
 from engine.core.common import path_matches, setting
+from engine.guards import shell_structure as guard_structure
 
 # (模式, 规则键, 理由)。按整条命令匹配，`&&`、`;`、管道串起来的命令同样生效。
 # 规则键是拒绝事件里的稳定标识（设计 3.6）：理由文案可能调整且可能含命令字样，事件只记键、不复制理由。
@@ -57,9 +58,8 @@ COMMAND_RULES: list[tuple[str, str, str]] = [
         "hookspath_write",
         "修改 core.hooksPath 会绕过 git 守卫",
     ),
-    # 覆盖变量：出现变量名或其后半截即拒（拼接如 ${P}_ALLOW_TAG 也能命中；评审 PR7-R6）。
-    (r"HARNESS_|_ALLOW_(MAIN|TAG|REWRITE)\b|_SKIP_VERIFY\b", "override_var",
-     "覆盖变量只供人使用，Agent 不能自行放开守卫"),
+    # 覆盖变量（override_var）不在此表：按 shell 结构只在真赋值位置判定，见 engine/guards/shell_structure（B60），
+    # 避免 heredoc 正文与引号内的文字被误当赋值。
     (r"\bgit\s+reset\s+[^;&|]*--hard\b", "reset_hard",
      "git reset --hard 会丢弃未提交的改动（v0.8.0 X1 的修复就这样丢失）；先提交或 stash"),
     # 解析失败时的兜底（宁可误报）：-x 且没有任何 -e 排除即拒；能解析时由 shell_structure 按 [runtime] preserve 精确判断。
@@ -229,12 +229,15 @@ def check_command(command: str, role: str = "designer") -> list[str]:
         reasons = shell_structure.check(command, lambda text: check_command_text(text, role), role)
     except ValueError:  # 引号不配对等无法解析：退回字符串规则（宁可误报）
         reasons = check_command_text(command, role)
+    # 覆盖变量单独按结构判定（B60）：heredoc 正文与引号内文字是数据，只在真赋值位置拒绝。
+    reasons += guard_structure.check(command)
     return list(dict.fromkeys(reasons))
 
 
 def check_command_text(command: str, role: str = "designer") -> list[str]:
     """字符串规则：整段文本里出现危险字样即拒。只用于会执行代码的文本（解释器代码、交给 shell 的 stdin）
-    与无法解析的命令。"""
+    与无法解析的命令。覆盖变量不在此列：它按 shell 结构判定（guard_structure.check），
+    否则解释器代码与 stdin 正文里的文字会被误当赋值（B60）。"""
     normalized = " " + re.sub(r"\s+", " ", command.strip()) + " "
     # 再检查一遍去掉引号与反斜杠的形式：`"HARNESS"'_ALLOW_TAG'`、`HAR\\NESS_...` 这类拆写（PR7-R6）。
     unquoted = re.sub(r"[\"'\\]", "", normalized)

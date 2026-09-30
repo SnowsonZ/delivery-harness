@@ -69,22 +69,29 @@ def usage() -> str:
 
 
 def _record_dispatch(name: str, started: float, outcome) -> None:
-    """分派边界的观察旁路：一条 cli.<命令> 事件（时长、返回码或异常类别）；永不影响原行为。"""
+    """分派边界的观察旁路：一条 cli.<命令> 事件（时长、返回码或异常类别）；永不影响原行为。
+
+    观察失败（含 events 导入失败，如引擎副本损坏）静默丢弃：原 SystemExit/业务异常/返回码
+    与 stderr 逐字不变（共用合同 C0 三态等价）。
+    """
     if name in QUIET_COMMANDS:
         return
-    from engine.core import events  # 延迟导入：钩子等高频路径不付不必要的导入成本
+    try:
+        from engine.core import events  # 延迟导入：钩子等高频路径不付不必要的导入成本
 
-    if isinstance(outcome, SystemExit):
-        code = outcome.code if isinstance(outcome.code, int) else (0 if outcome.code is None else 1)
-        status = "ok" if code == 0 else "fail"
-        error = {"kind": "SystemExit"} if code else None
-    elif isinstance(outcome, BaseException):
-        code, status, error = None, "error", {"kind": type(outcome).__name__}
-    else:
-        code, status, error = outcome, ("ok" if outcome == 0 else "fail"), None
-    events.emit(stage=COMMAND_STAGE.get(name, "ci"), step=f"cli.{name}", status=status,
-                duration_ms=int((time.monotonic() - started) * 1000),
-                outputs={"code": code}, error=error)
+        if isinstance(outcome, SystemExit):
+            code = outcome.code if isinstance(outcome.code, int) else (0 if outcome.code is None else 1)
+            status = "ok" if code == 0 else "fail"
+            error = {"kind": "SystemExit"} if code else None
+        elif isinstance(outcome, BaseException):
+            code, status, error = None, "error", {"kind": type(outcome).__name__}
+        else:
+            code, status, error = outcome, ("ok" if outcome == 0 else "fail"), None
+        events.emit(stage=COMMAND_STAGE.get(name, "ci"), step=f"cli.{name}", status=status,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    outputs={"code": code}, error=error)
+    except Exception:  # noqa: BLE001  设计要求：观察失败不得影响原行为，也不得向 stderr 写提示
+        return
 
 
 def main(argv: list[str] | None = None) -> int:

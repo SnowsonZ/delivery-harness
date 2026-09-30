@@ -76,6 +76,7 @@ T101首个任务已完成全链。剩余P1顺序（2026-09-29 并行度修订后
 | [T108](task-108-events-checks.md) | 其余八模块的内容事件 | Pi；与 T102–T105、T110 并行，各目标/缺陷/指标按条记录 |
 | [T110](task-110-step-clean.md) | emit 写入值清洗口径修正（B63①） | Pi；与 T105/T108 同轮并行 |
 | [T111](task-111-dispatch-template-fixes.md) | 派发模板与 B65/B57 残留小修 | Pi；T106 合并后派发，与 T107 并行 |
+| [T112](task-112-guard-and-path-parsing.md) | 命令守卫 heredoc 误报与任务书路径解析小修 | Pi；T106 合并后派发，与 T107/T111 并行 |
 | [T106](task-106-events-equivalence.md) | 全部原判定入口三态等价夹具 | Pi；只新增测试，不改产品代码 |
 | [T107](task-107-events-docs.md) | P1安全/事件配置与变更记录 | 设计方；不派发 |
 

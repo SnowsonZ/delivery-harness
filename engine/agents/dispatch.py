@@ -42,7 +42,7 @@ from pathlib import Path
 
 from engine.agents import dispatch_host
 from engine.agents import dispatch_observation as observation
-from engine.checks import taskbook
+from engine.checks import acceptance, taskbook
 from engine.core.common import ENGINE_DIR, ROOT, ci_workflows, git, load_rules, setting
 
 PROMPT_TEMPLATE = ENGINE_DIR / "prompts" / "dispatch_prompt.md"
@@ -440,8 +440,8 @@ class Dispatcher:
                 self.escalate(task, pr, attempt, f"本地未完成（{EXIT_TEXT.get(attempt.exit, attempt.exit)}）")
                 return 1
             if pr is None:
-                body = pr_body(task, attempt, number, prompt_sha)
-                pr = self.github.open_pr(slot, task.branch, f"{task.id}：{_title(self.root, task)}", body)
+                body = pr_body(task, attempt, number, prompt_sha, root=self.root)
+                pr = self.github.open_pr(slot, task.branch, _pr_title(self.root, task), body)
                 observation.push_pr(task.branch, slot, pr, f"docs/runs/{folder}/{number}.json", body)
             ci_rounds += 1
             head = git("rev-parse", "HEAD", cwd=slot)
@@ -485,7 +485,24 @@ def _title(root: Path, task: Task) -> str:
     return first[1].splitlines()[0].removeprefix("任务：").strip() if len(first) > 1 else task.path
 
 
-def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str) -> str:
+def _pr_title(root: Path, task: Task) -> str:
+    """PR 标题：任务书标题已带「TXXX：」前缀时不再重复拼接（B65）。"""
+    title = _title(root, task)
+    return title if title.startswith(f"{task.id}：") else f"{task.id}：{title}"
+
+
+def _manual_section(root: Path, task: Task) -> str:
+    """人工验收一节正文：验收表存在「人工」类证据行时给指引，否则写「无」（B57）。
+
+    判定与 `bin/harness acceptance --manual` 同源（acceptance.Item.manual）。
+    """
+    items = acceptance.parse_spec(root / task.path, root)
+    if any(item.manual for item in items):
+        return "见任务书验收表中的人工条目（`bin/harness acceptance --manual`）。"
+    return "无"
+
+
+def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str, root: Path = ROOT) -> str:
     usage = attempt.usage
     return "\n".join([
         "## 任务", "",
@@ -505,7 +522,7 @@ def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str) -> str:
         "- CI 运行（当前 head）：见本 PR checks",
         "- 风险等级与修复证据：见 harness job summary（机器生成）", "",
         "## 需要人工验收的部分", "",
-        "见任务书验收表中的人工条目（`bin/harness acceptance --manual`）。", "",
+        _manual_section(root, task), "",
         "🤖 Dispatched by bin/dispatch",
     ]) + "\n"
 
