@@ -59,6 +59,17 @@ class CommandGuardStructureTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn(OVERRIDE, command_guard.check_command(command))
 
+    def test_real_assignment_isolation(self):
+        """失败隔离（步骤2）：覆盖变量拦截不随角色与可解析性变化。
+
+        - 实现者角色与设计者角色同一判定：真赋值照样拦截；
+        - 引号不配对等无法解析的命令退回整段扫描（宁可误报）：里面的真赋值不会因解析失败而漏拦。
+        """
+        self.assertIn(OVERRIDE,
+                      command_guard.check_command("export HARNESS_ALLOW_TAG=1", role="implementer"))
+        self.assertIn(OVERRIDE,
+                      command_guard.check_command("export HARNESS_SKIP_VERIFY=1; echo \"unbalanced"))
+
 
 if __name__ == "__main__":
     unittest.main()
