@@ -1,0 +1,26 @@
+{
+  "task": "T115",
+  "class": "K7",
+  "attempt": 1,
+  "branch": "task/115-consumer-contract-ci",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "d7dbe683fc804e042f5f1d9a23aeb875b0b5a706d905d3ff4f9d1035eb1b2600",
+  "prompt_path": "docs/runs/task-115-consumer-contract-ci/1.prompt.md",
+  "guard_ref": "60f3a23809508fd0779d59045a1ab7d9e27c097f",
+  "started_at": "2026-09-30T05:01:46+00:00",
+  "ended_at": "2026-09-30T05:19:12+00:00",
+  "executor_seconds": 1045.2,
+  "exit": "clarify",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {
+    "执行者不能编辑判定器与护栏（.github/workflows/ci.yml 命中 .github/**）；需要改动请升级给评审方": 1
+  },
+  "gen_ai.usage.input_tokens": 1725712,
+  "gen_ai.usage.output_tokens": 28270,
+  "cost": 0.074418,
+  "escalation": "clarify"
+}
