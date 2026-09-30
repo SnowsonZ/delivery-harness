@@ -88,5 +88,5 @@ rollback: git revert（仅在用户授权后）
 
 - **calibrate 的目标形状以消费方契约为准**：实现须读消费方 `tests/test_harness_review_independent.py` 中该测试（及其引用的辅助）所期望的 `calibrate` 签名与语义（含 `resume` 参数、三次失败停止、样本回放），按其实现；与 B59 打分需求的合并方式由实现方在该形状内完成（打分入口可另立 `review_calibrate`，消费方契约只约束 `calibrate`）。
 - **新增验收（人工）**：以本 PR 引擎 upgrade 消费方 main 后，其 harness 契约测试**全绿**（`consumer-contract` job 在本仓库 CI 同步变绿即同等证据）；这是本任务合并的前置条件。
-- **记录卫生**：执行方取证用的 CI 日志含 `/home/runner/...`，prompt 快照须占位后方可提交（本轮已由设计方按此落库）；后续样本执行输出同理。
+- **记录卫生**：执行方取证用的 CI 日志含 GitHub runner 的工作区绝对路径（本机路径规则命中的那一类），prompt 快照须占位后方可提交（本轮已由设计方按此落库）；后续样本执行输出同理。
 - 白名单不变（`calibrate` 在 `engine/agents/review.py` 内）；既有 4 行验收不变。
