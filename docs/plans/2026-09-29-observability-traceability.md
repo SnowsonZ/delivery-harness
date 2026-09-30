@@ -109,6 +109,7 @@
 | [T108](task-108-events-checks.md) | 其余检查的结构化输出埋点 | T109 | D018、D032、D033、D035、D036、D037、D038、D039 | 派发任务 | 180 |
 | [T109](task-109-events-hardening.md) | 事件库加固与来源链隔离 | T101 | D004、D007、D008、D010、D013、D015、D075 | 派发任务 | 150 |
 | [T110](task-110-step-clean.md) | emit 写入值清洗口径修正（B63①） | T109 | T109 评审发现①（B63） | 派发任务 | 45 |
+| [T111](task-111-dispatch-template-fixes.md) | 派发模板与 B65/B57 残留小修 | T102、T105 | B65、B57 | 派发任务 | 90 |
 | [T201](task-201-run-timeline.md) | 运行记录时间线与固定链头 | T107、T108 | D007、D016、D050 | 派发任务 | 120 |
 | [T202](task-202-missing-context.md) | 执行方缺失上下文摘要 | T201 | D025、D051 | 派发任务 | 120 |
 | [T203](task-203-run-record-privacy.md) | 运行记录内容检查（B38） | T201 | D037、D052、D076 | 派发任务 | 150 |
