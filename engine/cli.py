@@ -59,6 +59,7 @@ COMMAND_STAGE = {
     "dispatch": "dispatch",
     "review": "review",
     "review-pack": "review",
+    "review-plan": "review",
 }
 # 不记通用入口事件的命令：guard 只记拒绝（T104，放行不逐条记，设计 3.6）；events/trace 查询、
 # audit/alert 发布各自记事件，避免递归（C1）。
