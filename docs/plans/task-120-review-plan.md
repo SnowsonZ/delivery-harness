@@ -29,8 +29,8 @@ rollback: git revert（仅在用户授权后）
 
 ## 白名单
 
-- `engine/agents/dispatch.py`（仅 `review-plan` 子命令注册与参数转发）
-- `engine/agents/review.py`（`review_plan` 及材料收集/落盘辅助）
+- `engine/agents/plan_review.py`（新增；实现所在模块，见修订记录）
+- `engine/cli.py`（仅 `COMMANDS` 注册表追加 `review-plan` 一条与既有通用路由）
 - `tests/test_review_plan.py`（新增）
 
 ## 非目标
@@ -68,3 +68,13 @@ rollback: git revert（仅在用户授权后）
 ## 交付与升级
 
 完成项目检查 `bin/verify --full`。设计方另做逐行验收与定向变异复核（材料收集漏掉 task-*.md、结论不写 output，各自必须被断言抓住）。工具-only：G2 免（同 T118 先例）。同一失败连续三轮无新证据时停止该路径；不得自行扩大白名单、改原任务书、实现非目标。
+
+
+## 修订记录（2026-09-30，设计方裁决执行方升级）
+
+执行方首轮实现完成并验证后停下报告：任务书原定实现位置（`review.py` +797/800 行、`dispatch.py` +796/800 行且 `main()` C901 10 顶格）与质量棘轮结构性冲突，无合规写法。设计方核实属实（行数与复杂度均逐字属实），裁决如下：
+
+- **采纳执行方方案 1 的变体**：实现整体平移至新模块 `engine/agents/plan_review.py`；CLI 注册走 `engine/cli.py` 的 `COMMANDS` 注册表（数据驱动、123 行余量充足、C901 干净）；`engine/agents/review.py` 与 `engine/agents/dispatch.py` **从白名单移除并恢复 main 原样**——两个最大文件不越 800 行红线，棘轮意图最忠实。
+- 首轮已提交的实现（`97a9a2c`，测试与定向变异全过）平移即可，测试仅改导入路径。
+- **第 2 次（`--resume`）步骤**：平移实现至 `plan_review.py`、恢复两文件为 main 原样、`engine/cli.py` 注册、全类测试与 `bin/verify --full`；平移提交即步骤 1 的落地形态（「每步一提交」按此解释）。
+- G2 免维持；人工验收（真实 `review-plan` 跑 B46 文档）维持。
