@@ -208,11 +208,12 @@ class ObservabilityTaskTest(unittest.TestCase):
     def head_sha(self) -> str:
         return self.git("rev-parse", "HEAD").stdout.strip()
 
-    def make_pr(self, record: dict) -> tuple[str, str]:
+    def make_pr(self, record: dict | None = None, *, raw: str | None = None) -> tuple[str, str]:
         """任务书留在 base（main），记录与提示词提交到任务分支：返回 (base, head)。"""
         self.git("checkout", "-q", "-B", BRANCH, "main")
+        content = raw if raw is not None else json.dumps(record or {}, ensure_ascii=False, indent=2) + "\n"
         head = self.commit(
-            {PROMPT_REL: PROMPT_TEXT, RECORD_REL: json.dumps(record, ensure_ascii=False, indent=2) + "\n"},
+            {PROMPT_REL: PROMPT_TEXT, RECORD_REL: content},
             f"run：{TASK} 第 1 次派发记录（ok）\n\nTask: {TASK}\n")
         return self.base, head
 
@@ -388,6 +389,48 @@ class ObservabilityTaskTest(unittest.TestCase):
                 content = next(item for item in facts.run_findings if item.name == "记录内容")
                 self.assertFalse(content.ok)
                 self.assertIn("命令正文", content.reason)
+
+    # ---------- 步骤 2 验收：内容检查的失败隔离与范围 ----------
+
+    def test_content_check_isolation_and_scope(self):
+        # 记录缺失、JSON 损坏或不是对象时不做内容检查，原 Finding 原样，CLI 退出码不变
+        for raw, expect in (("not-json{", "不是有效的 JSON"), ("[]", "缺字段")):
+            with self.subTest(raw=raw):
+                base, head = self.make_pr(raw=raw)
+                findings = run_check.check(base, head, BRANCH, cwd=self.repo, with_ci=False)
+                self.assertNotIn("记录内容", [item.name for item in findings])
+                record_finding = next(item for item in findings if item.name == "运行记录")
+                self.assertFalse(record_finding.ok)
+                self.assertIn(expect, record_finding.reason)
+                code, out, _err = self.run_main(["--base", base, "--head", head, "--branch", BRANCH])
+                self.assertEqual(code, 0)
+                self.assertNotIn("记录内容", out)
+
+        # 范围与现有判定一致：序号最大的一份为基准，旧坏记录不拖累新合格记录
+        self.git("checkout", "-q", "-B", BRANCH, "main")
+        bad = valid_record()
+        bad["stages"][0]["outputs"]["note"] = "git status"
+        head = self.commit({PROMPT_REL: PROMPT_TEXT,
+                            RECORD_DIR + "/1.json": json.dumps(bad, ensure_ascii=False, indent=2) + "\n",
+                            RECORD_DIR + "/2.json": json.dumps({**valid_record(), "attempt": 2},
+                                                                ensure_ascii=False, indent=2) + "\n"},
+                           f"run\n\nTask: {TASK}\n")
+        findings = run_check.check(self.base, head, BRANCH, cwd=self.repo, with_ci=False)
+        self.assertTrue(all(item.ok for item in findings), [item.reason for item in findings])
+
+        # 失败只报告不改变退出码；不适用的分支没有内容检查
+        bad_new = valid_record()
+        bad_new["extra"] = "git status"
+        base, head = self.make_pr(bad_new)
+        code, out, _err = self.run_main(["--base", base, "--head", head, "--branch", BRANCH])
+        self.assertEqual(code, 0)
+        self.assertIn("记录内容", out)
+        self.assertIn("❌", out)
+        # 不适用的分支（无 task/ 名也无 Task: trailer）不适用，也没有内容检查
+        self.git("checkout", "-q", "-B", "feature/plain", "main")
+        plain_head = self.commit({"docs/plain.md": "普通\n"}, "无关提交")
+        self.assertIsNone(run_check.check(self.base, plain_head, "feature/plain", cwd=self.repo,
+                                          with_ci=False))
 
 
 if __name__ == "__main__":
