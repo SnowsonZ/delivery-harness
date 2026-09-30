@@ -92,6 +92,15 @@ def forged_chain_event(*, source: str, trace: str, seq: int, prev_hash: str, ts:
     return event
 
 
+def good_bundle() -> dict:
+    """单事件自洽包（本地链 seq=1），供导入范围与隔离夹具使用。"""
+    event = forged_chain_event(source="local", trace="task/T301-good", seq=1, prev_hash="",
+                               ts="2026-01-02T09:00:00.000Z", step="good", status="ok")
+    return {"schema_version": 1, "origin": {}, "events": [event], "anchors": [], "artifacts": [],
+            "chains": [{"source": "local", "trace_id": "task/T301-good",
+                        "head_hash": event["hash"]}], "findings": []}
+
+
 class ObservabilityTaskTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="dh-events-io-"))
@@ -147,6 +156,16 @@ class ObservabilityTaskTest(unittest.TestCase):
                 state = tuple(sorted(map(repr, conn.execute(f"SELECT * FROM {table}")))
                               for table in ("events", "refs", "artifacts", "anchors"))
             return state, path.read_bytes()
+
+    def logical_in(self, repo: Path):
+        """四表逻辑行快照（不比字节）：供本身要改库头（如 user_version）的隔离检查用。"""
+        with self.in_repo(repo):
+            path = events_db.db_path()
+            if path is None or not path.exists():
+                return None
+            with contextlib.closing(sqlite3.connect(path)) as conn:
+                return tuple(sorted(map(repr, conn.execute(f"SELECT * FROM {table}")))
+                             for table in ("events", "refs", "artifacts", "anchors"))
 
     def seed_rich(self, trace: str) -> tuple[str, str]:
         """两条内容丰富的事件（含安全 JSON 与日志两个本地产物）加一条链头锚点。"""
@@ -464,6 +483,54 @@ class ObservabilityTaskTest(unittest.TestCase):
             events_io.load_ci(1)
         with self.assertRaises(NotImplementedError):
             events_io.load_ci(1, head="a" * 40, gh="gh")
+
+    # ---- C0/C5 失败隔离与范围：读不建库、写原子、不碰 artifacts 范围、本地新 schema 不写 ----
+
+    def test_import_scope_and_readonly_isolation(self):
+        # 无库环境：读与导出都不得创建 harness.db
+        bare = self.fresh_repo("scope-bare")
+        with self.in_repo(bare):
+            self.assertEqual(events_io.query(), [])
+            self.assertEqual(events_io.export_bundle()["events"], [])
+            self.assertFalse(events_db.db_path().exists())
+        # 存储层直接写入撞唯一约束：整体回滚，半包不落盘
+        row = {"ts": "2026-01-02T03:00:00.000Z", "source": "local", "trace_id": "task/T301-scope",
+               "seq": 1, "prev_hash": "", "hash": "a" * 64, "stage": "verify", "step": "x",
+               "status": "ok", "duration_ms": None, "actor_role": None, "actor_host": None,
+               "model": None, "decision_by": None, "decision_rule": None, "decision_reason": None,
+               "error_kind": None, "error_signature": None, "outputs": "{}",
+               "engine_version": "0.0.0", "redacted": 0}
+        with self.assertRaises(sqlite3.IntegrityError):
+            events_db.import_rows([(dict(row), []), (dict(row), [])], [])
+        self.assertEqual(self.rows_in(self.repo, "SELECT count(*) FROM events")[0][0], 0)
+        # 本地库 schema 比代码新：明确报 storage 发现，不写、不改逻辑行（改 user_version 本身会动库头，故只比行）
+        self.seed_rich("task/T301-scope")
+        before = self.logical_in(self.repo)
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("PRAGMA user_version=2")
+        bundle = {"schema_version": 1, "origin": {},
+                  "events": [forged_chain_event(source="local", trace="task/T301-newer", seq=1,
+                                                prev_hash="", ts="2026-01-02T09:00:00.000Z",
+                                                step="newer", status="ok")],
+                  "anchors": [], "artifacts": [],
+                  "chains": [{"source": "local", "trace_id": "task/T301-newer",
+                              "head_hash": "a" * 64}], "findings": []}
+        bundle["chains"][0]["head_hash"] = bundle["events"][0]["hash"]
+        with self.in_repo(self.repo):
+            result = events_io.import_bundle(bundle)
+        self.assertEqual(result["imported"], 0)
+        self.assertIn("storage", [finding["code"] for finding in result["findings"]])
+        with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
+            conn.execute("PRAGMA user_version=1")
+        self.assertEqual(self.logical_in(self.repo), before)
+        # 导入不碰 artifacts 范围：已有产物索引与文件原样
+        with self.in_repo(self.fresh_repo("scope-artifacts")):
+            self.assertIsNotNone(events.store_artifact(b"keep-me"))
+            counts = self._table_counts()
+            self.assertEqual(events_io.import_bundle(good_bundle()),
+                             {"imported": 1, "skipped": 0, "findings": []})
+            counts["events"] += 1
+            self.assertEqual(self._table_counts(), counts)
 
 
 if __name__ == "__main__":
