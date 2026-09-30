@@ -30,11 +30,15 @@
 | B51 | 升级时自动检测配置缺口（对照新版引擎列出缺失的必填或建议配置，替代只靠 CHANGELOG 的 Migration 条目）；与 B45 的 adopt 一起做。已完成部分：拒绝非 main 提交、打印 Migration 条目、`docs/upgrading.md`（PR #3） | 小 | 评审方 | B48 后 Agent-Notification 升级流程讨论 |
 | B52 | 审计账本覆盖「被拦下」（关闭未合并）的 PR：v0.2 只做已合并（用户 2026-09-29 定），被拦下的 PR 目前只在本机库里 | 中 | 评审方 | 可观测性设计 4.1 |
 | B54 | 任务拆分评审工具化：`bin/dispatch review-plan`（复用独立评审的材料包与提示词，材料为设计、追溯表与全部任务书），现按 `docs/task-splitting.md` 手工执行 | 中 | 评审方 | 用户 2026-09-29；任务书 T120（task-120-review-plan.md）|
-| B58 | 第三方没有 `docs/templates/review-checklist.md`：评审提示词与材料包（`review_prompt.md`、`review_pack.py`）引用它。随模板提供一份通用清单，并在清单里加「每条验收说明未实现时会怎么失败」一项。T101 独立评审指出 | 中 | 评审方 | T101 评审 |
+
 | B59 | 独立评审的测试强度核查：T101 的 OpenCode 评审通过，但没发现设计方变异检查抓出的两个未被抓住的变异。本仓库没有评审校准集；建立校准集（含「测试恒真、变异未被抓住」类样本）并按其结果选评审方与提示词 | 中 | 评审方 | T101 复核；任务书 T119（task-119-review-calibration.md）|
 | B64 | 引擎任务书校验的 DESIGNERS 枚举扩展（现仅 claude-code/codex）：支持任意设计方标识（如 zcode），免得新设计方沿用旧席位署名；现以「Zcode 代行 codex 席位」过渡（T110 头部 designer: codex）。触发：设计方席位再变更或新增执行方宿主时 | 小 | 评审方 | PR #23 第二轮评审，2026-09-29 |
 | B62 | 凭据规则缺少词边界：普通长task文件名的尾部被误识别为密钥；T602文档迁移任务名在暂存后扫描触发9处误报。改进凭据模式边界并补真实凭据/普通标识符正反例；本次只缩短新任务书slug，不改护栏规则 | 小 | 评审方 | B46提交前卫生检查，2026-09-29 |
 | B68 | 独立评审材料包在任务书探测未命中时写「无」（如 docs-only 的 T107 PR 实按 task-107 执行）：增加从 PR 标题/正文提取 `docs/plans/task-*.md` 的回退；既有探测路径逐字不变。任务书 T114（task-114-review-pack-taskbook.md） | 小 | 评审方 | PR #33 评审（2026-09-30） |
+| B70 | `dispatch --resume` 在该分支已有 PR 时不复用而新建，`gh pr create` 报错崩溃（T203/T119 两例）：resume 应查询既有 PR 并复用（反馈注入既有 PR） | 小 | 评审方 | T203/T119 resume 实测（2026-09-30） |
+| B71 | `wait_ci` 查询 Actions workflows 端点的瞬时失败（TLS/EOF）无重试（`gh run list` 有 3 次重试但 workflows 列表拉取不在覆盖内），T118/T204 两例派发进程死在等 CI 阶段（产物已推送、PR 已开，仅失去自动重跑）：把 workflows 拉取纳入同一重试 | 小 | 评审方 | T118/T204 实测（2026-09-30） |
+| B72 | 派发结束/失败后槽位工作树残留并占住分支，后续 resume/同名任务 checkout 被拒（T203 resume 首撞）：dispatch 结束路径应归还槽位（detach 或清理）；期间需人工 `git worktree remove --force` | 小 | 评审方 | T203/T119 resume 实测（2026-09-30） |
+| B73 | 间歇性 macOS flake：`test_pr_title_has_no_duplicate_prefix`、`test_record_contains_timeline_and_exact_anchor` 等整 dispatch 夹具测试在 macOS runner 偶发 dispatch 返回 1（main 近 14 次 ci 三红；本地与 CI=true 无法复现）。诊断断言已入 #59；下次 flake 依日志修根因，必要时给整 dispatch 夹具加确定性时钟/事件同步 | 中 | 评审方 | main ci #37/#38/#58、PR #61 实测 |
 | B69 | `run_timeline._read_events` 用裸 `sqlite3.connect` 未沿用 `events_db._connect` 的 `busy_timeout`：库锁竞争窗口内读取异常后退化为空时间线（方向安全、偶发）。改用既有连接参数并补回归 | 小 | 评审方 | PR #43 评审（2026-09-30）；任务书 T116（task-116-read-events-busy-timeout.md）|
 | B67 | `routing` 的 r1 检查在仓库尚无 main 提交（空仓库首个 PR）时的既有缺陷：#35（T106）独立评审发现，等价夹具覆盖到该分支；修法与回归随 T112 后的小修轮或并入 B45 adopt | 小 | 评审方 | PR #35 独立评审（2026-09-30）；任务书 T113（task-113-r1-missing-base.md）|
 | B47 | 开源化其余项：界面与提示词国际化（en、zh-CN）、可配置的目录约定与默认分支、执行方宿主适配器（Pi 之外）、`platform` 一键平台设置与 App manifest | 中 | 评审方 | 用户 2026-09-29 |
@@ -67,6 +71,7 @@ B34–B41 的处理建议（B35 与 B36 先做、B41 放弃等）用户 2026-09-
 | B63 | T109 独立评审遗留（一般级两条，处置：PR #20 先合并再跟进）：① `engine/core/events.py` `emit` 的 step 合法性检查基于 strip 后的 `step_text`，写入 payload 却… | 2026-09-30，① T110（#29）、② T107（#33） |
 | B65 | 第一轮派发评审遗留（均一般级，处置：随小型修复任务收掉，最晚 T107 前）：① `engine/cli.py` `_record_dispatch` 的延迟导入与 emit 未包异常保护——引擎副本损坏时 ImportError 会… | 2026-09-30，delivery-harness #37（T111） |
 | B66 | T105 验收追认与体量治理：`tests/test_events_agents.py` 超任务书 800 行约束——用户合并 PR #31 即为追认；后续瘦身随 T201/T205 的外置文件模式（执行计划既有安排），不另立任务 |… | 2026-09-30，追认随 #31 合并；瘦身随 T201/T205 外置模式 |
+| B58 | 第三方没有 `docs/templates/review-checklist.md`：评审提示词与材料包引用它，每单评审重复提出。已随引擎缺口 docs PR 提供建议清单（含「每条验收说明未实现时会怎么失败」列） | 2026-09-30，本 PR |
 | — | 引擎抽离与 Agent-Notification 迁移（阶段 A、B） | 2026-09-29，delivery-harness #1、Agent-Notification #66 |
 | B48 | 第三方可走通：通用 CI 工作流、两套 ruleset、`[platform]` 批准方式与 App 变量名可配置、单账号模式与风险说明；README「Platform setup」 | 2026-09-29，delivery-harness #3 |
 | B53 | CI 工作流名可配置（`[dispatch] ci_workflows`），dispatch 等待全部必需工作流；T001 冒烟暴露 | 2026-09-29，delivery-harness #11 |
