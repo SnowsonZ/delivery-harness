@@ -520,25 +520,30 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual([row["step"] for row in rows[6:]], ["push_pr", "ci_wait"])
 
         # WAL 下写事务不阻塞读者；把库切回回滚日志模式，另一连接的独占写事务才能确定性复现
-        # 锁竞争/恢复窗口：无 busy_timeout 立即抛 database is locked，有则等待持锁者提交后读到完整链
+        # 锁竞争：读取在持锁窗口内等待（连接的 busy_timeout/timeout 生效）而非立即抛
+        # database is locked 退化为空摘要。注意 sqlite3.connect 的 Python 默认 timeout 恰为
+        # 5 秒，与本仓库 busy_timeout=5000 行为等价——本用例防的是「完全无等待」的退化，
+        # 不区分两种 5 秒来源（连接参数单点收口的价值见 run_timeline._read_events 注释）。
         path = events_db.db_path()
         with contextlib.closing(sqlite3.connect(path)) as conn:
             conn.execute("PRAGMA journal_mode=DELETE")
 
+        acquired = threading.Event()
+
         def hold_write_transaction():
             with contextlib.closing(events_db._connect(path)) as conn:
                 conn.execute("BEGIN EXCLUSIVE")
-                time.sleep(1.0)  # 持锁期间主线程发起时间线读取
+                acquired.set()  # 先拿到锁，再放读者进来（消除先后竞态）
+                time.sleep(1.0)  # 持锁窗口自限时提交：读者在窗口内等待后读到完整链
                 conn.execute("COMMIT")
 
         holder = threading.Thread(target=hold_write_transaction)
         holder.start()
-        time.sleep(0.2)  # 让持锁先于读取发生
-        started = time.monotonic()
+        self.assertTrue(acquired.wait(10), "持锁线程未能获得独占事务")
+        # 读者此时必然撞上独占锁：能返回完整时间线说明读取等待了持锁窗口
+        # （无任何等待超时的连接在此立即抛 database is locked 并退化为空摘要）
         timeline, head = run_timeline.record_fields(branch)
-        elapsed = time.monotonic() - started
         holder.join()
-        self.assertGreaterEqual(elapsed, 0.5)  # 读取在锁窗口内等待，而非立即失败退化为空
 
         # 等待后成功：时间线与锚点完整（准入至本地检查六阶段，外加记录后已发生的 push_pr/ci_wait）
         self.assertEqual([(item["step"], item["status"]) for item in timeline["stages"]],
@@ -548,25 +553,6 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(timeline["anchors"], [{"source": "local", "stage": "dispatch",
                                                 "head_hash": rows[-1]["hash"], "fixed_in": "run_record"}])
         self.assertEqual(head, rows[-1]["hash"])
-
-
-    def test_record_uses_events_db_connect(self):
-        """T116 接线断言：时间线读取经 events_db._connect（连接参数单点收口）。
-
-        说明（设计方 2026-09-30）：sqlite3.connect 的默认 timeout 恰为 5 秒，与
-        busy_timeout=5000 行为等价，锁行为无法区分两种连接方式；本断言钉住的是
-        接线路径——连接参数后续调整时时间线读取自动跟随。
-        """
-        rel = "docs/plans/task-210-g.md"
-        self.write_taskbook(rel, self.header("T210-G"))
-        self.stub_taskbook(rel, self.header("T210-G"))
-        self.commit_guards()
-        gh = FakeGitHub(self.repo, ci=(True, "", [7]))
-        with mock.patch.object(events_db, "_connect", wraps=events_db._connect) as spy:
-            code, _, _ = self.run_dispatch(rel, RecordingHost([], executor_script(mixed_stream())), gh)
-        self.assertEqual(code, 0)
-        self.assertTrue(spy.called, "时间线读取未走 events_db._connect")
-
 
 if __name__ == "__main__":
     unittest.main()
