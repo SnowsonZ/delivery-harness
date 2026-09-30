@@ -18,7 +18,7 @@
 |---|---|---|---|---|
 | B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、`audit`、即时告警；收掉 B36、B38、B40。设计已审定，P1 实现全部合并（T101–T109、T110、T106、T111、T112，并行度经 #24 修订）；T107 文档收尾 PR #33 待合并；随后 P1 期门禁 G1（自举升级）/G2（消费方等价，含契约测试修复原子合并）；P2–P6 按追溯表顺序。设计与合同见 `docs/plans/2026-09-29-observability-*.md` | 大 | 评审方 | 用户 2026-09-29 |
 | B45 | 第二个项目接入前：`adopt`（探测语言、源码目录、测试与 lint 命令，渐进档位，已有配置幂等合并，AGENTS.md 受管块）与 TypeScript 语言插件 | 大 | 评审方 | 用户 2026-09-29（面向开源、接入无感） |
-| B42 | harness 测试（Agent-Notification 的 `tests/test_harness*.py`）移植到本仓库：改为基于夹具项目，本仓库单独即可验证；那边只留消费方契约测试 | 中 | 评审方 | Agent-Notification T008 |
+| B42 | harness 测试（Agent-Notification 的 `tests/test_harness*.py`）移植到本仓库：改为基于夹具项目，本仓库单独即可验证；那边只留消费方契约测试 | 中 | 评审方 | Agent-Notification T008；任务书 T118（task-118-harness-contract-port.md）|
 | B44 | 本仓库 CI 加消费方契约测试：检出 Agent-Notification main，用待测引擎 upgrade 后跑其 harness 测试与 `verify --quick` | 小 | 评审方 | Agent-Notification T008；任务书 T115（task-115-consumer-contract-ci.md）|
 | B43 | 删除迁移过渡回退：git 守卫与派发读旧布局 `harness/`、评审材料的旧入口（`LEGACY_RULES_REL` 等）；Agent-Notification 已迁，随 v0.1.1 | 小 | 评审方 | Agent-Notification T008 |
 
@@ -40,7 +40,7 @@
 | B47 | 开源化其余项：界面与提示词国际化（en、zh-CN）、可配置的目录约定与默认分支、执行方宿主适配器（Pi 之外）、`platform` 一键平台设置与 App manifest | 中 | 评审方 | 用户 2026-09-29 |
 | B49 | 自举：本仓库装上自己的 Agent 层与 git 层守卫（目前只有服务端 ruleset 兜底） | 中（进行中：分支 chore/self-host） | 评审方 | 2026-09-29 迁移准备 |
 | B4 | 按改动行做变异测试（先只支持 Python），自动发现「测试写了但没测到东西」 | 出现一次这类逃逸再做；约 1 天，每个 PR 的 CI 多 1–4 分钟 | 评审方 | Agent-Notification 修复证据方案讨论（2026-09-26） |
-| B33 | Swift 质量棘轮解析的两处已知限制：协议中的计算属性声明（`var x: T { get }`）被计为函数；字符串插值内嵌字符串（`"\("x")"`）会让解析提前结束字符串、漏算同行大括号 | 小 | 评审方 | Agent-Notification PR #62 独立评审 |
+| B33 | Swift 质量棘轮解析的两处已知限制：协议中的计算属性声明（`var x: T { get }`）被计为函数；字符串插值内嵌字符串（`"\("x")"`）会让解析提前结束字符串、漏算同行大括号 | 小 | 评审方 | Agent-Notification PR #62 独立评审；任务书 T117（task-117-swift-parser-limits.md）|
 | B34 | `docs` 检查补两项：AGENTS.md 超过 100 行即失败；待办清单中写「进行中」的条目必须写分支名 | 小 | 评审方 | Agent-Notification 2026-09-29 现状复核 |
 | B35 | 派发 Pi 时改用 `--no-extensions` 再显式加载守卫：`-na` 只忽略槽位中的项目文件，用户级扩展仍会加载 | 小 | 评审方 | 同上 |
 | B36 | 派发提示词要求执行方结束时报告「缺失的上下文或工具」，写进运行记录 `missing_context`，周报汇总（随 B46） | 小 | 评审方 | 同上 |
