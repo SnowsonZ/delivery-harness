@@ -7,6 +7,9 @@
   - 不超规模阈值：增删行数不超过 .harness/config/autonomy.toml [size] max_lines
 已有测试零改动、黄金快照零差异由 risk.py 的标记核对；变异得分不降由 build 的 harness job 在声明 R1 时运行
 `mutate.py --check --changed-since`（要执行代码，放在 PR 自己的 CI 里，下降即失败）。
+
+base 引用不存在（空仓库首个 PR、fresh clone 还没有 origin/main）时各项判定无法核验：判定入口返回
+「无法核验」的明确理由而不抛 git 错误，risk.py 接到后按既有降级口径取 R2。
 """
 
 from __future__ import annotations
@@ -67,8 +70,20 @@ def changed_line_count(base: str, head: str, cwd: Path, exclude: list[str]) -> i
     return total
 
 
+def base_missing(base: str, cwd: Path = ROOT) -> bool:
+    """base 引用无法解析为提交（空仓库首个 PR、fresh clone 还没有 origin/main）。"""
+    return not git("rev-parse", "--verify", "--quiet", f"{base}^{{commit}}", cwd=cwd, check=False).strip()
+
+
+def unverifiable_reason(base: str) -> str:
+    """base 引用不存在时判定入口的统一理由；risk.py 接到后按既有降级口径取 R2。"""
+    return f"无法核验：base 引用 `{base}` 不存在"
+
+
 def violations(base: str, head: str, cwd: Path = ROOT, autonomy: dict | None = None) -> list[str]:
-    """返回不满足 R1 加强判定的理由；空列表表示满足。"""
+    """返回不满足 R1 加强判定的理由；空列表表示满足。base 引用不存在时返回「无法核验」理由，不抛 git 错误。"""
+    if base_missing(base, cwd):
+        return [unverifiable_reason(base)]
     autonomy = autonomy or load_autonomy()
     size = autonomy.get("size", {})
     reasons = []

@@ -158,9 +158,20 @@ def commits_claim_r1(base: str, head: str, cwd: Path) -> bool:
 
 def classify(base: str, head: str = "HEAD", cwd: Path = ROOT, rules: dict | None = None, *,
              trace_id: str | None = None) -> RiskReport:
-    """判定整份改动的风险；trace_id 给出时事件用它，缺省由 emit 回退 current_trace()（旧调用仍有效）。"""
+    """判定整份改动的风险；trace_id 给出时事件用它，缺省由 emit 回退 current_trace()（旧调用仍有效）。
+
+    base 引用不存在（空仓库首个 PR、fresh clone 还没有 origin/main）时改动无法与 base 对比：接到
+    r1_checks 的「无法核验」结果按既有降级口径处理，取 R2 并给出可读理由。
+    """
     rules = rules or load_rules()
     report = RiskReport()
+    if r1_checks.base_missing(base, cwd):
+        reason = r1_checks.unverifiable_reason(base)
+        report.level = 2
+        report.r1_violations = [reason]
+        report.notes.append(f"{reason}，改动无法与 base 对比，逐文件判定与 r1 加强判定都不可用 → 按降级口径取 R2")
+        _emit_summary(report, base, head, trace_id)
+        return report
     for status, path in changed_files(base, head, cwd):
         file_risk, flag = classify_file(status, path, base, head, rules, cwd, trace_id=trace_id)
         report.files.append(file_risk)
