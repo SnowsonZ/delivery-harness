@@ -342,19 +342,23 @@ class ObservabilityTaskTest(unittest.TestCase):
         record["stages"][0]["outputs"]["note"] = "git push --force origin main"
         record["failure_signatures"] = ["see /Users/someone/secret.txt"]
         record["guard_denials"] = {"未知理由正文里写了 echo hi": 1}
+        # refs 里的未知键：键名（含路径样名）与值都不得进入报告（评审 #51 严重项）
+        record["stages"][0]["inputs"][0]["/Users/x/leaked-key"] = "leaked-value"
         findings = self.run_findings(record)
         content = next(item for item in findings if item.name == "记录内容")
         self.assertFalse(content.ok)
         for secret in ("git push --force", "origin main", "/Users/someone/secret.txt",
-                       "未知理由正文里写了", "echo hi"):
+                       "未知理由正文里写了", "echo hi", "/Users/x/leaked-key", "leaked-value"):
             self.assertNotIn(secret, content.reason)
-        for rule in ("命令正文", "本机路径", "未知理由"):
+        for rule in ("命令正文", "本机路径", "未知理由", "未知字段"):
             self.assertIn(rule, content.reason)
-        for location in ("stages[0].outputs.note", "failure_signatures[0]", "guard_denials"):
+        for location in ("stages[0].outputs.note", "failure_signatures[0]", "guard_denials",
+                         "stages[0].inputs[0].未知键（已隐去）"):
             self.assertIn(location, content.reason)
         rendered = run_check.render(findings)
         self.assertNotIn("git push --force", rendered)
         self.assertNotIn("/Users/someone/secret.txt", rendered)
+        self.assertNotIn("/Users/x/leaked-key", rendered)
         self.assertIn("记录内容", rendered)
 
     # ---------- 验收 4：policy 经 run_findings 拒绝坏记录，结论不依赖事件库 ----------

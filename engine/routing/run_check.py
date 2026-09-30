@@ -399,7 +399,10 @@ def _p_outputs(value, location, problems) -> None:
 
 
 def _p_refs(value, location, problems) -> None:
-    """输入引用列表：kind/ref/sha256/size；kind=pattern 的 ref 允许规定通配模式。"""
+    """输入引用列表：kind/ref/sha256/size；kind=pattern 的 ref 允许规定通配模式。
+
+    未知键的位置用固定占位（评审 #51 严重项）：键名属记录内容，不得进入 Finding。
+    """
     if not isinstance(value, list):
         problems.append((location, "非法类型"))
         return
@@ -409,20 +412,20 @@ def _p_refs(value, location, problems) -> None:
             problems.append((child, "非法类型"))
             continue
         for key, item_value in item.items():
-            grandchild = f"{child}.{key}"
             if key == "kind":
-                _p_token(item_value, grandchild, problems)
+                _p_token(item_value, f"{child}.kind", problems)
             elif key == "ref":
                 is_pattern = item.get("kind") == "pattern"
-                _check_str(item_value, grandchild, problems,
+                _check_str(item_value, f"{child}.ref", problems,
                            _PATTERN_RE.fullmatch if is_pattern else _ref_form)
             elif key == "sha256":
-                _p_sha(item_value, grandchild, problems)
+                _p_sha(item_value, f"{child}.sha256", problems)
             elif key == "size":
-                _p_size(item_value, grandchild, problems)
+                _p_size(item_value, f"{child}.size", problems)
             else:
-                problems.append((grandchild, "未知字段"))
-                _scan_free(item_value, grandchild, problems)
+                hidden = f"{child}.未知键（已隐去）"
+                problems.append((hidden, "未知字段"))
+                _scan_free(item_value, hidden, problems)
 
 
 def _p_guard_denials(value, location, problems) -> None:
