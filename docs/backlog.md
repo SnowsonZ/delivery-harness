@@ -35,8 +35,8 @@
 | B64 | 引擎任务书校验的 DESIGNERS 枚举扩展（现仅 claude-code/codex）：支持任意设计方标识（如 zcode），免得新设计方沿用旧席位署名；现以「Zcode 代行 codex 席位」过渡（T110 头部 designer: codex）。触发：设计方席位再变更或新增执行方宿主时 | 小 | 评审方 | PR #23 第二轮评审，2026-09-29 |
 | B62 | 凭据规则缺少词边界：普通长task文件名的尾部被误识别为密钥；T602文档迁移任务名在暂存后扫描触发9处误报。改进凭据模式边界并补真实凭据/普通标识符正反例；本次只缩短新任务书slug，不改护栏规则 | 小 | 评审方 | B46提交前卫生检查，2026-09-29 |
 | B68 | 独立评审材料包在任务书探测未命中时写「无」（如 docs-only 的 T107 PR 实按 task-107 执行）：增加从 PR 标题/正文提取 `docs/plans/task-*.md` 的回退；既有探测路径逐字不变。任务书 T114（task-114-review-pack-taskbook.md） | 小 | 评审方 | PR #33 评审（2026-09-30） |
-| B70 | `dispatch --resume` 在该分支已有 PR 时不复用而新建，`gh pr create` 报错崩溃（T203/T119 两例）：resume 应查询既有 PR 并复用（反馈注入既有 PR） | 小 | 评审方 | T203/T119 resume 实测（2026-09-30） |
-| B71 | `wait_ci` 查询 Actions workflows 端点的瞬时失败（TLS/EOF）无重试（`gh run list` 有 3 次重试但 workflows 列表拉取不在覆盖内），T118/T204 两例派发进程死在等 CI 阶段（产物已推送、PR 已开，仅失去自动重跑）：把 workflows 拉取纳入同一重试 | 小 | 评审方 | T118/T204 实测（2026-09-30） |
+| B70 | `dispatch --resume` 在该分支已有 PR 时不复用而新建，`gh pr create` 报错崩溃（T203/T119 两例）：resume 应查询既有 PR 并复用（反馈注入既有 PR） | 小 | 评审方 | T203/T119 resume 实测（2026-09-30）；任务书 T121（task-121-resume-reuse-pr.md）|
+| B71 | `wait_ci` 查询 Actions workflows 端点的瞬时失败（TLS/EOF）无重试（`gh run list` 有 3 次重试但 workflows 列表拉取不在覆盖内），T118/T204 两例派发进程死在等 CI 阶段（产物已推送、PR 已开，仅失去自动重跑）：把 workflows 拉取纳入同一重试 | 小 | 评审方 | T118/T204 实测（2026-09-30）；任务书 T122（task-122-wait-ci-retry.md）|
 | B72 | 派发结束/失败后槽位工作树残留并占住分支，后续 resume/同名任务 checkout 被拒（T203 resume 首撞）：dispatch 结束路径应归还槽位（detach 或清理）；期间需人工 `git worktree remove --force` | 小 | 评审方 | T203/T119 resume 实测（2026-09-30） |
 | B73 | 间歇性 macOS flake：`test_pr_title_has_no_duplicate_prefix`、`test_record_contains_timeline_and_exact_anchor` 等整 dispatch 夹具测试在 macOS runner 偶发 dispatch 返回 1（main 近 14 次 ci 三红；本地与 CI=true 无法复现）。诊断断言已入 #59；下次 flake 依日志修根因，必要时给整 dispatch 夹具加确定性时钟/事件同步 | 中 | 评审方 | main ci #37/#38/#58、PR #61 实测 |
 | B69 | `run_timeline._read_events` 用裸 `sqlite3.connect` 未沿用 `events_db._connect` 的 `busy_timeout`：库锁竞争窗口内读取异常后退化为空时间线（方向安全、偶发）。改用既有连接参数并补回归 | 小 | 评审方 | PR #43 评审（2026-09-30）；任务书 T116（task-116-read-events-busy-timeout.md）|
