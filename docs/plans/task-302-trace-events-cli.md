@@ -33,6 +33,8 @@ trace 解析任务号、PR号、完整分支；PR 从 API headRefName，任务�
 - `engine/core/events_io.py`
 - `engine/reports/trace.py`
 - `tests/test_trace_events_cli.py`（新增；不存在才可开始）
+- `tests/test_events_io.py`（仅限一处删除：`test_load_ci_is_contract_only`——T301 的合同钉子，生命周期至本任务实现为止；行为断言已由 `tests/test_trace_events_cli.py` 覆盖）
+- `tests/test_events_verify.py`（仅限一处：`test_all_registered_entrypoint_mappings_and_guard_exceptions` 的本地 `QUIET_COMMANDS` 副本与 `cli.QUIET_COMMANDS` 权威集对齐，或加入 `events`、`trace`）
 
 ## 非目标
 
@@ -69,3 +71,13 @@ trace 解析任务号、PR号、完整分支；PR 从 API headRefName，任务�
 完成项目检查 `bin/verify --full`，不修改既有测试、质量基线来换通过。验收必须调用产品入口并核对具体结果，不能仅 mock emit 返回值或检查测试函数存在。设计方另做逐行验收与针对本任务断言的变异复核；修改判定/守卫/派发/配置时还由设计方做Agent-Notification独立worktree等价验证（追溯表G2），不是执行方自己写“通过”。
 
 同一失败连续三轮无新证据时停止该路径；预算或接口不符则按既有升级方式报告当前差距、已尝试与新证据、推荐备选及待决定问题。每条验收的正负断言必须保留，不能为赶预算删减断言或失败方式；如夹具样本需缩小，先报告设计方，确认不损失覆盖后按原流程修订，不自行缩范围。不得自行扩大白名单、改原任务书、实现待办B47/B52等非目标。
+
+
+## 修订记录（2026-09-30，设计方裁决首轮升级）
+
+执行方首轮实现完成、四条具名验收全过后停下报告两个冻结测试冲突。设计方核实均属实，裁决采纳其方案 A：
+
+- **`tests/test_events_io.py::test_load_ci_is_contract_only` 删除**：该测试是 T301 的合同钉子（断言 `load_ci` 未实现抛 `NotImplementedError`），生命周期至本任务实现为止；删除即履行钉子使命，`load_ci` 的行为断言已由 `tests/test_trace_events_cli.py` 覆盖。
+- **`tests/test_events_verify.py` 本地 `QUIET_COMMANDS` 副本对齐权威集**：T102 时该副本与 `cli.QUIET_COMMANDS` 漂移（C1 明确 events/trace 查询不追加自身事件）；对齐或加入 `events`、`trace`，一行改动。
+- 白名单按此扩展（两文件均为最小修改授权）；其余目标终态、验收表不变。
+- 派发序：**#72（T123 实现）合并后** `--resume` 第 2 次（避免与未合并的 T123 内容纠缠）。
