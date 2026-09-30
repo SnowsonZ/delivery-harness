@@ -476,6 +476,60 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual((nothing["events"], nothing["chains"], nothing["anchors"],
                           nothing["artifacts"]), ([], [], [], []))
 
+    # ---- 第二轮修订回归：引用 size 只接受非负 int；锚点重导入零重写 ----
+
+    def size_bundle(self, size_value) -> dict:
+        """单事件自洽包，inputs 引用带给定 size 值：hash 按该值独立重算，size 校验是唯一拦口。"""
+        event = forged_chain_event(source="local", trace="task/T301-size", seq=1, prev_hash="",
+                                   ts="2026-01-02T09:00:00.000Z", step="sized", status="ok")
+        event["inputs"] = [{"kind": "head", "ref": "main@abc123", "size": size_value}]
+        event["hash"] = canonical_digest(bundle_row(event), event["inputs"])
+        return {"schema_version": 1, "origin": {}, "events": [event], "anchors": [], "artifacts": [],
+                "chains": [{"source": "local", "trace_id": "task/T301-size",
+                            "head_hash": event["hash"]}], "findings": []}
+
+    def test_ref_size_accepts_only_non_negative_int(self):
+        # emit 只写非负 int（len(content)）；数字字符串与浮点经 SQLite INTEGER 亲和改型后
+        # 与导入时验证的哈希口径不一致（导入成功但 verify 永久报哈希不符），负数与 bool
+        # 是 emit 写不出的形状，均须记 schema 发现拒收。
+        self.seed_rich("task/T301-size-seed")
+        before = self.snapshot_in(self.repo)
+        for bad in ("123", -1, 2.0, True):
+            with self.subTest(size=bad):
+                self.assert_rejected(self.repo, self.size_bundle(bad), "schema", before)
+        # 正例：非负 int 合法，导入后 size 以 integer 落库且链校验通过
+        other = self.fresh_repo("size-ok")
+        with self.in_repo(other):
+            self.assertEqual(events_io.import_bundle(self.size_bundle(123)),
+                             {"imported": 1, "skipped": 0, "findings": []})
+            self.assertEqual(events_db.verify(), [])
+            self.assertEqual(self.rows_in(other, "SELECT size, typeof(size) FROM refs"),
+                             [(123, "integer")])
+
+    def test_anchor_reimport_is_zero_rewrite(self):
+        # 锚点整行幂等：重导入相同锚点零重写。导入层还有 NOT EXISTS 兜底，行数不变看不出
+        # 规划层去重是否被禁用，故另直接核对 _plan_anchors 对库内已有锚点返回空。
+        trace = "task/T301-anchor"
+        self.seed_two_sources(trace)
+        bundle = events_io.export_bundle(trace_id=trace)
+        self.assertEqual(len(bundle["anchors"]), 2)
+        other = self.fresh_repo("anchor-idem")
+        with self.in_repo(other):
+            self.assertEqual(events_io.import_bundle(bundle),
+                             {"imported": 5, "skipped": 0, "findings": []})
+            before = self.logical_in(other)
+            self.assertEqual(events_io.import_bundle(bundle),
+                             {"imported": 0, "skipped": 5, "findings": []})
+            self.assertEqual(self.logical_in(other), before)  # 四表行（含 anchors id）原样
+            chain_hashes = {}
+            for chain in bundle["chains"]:
+                key = (chain["source"], chain["trace_id"])
+                chain_hashes[key] = {event["hash"] for event in bundle["events"]
+                                     if (event["source"], event["trace_id"]) == key}
+            findings: list[dict] = []
+            self.assertEqual(events_io._plan_anchors(bundle, chain_hashes, findings), [])
+            self.assertEqual(findings, [])
+
     # ---- C5 合同：load_ci 由 T302 实现，T301 不留成功的假实现 ----
 
     def test_load_ci_is_contract_only(self):

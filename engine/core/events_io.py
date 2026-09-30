@@ -404,7 +404,7 @@ def _validate_texts(event: dict, prefix: str, findings: list[dict]) -> bool:
 
 
 def _validate_scalar(value) -> bool:
-    """outputs 值与引用 size：标量或合规短字符串（None 合法，沿用原过滤口径）。"""
+    """outputs 值：标量或合规短字符串（None 合法，沿用原过滤口径）。"""
     if value is None or isinstance(value, (bool, int, float)):
         return True
     return _valid_text(value, _LIMIT)
@@ -475,8 +475,10 @@ def _validate_inputs(event: dict, prefix: str, findings: list[dict]) -> bool:
             findings.append(_finding("schema", f"{prefix} 的引用 sha256 形状不符"))
             return False
         size = item.get("size")
-        if size is not None and not _is_int(size) and not _valid_text(size, _LIMIT):
-            findings.append(_finding("schema", f"{prefix} 的引用 size 不合规"))
+        if size is not None and not (_is_int(size) and size >= 0):
+            # emit 只写非负 int（len(content)）；数字字符串/浮点经 SQLite INTEGER 亲和改型后
+            # 与导入时验证的哈希口径不一致，负数则是 emit 不可能写出的形状，一律拒绝。
+            findings.append(_finding("schema", f"{prefix} 的引用 size 不是非负整数"))
             return False
         if not any(value is not None for value in item.values()):
             findings.append(_finding("schema", f"{prefix} 的引用过滤后为空（emit 会整条丢弃）"))
