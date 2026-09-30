@@ -41,7 +41,7 @@ _PACKAGE_ROOT = str(Path(__file__).resolve().parents[2])
 if _PACKAGE_ROOT not in sys.path:
     sys.path.insert(0, _PACKAGE_ROOT)
 
-from engine.core import events_db, events_io  # 导入须在上面的 sys.path 准备之后
+from engine.core import events, events_db, events_io  # 导入须在上面的 sys.path 准备之后
 from engine.core.common import ROOT, clean_git_env, git
 from engine.reports import github_events
 
@@ -298,6 +298,10 @@ def build_ledger(pr: int, *, gh=None, cwd: Path = ROOT) -> dict:
     missing.extend(_missing_items("github_facts", facts["findings"]))
     packages = events_io.load_ci(pr, head=head_sha, gh=client)  # T302 产品入口：CI/route 事件包
     missing.extend(_missing_items("ci_events", packages["findings"]))
+    if not events.enabled():
+        # 观察层被关闭（HARNESS_EVENTS 或 [events] enabled）：sync 采不到事实，如实标注而非冒充完整。
+        missing.append(_missing("events", "disabled",
+                                "事件已关闭，合并/抽审/逃逸等 GitHub 事实无法采集"))
 
     stages: list[dict] = []
     for prefix in ("ci", "github"):

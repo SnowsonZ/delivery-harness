@@ -31,6 +31,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from engine import cli
 from engine.agents import dispatch_observation, run_timeline
 from engine.core import events, events_db
 from engine.reports import ci_events, ledger
@@ -683,6 +684,47 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertIn("GH_TOKEN: ${{ github.token }}", job)
         self.assertIn("GH_REPO: ${{ github.repository }}", job)
         self.assertIn('python .harness/engine/reports/ledger.py --head "$GITHUB_SHA"', job)
+
+    # ---- 步骤 2：失败隔离与范围——事件关闭如实降级、writer 与观察层解耦、账本不注册 CLI ----
+
+    def test_events_disabled_degrades_honestly_and_writer_is_isolated(self):
+        project, origin, _project_head, merge_sha, base = self.build_project()
+        builder_head, packages = self.build_ci_packages()
+        runs, artifacts, downloads = self.ci_platform(builder_head, packages)
+        comment = self.review_comment(project, base, builder_head)
+        gh = self.platform_gh(head=builder_head, merge_sha=merge_sha,
+                              comments=[self.as_comment(500, comment)],
+                              runs=runs, artifacts=artifacts, downloads=downloads)
+        self.clear_db(project)
+        with mock.patch.dict(os.environ, {"HARNESS_EVENTS": "off"}):
+            built = ledger.build_ledger(305, gh=gh, cwd=project)
+        # 观察层关闭：sync 采不到合并/批准事实，如实列 missing；CI 包导入不依赖 emit 开关，
+        # 运行记录摘要与评审摘要来自 git/API，照常复原
+        reasons = {(item["item"], item["reason"]) for item in built["missing"]}
+        self.assertIn(("events", "disabled"), reasons)
+        self.assertIn(("approval", "not_found"), reasons)
+        self.assertTrue(all(not source.startswith("github:") for source in
+                            (item["source"] for item in built["chains"])))
+        self.assertEqual((built["class"], built["risk"]), ("K7", "R3"))
+        self.assertEqual({item["step"] for item in built["stages"]
+                          if item.get("evidence_kind") == "run_record_summary"},
+                         {"admit", "executor_round"})
+        self.assertTrue([item for item in built["stages"]
+                         if item.get("evidence_kind") == "review_comment_summary"])
+
+        # writer 与观察层解耦：事件关闭时账本照常追加、锚点评论照常写入
+        stub = FakeGh()
+        with mock.patch.dict(os.environ, {"HARNESS_EVENTS": "off"}):
+            result = ledger.publish_ledger(built, gh=stub)
+        self.assertTrue(result["ok"], result["findings"])
+        self.assertEqual(result["comment"], "created")
+        done = subprocess.run(["git", "-C", str(origin), "show", "harness-audit:2026/305.json"],
+                              capture_output=True, check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout, canonical(built).encode("utf-8") + b"\n")
+
+        # 范围：账本不注册 CLI（C6：只被受信任工作流调用）；隐私边界断言见验收 1（毒化样本/本机路径）
+        self.assertNotIn("ledger", cli.COMMANDS)
 
 
 if __name__ == "__main__":
