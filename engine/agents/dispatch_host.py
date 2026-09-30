@@ -50,6 +50,8 @@ class RunResult:
     # guard_allowed 前（T105 冻结断言要求它仍是末位字段），构造处用关键字传参。
     missing_context: list = field(default_factory=list)
     missing_context_status: str = "unknown"
+    # T205：本轮被守卫拒绝的工具调用数（一次调用多个拒绝理由算一次），同样插在 guard_allowed 前。
+    guard_denied: int = 0
     guard_allowed: int = 0  # 守卫放行的工具调用数（含普通失败；被守卫拒绝的调用不计入）
 
 
