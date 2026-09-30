@@ -165,17 +165,26 @@ def local_verify(branch: str, slot: Path, base: str, ok: bool, signature: str, l
         return
 
 
-def clarify(branch: str, note: Path) -> None:
-    """执行方请求澄清：备注 sha256 与是否请求澄清；missing_context 条目数由 T202 填充（当前恒 0）。"""
+def clarify(branch: str, note: Path, context: dict | None = None) -> None:
+    """执行方请求澄清：备注 sha256 与是否请求澄清；context 是 T202 的解析结果，只把安全条目的
+    计数与类别计数写进事件（与运行记录 missing_context 同源；无条目时与原形状一致）。"""
     try:
         if not events.enabled():
             return
         data = note.read_bytes()
     except Exception:  # noqa: BLE001  观察旁路
         return
+    items = (context or {}).get("items") or []
+    outputs: dict = {"requested": True, "missing_context": len(items)}
+    per_category: dict = {}
+    for item in items:
+        if isinstance(item, dict) and isinstance(item.get("category"), str):
+            per_category[item["category"]] = per_category.get(item["category"], 0) + 1
+    outputs.update({f"missing_context.{category}": count
+                    for category, count in sorted(per_category.items())})
     _emit(STAGE, "clarify", "ok", trace_id=branch,
           inputs=[{"kind": "note", "ref": hashlib.sha256(data).hexdigest(), "size": len(data)}],
-          outputs={"requested": True, "missing_context": 0})
+          outputs=outputs)
 
 
 def push_pr(branch: str, slot: Path, pr: int, record_path: str, body: str) -> None:

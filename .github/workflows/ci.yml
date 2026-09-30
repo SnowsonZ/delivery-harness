@@ -30,3 +30,36 @@ jobs:
 
       - name: Tests
         run: python -W error::ResourceWarning -m unittest discover -s tests -v
+
+  consumer-contract:
+    # B44：用本检出的引擎升级消费方（Agent-Notification）main，再跑其 harness 契约测试与快速验证；
+    # 引擎变更破坏消费方契约时本 job 变红。检查名登记 ruleset 不在此处。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Checkout consumer main
+        uses: actions/checkout@v7
+        with:
+          repository: SnowsonZ/Agent-Notification
+          ref: main
+          path: consumer
+          fetch-depth: 1
+
+      - name: Install pinned ruff for consumer verify
+        run: python -m pip install --quiet ruff==0.16.8
+
+      - name: Upgrade consumer harness with this checkout
+        run: python3 engine/cli.py upgrade --target consumer --allow-dirty
+
+      - name: Consumer harness contract tests
+        working-directory: consumer
+        run: python3 -W error::ResourceWarning -m unittest discover -s tests -p "test_harness*.py" -v
+
+      - name: Consumer quick verify
+        working-directory: consumer
+        run: bin/verify --quick

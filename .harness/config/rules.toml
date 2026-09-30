@@ -101,7 +101,7 @@ tests = ["tests/**"]
 
 [dispatch]
 # 派发：仓库同级的固定槽位数、卡死判定与等待 CI 的上限。
-slots = 3
+slots = 6  # 2026-09-30 并发度实验：4 → 6（用户指示；依赖结构与评审串行仍是实际上限）
 # 本仓库的必需 CI：跨系统测试矩阵与 harness 判定。
 ci_workflows = ["ci", "harness"]
 stall_minutes = 15

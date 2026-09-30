@@ -19,7 +19,6 @@ import contextlib
 import hashlib
 import json
 import re
-import sqlite3
 
 from engine.core import events, events_db
 
@@ -84,11 +83,14 @@ def _read_stages(trace_id: str) -> tuple[list[dict], str | None]:
 
 
 def _read_events(trace_id: str) -> tuple[list[dict], dict[int, list[dict]]]:
-    """按 seq 读出本机链上的事件与输入引用；库缺失抛给调用方按空摘要处理。"""
+    """按 seq 读出本机链上的事件与输入引用；库缺失抛给调用方按空摘要处理。
+
+    连接沿用 events_db 的连接参数（busy_timeout=5000）：库锁竞争或恢复窗口内等待而非立即失败（B69）。
+    """
     path = events_db.db_path()
     if path is None or not path.exists():
         return [], {}
-    with contextlib.closing(sqlite3.connect(path)) as conn:
+    with contextlib.closing(events_db._connect(path)) as conn:
         rows = [dict(zip(_EVENT_COLUMNS, values)) for values in conn.execute(
             f"SELECT {','.join(_EVENT_COLUMNS)} FROM events WHERE source=? AND trace_id=? ORDER BY seq",
             (_SOURCE, trace_id))]

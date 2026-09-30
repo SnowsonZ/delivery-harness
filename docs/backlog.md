@@ -18,8 +18,8 @@
 |---|---|---|---|---|
 | B46 | 可观测性（v0.2）：统一事件格式与贯穿全程的追踪 ID、各环节埋点、`bin/harness trace`、`audit`、即时告警；收掉 B36、B38、B40。设计已审定，P1 实现全部合并（T101–T109、T110、T106、T111、T112，并行度经 #24 修订）；T107 文档收尾 PR #33 待合并；随后 P1 期门禁 G1（自举升级）/G2（消费方等价，含契约测试修复原子合并）；P2–P6 按追溯表顺序。设计与合同见 `docs/plans/2026-09-29-observability-*.md` | 大 | 评审方 | 用户 2026-09-29 |
 | B45 | 第二个项目接入前：`adopt`（探测语言、源码目录、测试与 lint 命令，渐进档位，已有配置幂等合并，AGENTS.md 受管块）与 TypeScript 语言插件 | 大 | 评审方 | 用户 2026-09-29（面向开源、接入无感） |
-| B42 | harness 测试（Agent-Notification 的 `tests/test_harness*.py`）移植到本仓库：改为基于夹具项目，本仓库单独即可验证；那边只留消费方契约测试 | 中 | 评审方 | Agent-Notification T008 |
-| B44 | 本仓库 CI 加消费方契约测试：检出 Agent-Notification main，用待测引擎 upgrade 后跑其 harness 测试与 `verify --quick` | 小 | 评审方 | Agent-Notification T008 |
+| B42 | harness 测试（Agent-Notification 的 `tests/test_harness*.py`）移植到本仓库：改为基于夹具项目，本仓库单独即可验证；那边只留消费方契约测试 | 中 | 评审方 | Agent-Notification T008；任务书 T118（task-118-harness-contract-port.md）|
+| B44 | 本仓库 CI 加消费方契约测试：检出 Agent-Notification main，用待测引擎 upgrade 后跑其 harness 测试与 `verify --quick` | 小 | 评审方 | Agent-Notification T008；任务书 T115（task-115-consumer-contract-ci.md）|
 | B43 | 删除迁移过渡回退：git 守卫与派发读旧布局 `harness/`、评审材料的旧入口（`LEGACY_RULES_REL` 等）；Agent-Notification 已迁，随 v0.1.1 | 小 | 评审方 | Agent-Notification T008 |
 
 ## 2. 可以做，暂未排期
@@ -29,17 +29,18 @@
 | B50 | 第三方走通遗留的项目专属内容：`base-tests` 只支持 unittest 与固定 `tests/` 目录（需可配置测试命令，随 B45 的 adopt）；守卫拒绝文案与周报里仍有原项目的事故编号（v0.8.0）、设计章节号和 `docs/review/weekly/` 路径（随 B47 国际化清理）；B48 的工作流未在真实 GitHub 仓库上跑过，只做了本地等价验证，首个真实仓库（第二个项目）接入时核对 | 中 | 评审方 | B48 |
 | B51 | 升级时自动检测配置缺口（对照新版引擎列出缺失的必填或建议配置，替代只靠 CHANGELOG 的 Migration 条目）；与 B45 的 adopt 一起做。已完成部分：拒绝非 main 提交、打印 Migration 条目、`docs/upgrading.md`（PR #3） | 小 | 评审方 | B48 后 Agent-Notification 升级流程讨论 |
 | B52 | 审计账本覆盖「被拦下」（关闭未合并）的 PR：v0.2 只做已合并（用户 2026-09-29 定），被拦下的 PR 目前只在本机库里 | 中 | 评审方 | 可观测性设计 4.1 |
-| B54 | 任务拆分评审工具化：`bin/dispatch review-plan`（复用独立评审的材料包与提示词，材料为设计、追溯表与全部任务书），现按 `docs/task-splitting.md` 手工执行 | 中 | 评审方 | 用户 2026-09-29 |
+| B54 | 任务拆分评审工具化：`bin/dispatch review-plan`（复用独立评审的材料包与提示词，材料为设计、追溯表与全部任务书），现按 `docs/task-splitting.md` 手工执行 | 中 | 评审方 | 用户 2026-09-29；任务书 T120（task-120-review-plan.md）|
 | B58 | 第三方没有 `docs/templates/review-checklist.md`：评审提示词与材料包（`review_prompt.md`、`review_pack.py`）引用它。随模板提供一份通用清单，并在清单里加「每条验收说明未实现时会怎么失败」一项。T101 独立评审指出 | 中 | 评审方 | T101 评审 |
-| B59 | 独立评审的测试强度核查：T101 的 OpenCode 评审通过，但没发现设计方变异检查抓出的两个未被抓住的变异。本仓库没有评审校准集；建立校准集（含「测试恒真、变异未被抓住」类样本）并按其结果选评审方与提示词 | 中 | 评审方 | T101 复核 |
+| B59 | 独立评审的测试强度核查：T101 的 OpenCode 评审通过，但没发现设计方变异检查抓出的两个未被抓住的变异。本仓库没有评审校准集；建立校准集（含「测试恒真、变异未被抓住」类样本）并按其结果选评审方与提示词 | 中 | 评审方 | T101 复核；任务书 T119（task-119-review-calibration.md）|
 | B64 | 引擎任务书校验的 DESIGNERS 枚举扩展（现仅 claude-code/codex）：支持任意设计方标识（如 zcode），免得新设计方沿用旧席位署名；现以「Zcode 代行 codex 席位」过渡（T110 头部 designer: codex）。触发：设计方席位再变更或新增执行方宿主时 | 小 | 评审方 | PR #23 第二轮评审，2026-09-29 |
 | B62 | 凭据规则缺少词边界：普通长task文件名的尾部被误识别为密钥；T602文档迁移任务名在暂存后扫描触发9处误报。改进凭据模式边界并补真实凭据/普通标识符正反例；本次只缩短新任务书slug，不改护栏规则 | 小 | 评审方 | B46提交前卫生检查，2026-09-29 |
 | B68 | 独立评审材料包在任务书探测未命中时写「无」（如 docs-only 的 T107 PR 实按 task-107 执行）：增加从 PR 标题/正文提取 `docs/plans/task-*.md` 的回退；既有探测路径逐字不变。任务书 T114（task-114-review-pack-taskbook.md） | 小 | 评审方 | PR #33 评审（2026-09-30） |
+| B69 | `run_timeline._read_events` 用裸 `sqlite3.connect` 未沿用 `events_db._connect` 的 `busy_timeout`：库锁竞争窗口内读取异常后退化为空时间线（方向安全、偶发）。改用既有连接参数并补回归 | 小 | 评审方 | PR #43 评审（2026-09-30）；任务书 T116（task-116-read-events-busy-timeout.md）|
 | B67 | `routing` 的 r1 检查在仓库尚无 main 提交（空仓库首个 PR）时的既有缺陷：#35（T106）独立评审发现，等价夹具覆盖到该分支；修法与回归随 T112 后的小修轮或并入 B45 adopt | 小 | 评审方 | PR #35 独立评审（2026-09-30）；任务书 T113（task-113-r1-missing-base.md）|
 | B47 | 开源化其余项：界面与提示词国际化（en、zh-CN）、可配置的目录约定与默认分支、执行方宿主适配器（Pi 之外）、`platform` 一键平台设置与 App manifest | 中 | 评审方 | 用户 2026-09-29 |
 | B49 | 自举：本仓库装上自己的 Agent 层与 git 层守卫（目前只有服务端 ruleset 兜底） | 中（进行中：分支 chore/self-host） | 评审方 | 2026-09-29 迁移准备 |
 | B4 | 按改动行做变异测试（先只支持 Python），自动发现「测试写了但没测到东西」 | 出现一次这类逃逸再做；约 1 天，每个 PR 的 CI 多 1–4 分钟 | 评审方 | Agent-Notification 修复证据方案讨论（2026-09-26） |
-| B33 | Swift 质量棘轮解析的两处已知限制：协议中的计算属性声明（`var x: T { get }`）被计为函数；字符串插值内嵌字符串（`"\("x")"`）会让解析提前结束字符串、漏算同行大括号 | 小 | 评审方 | Agent-Notification PR #62 独立评审 |
+| B33 | Swift 质量棘轮解析的两处已知限制：协议中的计算属性声明（`var x: T { get }`）被计为函数；字符串插值内嵌字符串（`"\("x")"`）会让解析提前结束字符串、漏算同行大括号 | 小 | 评审方 | Agent-Notification PR #62 独立评审；任务书 T117（task-117-swift-parser-limits.md）|
 | B34 | `docs` 检查补两项：AGENTS.md 超过 100 行即失败；待办清单中写「进行中」的条目必须写分支名 | 小 | 评审方 | Agent-Notification 2026-09-29 现状复核 |
 | B35 | 派发 Pi 时改用 `--no-extensions` 再显式加载守卫：`-na` 只忽略槽位中的项目文件，用户级扩展仍会加载 | 小 | 评审方 | 同上 |
 | B36 | 派发提示词要求执行方结束时报告「缺失的上下文或工具」，写进运行记录 `missing_context`，周报汇总（随 B46） | 小 | 评审方 | 同上 |
