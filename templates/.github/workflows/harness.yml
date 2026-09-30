@@ -19,6 +19,8 @@ jobs:
     permissions:
       contents: read
       actions: read  # 交付度量读取本分支的运行记录（CI 轮次）
+      pull-requests: read  # 合并后事实同步读取 PR、评审与标签（设计 3.5）
+      issues: read  # 合并后事实同步读取 audit 与 escape 议题
     steps:
       - uses: actions/checkout@v7
         with:
@@ -104,3 +106,21 @@ jobs:
         run: >-
           python .harness/engine/reports/ci_events.py summary
           --bundle "$RUNNER_TEMP/harness-events/harness-events.json" >> "$GITHUB_STEP_SUMMARY"
+
+      # 合并后 GitHub 事实同步（观察旁路，设计 3.5）：push 到 main 的合并提交（手工与 App 合并都经此
+      # 路径，不靠 auto-merge job 独占触发）后，从 API 取回批准者/合并者/方式/标签、抽审与 escape 事实
+      # 写成事件，归属 PR 的 headRefName。只读查询：不做任何合并/批准/推送动作；缺批准记 none，无法
+      # 确定的合并方式记 unknown；API 失败明确报告事实缺失也不伪造。自身失败被 continue-on-error 隔离。
+      # 非 push 事件（PR 分支）尚未合并、无事实可同步：脚本内显式跳过，本步骤仍执行且成功。
+      - name: Sync GitHub facts
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "not a push (no merge commit), nothing to sync"
+            exit 0
+          fi
+          python .harness/engine/reports/github_events.py --head "$GITHUB_SHA"
