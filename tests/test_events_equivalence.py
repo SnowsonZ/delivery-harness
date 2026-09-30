@@ -408,6 +408,8 @@ class ObservabilityTaskTest(unittest.TestCase):
                 self.assertGreaterEqual(row["duration_ms"], 0, name)
         off = invoke(OFF_ENV)
         self.assertEqual(self.max_event_id(), before + len(rows), f"{name}：事件关闭时不得写事件")
+        # 失败隔离范围（合同 C0）：关闭态不仅零事件，也没有任何写入尝试（库健康时不会出现失败提示）。
+        self.assertNotIn(WARN, off["err"], f"{name}：事件关闭态不应尝试写入")
         self.sink_break()
         try:
             broken = invoke({})
@@ -421,6 +423,8 @@ class ObservabilityTaskTest(unittest.TestCase):
                 self.assertEqual(warn_count, 0, f"{name}：无写入就不该有失败提示\n{broken['err']}")
         finally:
             self.sink_restore()
+        if emit:  # 失败的写入不留半条事件：库目录未被重建，原库保持关闭前的状态
+            self.assertFalse(self.db_path.exists(), f"{name}：失败态不应产生库文件")
         self.assert_equivalent(on, off, broken, spots=spots, context=name)
         return on
 
