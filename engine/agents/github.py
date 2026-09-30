@@ -105,6 +105,16 @@ class GitHub:
                 time.sleep(CI_QUERY_RETRY_SECONDS)
         return []
 
+    def _completed_runs(self, workflows: list[str], branch: str, sha: str) -> dict[str, dict]:
+        """一轮轮询：每个工作流各查一次，返回该提交上已完结的工作流 → 运行；查询失败原样抛出。"""
+        found = {}
+        for workflow in workflows:
+            runs = self._ci_runs(workflow, branch)
+            run = next((item for item in runs if item["headSha"] == sha), None)
+            if run and run["status"] == "completed":
+                found[workflow] = run
+        return found
+
     def wait_ci(self, branch: str, sha: str, timeout: float, detail: dict | None = None) -> tuple[bool, str]:
         """等 rules.toml [dispatch] ci_workflows 列出的每个工作流在该提交上跑完；全部成功才算通过。
 
@@ -116,13 +126,8 @@ class GitHub:
         workflows = ci_workflows()
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            found = {}
             try:
-                for workflow in workflows:
-                    runs = self._ci_runs(workflow, branch)
-                    run = next((item for item in runs if item["headSha"] == sha), None)
-                    if run and run["status"] == "completed":
-                        found[workflow] = run
+                found = self._completed_runs(workflows, branch, sha)
             except (RuntimeError, json.JSONDecodeError) as error:  # B71：重试耗尽仍失败，CI 结果未知；不再上抛崩派发进程
                 if detail is not None:
                     detail["run_ids"] = []
