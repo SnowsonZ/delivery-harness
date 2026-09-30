@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engine.checks.replay import copy_worktree
+from engine.core import events
 from engine.core.common import ROOT, STATE_DIR, changed_files, clean_git_env, setting
 
 BASELINE = STATE_DIR / "mutation-baseline.json"
@@ -174,6 +175,17 @@ def below_baseline(score: float, previous: float | None) -> bool:
     return previous is not None and round(score, 4) < previous
 
 
+def _record(result: dict, previous: float | None, failed: bool) -> None:
+    """观察旁路：每个变异目标一条事件（目标、得分与基线），失败不影响原判定。"""
+    try:
+        events.emit(stage="ci", step="mutation", status="fail" if failed else "ok",
+                    outputs={"target": result["name"], "total": result["total"], "killed": result["killed"],
+                             "score": result["score"], "baseline": previous,
+                             "error": result.get("error") or None})
+    except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
+        return
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = parser.add_mutually_exclusive_group()
@@ -221,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
             failed = True
             print(f"  ✗ 得分低于基线 {previous:.0%}")
         result["score"] = round(score, 4)
+        _record(result, previous,  # 观察：目标、得分与基线
+                bool(result.get("error")) or (args.check and below_baseline(score, previous)))
     if args.update:
         for result in results:
             if not result.get("error"):
