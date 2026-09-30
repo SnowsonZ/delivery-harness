@@ -30,7 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engine.checks import r1_checks, taskbook
-from engine.core.common import ROOT, ConfigError, ci_workflows, commit_field, git, path_matches, setting
+from engine.core import events
+from engine.core.common import ROOT, RULES_PATH, ConfigError, ci_workflows, commit_field, git, path_matches, setting
 from engine.routing import risk, run_check
 
 CONTRACT_PATTERNS = ["docs/plans/task-*.md", "docs/templates/**", "docs/plans/backlog.md", "docs/specs/**"]
@@ -220,9 +221,9 @@ def branch_rounds(branch: str, gh=_gh) -> int | None:
 
 
 def gather(base: str, head: str, pr: int | None, cwd: Path = ROOT, autonomy: dict | None = None, gh=_gh,
-           branch: str = "") -> Facts:
+           branch: str = "", trace: str | None = None) -> Facts:
     autonomy = autonomy or r1_checks.load_autonomy()
-    report = risk.classify(base, head, cwd)
+    report = risk.classify(base, head, cwd, trace_id=trace)
     shas = git("rev-list", f"{base}..{head}", cwd=cwd).split()
     defects = any(commit_field(sha, "Defect", cwd) for sha in shas)
     facts = Facts(report, machine_class(report, defects))
@@ -242,6 +243,71 @@ def gather(base: str, head: str, pr: int | None, cwd: Path = ROOT, autonomy: dic
     return facts
 
 
+def _event_trace(pr: int | None, branch: str) -> str | None:
+    """事件 trace：--branch 优先；其次有 PR 时取 PR API 的 headRefName（不读 PR 正文）；否则 current_trace()。
+
+    只在事件开启时解析；查询失败回退 current_trace()，不改变原有判定与调用序列。
+    """
+    if not events.enabled():
+        return None
+    if branch:
+        return branch
+    if pr is not None:
+        try:
+            name = json.loads(_gh("pr", "view", str(pr), "--json", "headRefName")).get("headRefName")
+            if name:
+                return str(name)
+        except (RuntimeError, json.JSONDecodeError, KeyError, TypeError, OSError):
+            pass
+    return events.current_trace()
+
+
+def _config_refs() -> list[dict]:
+    """main 上 autonomy.toml 与 rules.toml 的带提交引用（路径@HEAD + 内容 sha256）；单侧失败只少记一条。"""
+    refs = []
+    for kind, path in (("autonomy", r1_checks.AUTONOMY_PATH), ("rules", RULES_PATH)):
+        entry = _config_ref(kind, path)
+        if entry:
+            refs.append(entry)
+    return refs
+
+
+def _config_ref(kind: str, path: Path) -> dict | None:
+    """单个配置文件的带提交引用；读取或定位失败返回 None（观察旁路）。"""
+    try:
+        content = path.read_bytes()
+        rev = git("rev-parse", "HEAD", cwd=path.parent)
+        return {"kind": kind, "ref": f"{path.relative_to(path.parents[2]).as_posix()}@{rev}",
+                "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)}
+    except Exception:  # noqa: BLE001  观察旁路：引用准备失败只少记这条引用
+        return None
+
+
+def _emit_route(trace: str | None, facts: Facts, rules: list[Rule], auto: bool, audit: bool) -> None:
+    """路由观察事件（C1：facts、每条规则、result）；事件不进判定，配置引用读取失败只少记引用。"""
+    if not events.enabled():
+        return
+    try:
+        refs = _config_refs()
+    except Exception:  # noqa: BLE001  观察旁路：引用准备失败不影响判定与输出
+        refs = []
+    events.emit("route", "facts", "ok", trace_id=trace, inputs=refs,
+                outputs={"risk": facts.risk.label, "machine_class": facts.machine_class,
+                         "declared_class": facts.declared_class, "changed_lines": facts.changed_lines,
+                         "escapes": facts.escapes, "window": facts.window})
+    for rule in rules:
+        events.emit("route", rule.name, "ok" if rule.ok else "fail", trace_id=trace, inputs=refs,
+                    outputs={"ok": rule.ok},
+                    decision={"by": "policy", "rule": rule.name, "reason": rule.reason})
+    try:
+        approval = platform_outputs()["approval"]
+    except Exception:  # noqa: BLE001  观察旁路：批准方式配置读不到就不记这个字段
+        approval = None
+    events.emit("route", "result", "ok" if auto else "deny", trace_id=trace, inputs=refs,
+                outputs={"auto_merge": auto, "audit": audit, "approval": approval},
+                decision={"by": "policy", "rule": "result", "reason": "自动合并" if auto else "转用户评审"})
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", required=True)
@@ -251,11 +317,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--github", action="store_true", help="写 GITHUB_STEP_SUMMARY 与 GITHUB_OUTPUT")
     args = parser.parse_args(argv)
     autonomy = r1_checks.load_autonomy()
-    facts = gather(args.base, args.head, args.pr, autonomy=autonomy, branch=args.branch)
+    trace = _event_trace(args.pr, args.branch)
+    facts = gather(args.base, args.head, args.pr, autonomy=autonomy, branch=args.branch, trace=trace)
     rules = decide(facts, autonomy)
     auto = all(rule.ok for rule in rules)
     every = autonomy.get("classes", {}).get(facts.machine_class, {}).get("audit_every", 0)
     audit = auto and args.pr is not None and audit_sampled(args.pr, every)
+    _emit_route(trace, facts, rules, auto, audit)
     text = render(rules, facts, audit)
     print(text)
     print(risk.render_markdown(facts.risk))

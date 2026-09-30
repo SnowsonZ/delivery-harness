@@ -15,6 +15,8 @@
 不能完成时升级：已开 PR 的在 PR 上评论，否则开议题，都加 escalation 标签；升级包预填当前状态、
 已尝试的方案与证据，执行方写的「可选方案」「需要决定的问题」（build/dispatch/escalation.md）附在后面。
 运行记录只存结构化摘要，完整事件流留在本机 <git 公共目录>/dispatch/runs/，不入库。
+各步骤的实际结果另由 engine/agents/dispatch_observation.py 写观察事件（B46 T105）：观察是旁路，
+不改变本文件的判定、预算与返回码。
 
     bin/dispatch run docs/plans/task-005-x.md [--resume] [--model M]
     bin/dispatch status
@@ -39,7 +41,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engine.agents import dispatch_host
-from engine.checks import taskbook
+from engine.agents import dispatch_observation as observation
+from engine.checks import acceptance, taskbook
 from engine.core.common import ENGINE_DIR, ROOT, ci_workflows, git, load_rules, setting
 
 PROMPT_TEMPLATE = ENGINE_DIR / "prompts" / "dispatch_prompt.md"
@@ -106,6 +109,7 @@ class Attempt:
     usage: dict = field(default_factory=dict)
     guard_denials: dict[str, int] = field(default_factory=dict)
     executor_note: str = ""
+    guard_allowed: int = 0  # 守卫放行的工具调用数（含普通失败；被守卫拒绝的调用不计入）
 
 
 # ---- 1 准入与 2 认领 ----
@@ -114,20 +118,26 @@ def admit(path: str, root: Path = ROOT, require_on_main: bool = True) -> Task:
     rel = Path(path).as_posix().removeprefix("./")
     reports = [report for report in taskbook.check_all(root) if report.path == rel]
     if not reports:
+        observation.admit(rel, root, problems=[f"{rel} 不是 docs/plans/task-*.md 下的任务书"])
         raise Stop(f"{rel} 不是 docs/plans/task-*.md 下的任务书")
     report = reports[0]
     if rel in taskbook.load_exempt(root / ".harness" / "state" / "taskbook-exempt.txt"):
-        raise Stop(f"{rel} 是登记豁免的历史任务书，只检查头部，不能派发")
+        problem = f"{rel} 是登记豁免的历史任务书，只检查头部，不能派发"
+        observation.admit(rel, root, problems=[problem])
+        raise Stop(problem)
     if require_on_main:
         problem = taskbook.on_main(rel, root)
         if problem:
             report.errors.append(problem)
     if report.errors:
+        observation.admit(rel, root, problems=report.errors)
         raise Stop("准入未通过：\n" + "\n".join(f"  - {error}" for error in report.errors))
     header = report.header
     slug = Path(rel).stem.removeprefix("task-")
-    return Task(rel, header["task"], header["class"], header["risk"], header["budget"],
+    task = Task(rel, header["task"], header["class"], header["risk"], header["budget"],
                 header.get("spec_refs") or [], f"task/{slug}")
+    observation.admit(rel, root, task=task)
+    return task
 
 
 # ---- 3 槽位 ----
@@ -176,6 +186,7 @@ def acquire_slot(root: Path, config: Config, task: Task) -> tuple[int, Path]:
             json.dump({"pid": os.getpid(), "task": task.id, "branch": task.branch,
                        "started_at": _now()}, handle)
         return index, slot_path(root, config, index)
+    observation.slot(task.branch, None, problem=f"{config.slots} 个槽位都在使用中")
     raise Stop(f"{config.slots} 个槽位都在使用中：稍后再派发，或用 bin/dispatch status 查看")
 
 
@@ -207,7 +218,7 @@ def prepare_slot(root: Path, slot: Path, branch: str, resume: bool) -> None:
 
 # ---- 4 守卫 ----
 
-def prepare_guard(root: Path) -> tuple[Path, str]:
+def prepare_guard(root: Path, trace: str = "") -> tuple[Path, str]:
     """把 origin/main 上的守卫导出到本机目录并确认可运行；返回 (扩展路径, main 的提交)。"""
     ref = git("rev-parse", "origin/main", cwd=root)
     bundle = state_dir(root) / "guard" / ref
@@ -220,6 +231,7 @@ def prepare_guard(root: Path) -> tuple[Path, str]:
         paths = ["harness", ".pi"] if legacy else [".harness", ".pi"]
         archive = subprocess.run(["git", "archive", ref, *paths], cwd=root, capture_output=True, check=False)
         if archive.returncode != 0:
+            observation.guard_preflight(trace, ref, False)
             raise Stop(f"无法从 origin/main 导出守卫：{archive.stderr.decode(errors='replace').strip()}")
         subprocess.run(["tar", "-x", "-C", str(bundle)], input=archive.stdout, check=True)
     extension = bundle / ".pi" / "extensions" / "harness-guard.ts"
@@ -227,7 +239,9 @@ def prepare_guard(root: Path) -> tuple[Path, str]:
         [sys.executable, *guard_cmd, "--format", "json", "--role", "implementer"],
         input=json.dumps({"command": "gh issue close 1"}), capture_output=True, text=True, check=False,
     )
-    if not extension.exists() or probe.returncode != 2:
+    denied = extension.exists() and probe.returncode == 2
+    observation.guard_preflight(trace, ref, denied)
+    if not denied:
         raise Stop("守卫预检失败：导出的守卫没有拒绝必拒绝的样例，停止派发")
     return extension, ref
 
@@ -241,24 +255,25 @@ def render_prompt(task: Task, minutes: int, feedback: str) -> str:
                            branch=task.branch, minutes=minutes, feedback=extra)
 
 
-def verify_signature(slot: Path, config: Config) -> tuple[bool, str, str]:
-    """运行 verify；返回 (通过, 失败摘要, 失败签名)。签名去掉数字与路径，用于识别打转。"""
+def verify_signature(slot: Path, config: Config) -> tuple[bool, str, str, str]:
+    """运行 verify；返回 (通过, 失败摘要, 失败签名, 完整输出)。签名去掉数字与路径，用于识别打转。"""
     result = subprocess.run(config.verify, cwd=slot, capture_output=True, text=True, check=False)
+    log = result.stdout + result.stderr
     if result.returncode == 0:
-        return True, "", ""
+        return True, "", "", log
     summary_file = slot / "build" / "verify" / "summary.json"
     failed, excerpts = [], []
     if summary_file.exists():
         for item in json.loads(summary_file.read_text()).get("results", []):
             if item.get("status") == "fail":
                 failed.append(item["name"])
-                log = slot / item.get("log", "")
-                tail = log.read_text(errors="replace").splitlines()[-15:] if log.is_file() else []
+                log_path = slot / item.get("log", "")
+                tail = log_path.read_text(errors="replace").splitlines()[-15:] if log_path.is_file() else []
                 excerpts.append(f"### {item['name']}\n" + "\n".join(tail))
     text = "\n\n".join(excerpts) or (result.stdout + result.stderr)[-2000:]
     normalized = re.sub(r"\d+(\.\d+)?", "#", re.sub(r"/\S+/", "/…/", text))
     signature = ",".join(failed) + ":" + hashlib.sha256(normalized.encode()).hexdigest()[:12]
-    return False, f"`bin/verify` 未通过：{'、'.join(failed) or '见输出'}\n\n```\n{text[-3000:]}\n```", signature
+    return False, f"`bin/verify` 未通过：{'、'.join(failed) or '见输出'}\n\n```\n{text[-3000:]}\n```", signature, log
 
 
 def worktree_problem(slot: Path, base: str) -> str | None:
@@ -293,7 +308,12 @@ class Dispatcher:
             )
         self.used_seconds += seconds
         model, usage, denials = self.host.parse(events)
-        return dispatch_host.RunResult(exit_kind, code, seconds, model, usage, denials)
+        counts = observation.tool_counts(self.host, events)
+        result = dispatch_host.RunResult(exit_kind, code, seconds, model, usage, denials,
+                                         counts["guard_allowed"])
+        observation.executor_round(task.branch, slot, prompt, events, result,
+                                   {"name": self.host.name, "version": self.host.version()}, counts)
+        return result
 
     def local_rounds(self, task: Task, slot: Path, guard: Path, feedback: str, trace_dir: Path) -> tuple[Attempt, list[str]]:
         """5 与 6：执行方 → verify，失败带摘要重试；返回本次尝试与每轮提示词。"""
@@ -311,9 +331,11 @@ class Dispatcher:
                 attempt.usage[key] = round(attempt.usage.get(key, 0) + value, 6)
             for key, value in result.guard_denials.items():
                 attempt.guard_denials[key] = attempt.guard_denials.get(key, 0) + value
+            attempt.guard_allowed += result.guard_allowed
             note = slot / ESCALATION_FILE
             if note.exists():
                 attempt.executor_note = note.read_text(encoding="utf-8")[:4000]
+                observation.clarify(task.branch, note)
                 attempt.exit = "clarify"
                 return attempt, prompts
             if result.exit != "ok":
@@ -321,14 +343,16 @@ class Dispatcher:
                 return attempt, prompts
             problem = worktree_problem(slot, base)
             if problem:
-                ok, summary, signature = False, problem, problem
+                ok, summary, signature, log = False, problem, problem, ""
             else:
-                ok, summary, signature = verify_signature(slot, self.config)
+                ok, summary, signature, log = verify_signature(slot, self.config)
+            repeat = bool(attempt.signatures) and attempt.signatures[-1] == signature
+            observation.local_verify(task.branch, slot, base, ok, signature, log, repeat)
             if ok:
                 attempt.ok, attempt.exit = True, "ok"
                 return attempt, prompts
             attempt.verify_summary = summary
-            if attempt.signatures and attempt.signatures[-1] == signature:
+            if repeat:
                 attempt.signatures.append(signature)
                 attempt.exit = "loop"
                 return attempt, prompts
@@ -385,20 +409,25 @@ class Dispatcher:
     def run(self, path: str, resume: bool = False) -> int:
         task = admit(path, self.root)
         if self.github.remote_branch_exists(task.branch) and not resume:
+            observation.claim(task.branch, False)
             raise Stop(f"远端已有 {task.branch}：该任务已被认领（续跑加 --resume）")
-        guard, guard_ref = prepare_guard(self.root)
+        guard, guard_ref = prepare_guard(self.root, task.branch)
         index, slot = acquire_slot(self.root, self.config, task)
         try:
             prepare_slot(self.root, slot, task.branch, resume)
+            observation.slot(task.branch, index, git("rev-parse", "HEAD", cwd=slot),
+                             git("rev-parse", "origin/main", cwd=self.root))
             if not resume:
                 self.github.push(slot, task.branch)  # 分支即认领
+                observation.claim(task.branch, True)
             return self._loop(task, index, slot, guard, guard_ref)
         finally:
             release_slot(self.root, index)
 
     def _loop(self, task: Task, index: int, slot: Path, guard: Path, guard_ref: str) -> int:
         runs = state_dir(self.root) / "runs" / task.id
-        records = slot / "docs" / "runs" / task.path.split("/")[-1].removesuffix(".md")
+        folder = task.path.split("/")[-1].removesuffix(".md")
+        records = slot / "docs" / "runs" / folder
         number = len(list(records.glob("*.json"))) + 1 if records.exists() else 1
         pr, ci_rounds, feedback = None, 0, ""
         while True:
@@ -411,11 +440,14 @@ class Dispatcher:
                 self.escalate(task, pr, attempt, f"本地未完成（{EXIT_TEXT.get(attempt.exit, attempt.exit)}）")
                 return 1
             if pr is None:
-                pr = self.github.open_pr(slot, task.branch, f"{task.id}：{_title(self.root, task)}",
-                                         pr_body(task, attempt, number, prompt_sha))
+                body = pr_body(task, attempt, number, prompt_sha, root=self.root)
+                pr = self.github.open_pr(slot, task.branch, _pr_title(self.root, task), body)
+                observation.push_pr(task.branch, slot, pr, f"docs/runs/{folder}/{number}.json", body)
             ci_rounds += 1
-            ok, summary = self.github.wait_ci(task.branch, git("rev-parse", "HEAD", cwd=slot),
-                                              self.config.ci_timeout_seconds)
+            head = git("rev-parse", "HEAD", cwd=slot)
+            detail: dict = {}
+            ok, summary = self.github.wait_ci(task.branch, head, self.config.ci_timeout_seconds, detail)
+            observation.ci_wait(task.branch, pr, head, ci_rounds, ok, summary, detail.get("run_ids"))
             if ok:
                 print(f"{task.id}：PR #{pr} 的 CI 通过，合并由 auto-merge 判定")
                 return 0
@@ -428,10 +460,16 @@ class Dispatcher:
 
     def escalate(self, task: Task, pr: int | None, attempt: Attempt, reason: str) -> None:
         body = escalation_body(task, attempt, reason)
-        if pr is not None:
-            self.github.comment(pr, body, label="escalation")
-        else:
-            self.github.create_issue(f"升级：{task.id} {reason}", body, labels=["escalation"])
+        target = "pr" if pr is not None else "issue"
+        sent = False
+        try:
+            if pr is not None:
+                self.github.comment(pr, body, label="escalation")
+            else:
+                self.github.create_issue(f"升级：{task.id} {reason}", body, labels=["escalation"])
+            sent = True
+        finally:
+            observation.escalate(task.branch, pr, reason, target, body, sent)  # 评论失败也留事件
         print(f"{task.id}：{reason}，已升级")
 
 
@@ -447,7 +485,24 @@ def _title(root: Path, task: Task) -> str:
     return first[1].splitlines()[0].removeprefix("任务：").strip() if len(first) > 1 else task.path
 
 
-def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str) -> str:
+def _pr_title(root: Path, task: Task) -> str:
+    """PR 标题：任务书标题已带「TXXX：」前缀时不再重复拼接（B65）。"""
+    title = _title(root, task)
+    return title if title.startswith(f"{task.id}：") else f"{task.id}：{title}"
+
+
+def _manual_section(root: Path, task: Task) -> str:
+    """人工验收一节正文：验收表存在「人工」类证据行时给指引，否则写「无」（B57）。
+
+    判定与 `bin/harness acceptance --manual` 同源（acceptance.Item.manual）。
+    """
+    items = acceptance.parse_spec(root / task.path, root)
+    if any(item.manual for item in items):
+        return "见任务书验收表中的人工条目（`bin/harness acceptance --manual`）。"
+    return "无"
+
+
+def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str, root: Path = ROOT) -> str:
     usage = attempt.usage
     return "\n".join([
         "## 任务", "",
@@ -467,7 +522,7 @@ def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str) -> str:
         "- CI 运行（当前 head）：见本 PR checks",
         "- 风险等级与修复证据：见 harness job summary（机器生成）", "",
         "## 需要人工验收的部分", "",
-        "见任务书验收表中的人工条目（`bin/harness acceptance --manual`）。", "",
+        _manual_section(root, task), "",
         "🤖 Dispatched by bin/dispatch",
     ]) + "\n"
 
@@ -519,10 +574,12 @@ class GitHub:
                          "--body-file", "-"], cwd=slot, agent=True, stdin=body)
         return int(url.rstrip("/").rsplit("/", 1)[-1])
 
-    def comment(self, pr: int, body: str, label: str | None = None) -> None:
-        self._run(["gh", "pr", "comment", str(pr), "--body-file", "-"], agent=True, stdin=body)
+    def comment(self, pr: int, body: str, label: str | None = None) -> str:
+        """评论 PR 并返回评论 URL（供观察事件记录；标签逻辑不变）。"""
+        url = self._run(["gh", "pr", "comment", str(pr), "--body-file", "-"], agent=True, stdin=body)
         if label:
             self.add_label(pr, label)
+        return url
 
     def _ensure_label(self, label: str) -> None:
         """不存在才创建；不用 --force，已有标签（含登记用标签）不被改写。"""
@@ -555,8 +612,12 @@ class GitHub:
                 time.sleep(CI_QUERY_RETRY_SECONDS)
         return []
 
-    def wait_ci(self, branch: str, sha: str, timeout: float) -> tuple[bool, str]:
-        """等 rules.toml [dispatch] ci_workflows 列出的每个工作流在该提交上跑完；全部成功才算通过。"""
+    def wait_ci(self, branch: str, sha: str, timeout: float, detail: dict | None = None) -> tuple[bool, str]:
+        """等 rules.toml [dispatch] ci_workflows 列出的每个工作流在该提交上跑完；全部成功才算通过。
+
+        detail 非 None 时写入 run_ids（本次结论对应的 Actions 运行 ID），供派发的 ci_wait 观察事件
+        使用；返回值与 gh 调用序列保持不变。
+        """
         workflows = ci_workflows()
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -570,10 +631,16 @@ class GitHub:
             if failed:
                 log = subprocess.run(["gh", "run", "view", str(failed["databaseId"]), "--log-failed"], cwd=self.root,
                                      capture_output=True, text=True, check=False).stdout
+                if detail is not None:
+                    detail["run_ids"] = [failed["databaseId"]]
                 return False, f"CI 未通过：{failed['url']}\n\n```\n{log[-3000:]}\n```"
             if len(found) == len(workflows):
+                if detail is not None:
+                    detail["run_ids"] = sorted(run["databaseId"] for run in found.values())
                 return True, ""
             time.sleep(30)
+        if detail is not None:
+            detail["run_ids"] = []
         return False, f"等待 CI 超过 {int(timeout / 60)} 分钟"
 
 

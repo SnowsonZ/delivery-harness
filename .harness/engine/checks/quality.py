@@ -29,7 +29,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from engine.core.common import ROOT, STATE_DIR, setting
+from engine.core import events
+from engine.core.common import ROOT, STATE_DIR, git, setting
 from engine.lang.swift import functions as swift_functions
 
 BASELINE = STATE_DIR / "quality-baseline.json"
@@ -107,12 +108,34 @@ def compare(current: dict[str, int], baseline: dict[str, int]) -> list[str]:
     ]
 
 
+def _baseline_inputs() -> list[dict] | None:
+    """基线引用（路径@提交 + 内容哈希）；读取或定位失败只少记引用。"""
+    try:
+        return [events.file_ref("baseline", BASELINE, rev=git("rev-parse", "HEAD", cwd=ROOT, check=False))]
+    except Exception:  # noqa: BLE001  观察旁路：引用准备失败只少记这条引用
+        return None
+
+
+def _record(current: dict[str, int], baseline: dict[str, int], inputs: list[dict] | None) -> None:
+    """观察旁路：每个指标一条事件（当前值、基线、是否棘轮），回归即 fail；失败不影响原判定。"""
+    try:
+        for name, value in current.items():
+            regressed = name in RATCHETED and name in baseline and value > baseline[name]
+            events.emit(stage="ci", step="quality", status="fail" if regressed else "ok",
+                        inputs=inputs,
+                        outputs={"metric": name, "value": value, "baseline": baseline.get(name),
+                                 "ratcheted": name in RATCHETED})
+    except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
+        return
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--update", action="store_true", help="指标不高于基线时写回基线")
     args = parser.parse_args(argv)
-    current = measure()
+    current = measure(ROOT)
     baseline = json.loads(BASELINE.read_text()) if BASELINE.exists() else {}
+    _record(current, baseline, _baseline_inputs())  # 观察：各指标当前值/基线与回归
     for name, value in current.items():
         kind = "棘轮" if name in RATCHETED else "报告"
         print(f"{name:<20} {value:>6}（基线 {baseline.get(name, '—')}，{kind}）")
