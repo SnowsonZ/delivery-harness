@@ -12,6 +12,7 @@ ENGINE_REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_REPO))
 
 from engine.agents import dispatch
+from engine.agents import github as github_module
 from engine.core import common
 from engine.routing import policy
 
@@ -66,13 +67,13 @@ class CiWorkflowsTest(unittest.TestCase):
 
     def test_wait_ci_requires_every_listed_workflow_on_the_commit(self):
         github = FakeGitHub({"ci": [run_row()], "harness": [run_row()]})
-        with mock.patch.object(dispatch, "ci_workflows", return_value=["ci", "harness"]):
+        with mock.patch.object(github_module, "ci_workflows", return_value=["ci", "harness"]):
             self.assertEqual(github.wait_ci("b", SHA, 60), (True, ""))
         self.assertEqual(github.queried, ["ci", "harness"])
 
     def test_wait_ci_fails_when_any_listed_workflow_fails(self):
         github = FakeGitHub({"ci": [run_row()], "harness": [run_row(conclusion="failure")]})
-        with mock.patch.object(dispatch, "ci_workflows", return_value=["ci", "harness"]), \
+        with mock.patch.object(github_module, "ci_workflows", return_value=["ci", "harness"]), \
                 mock.patch.object(dispatch.subprocess, "run", return_value=mock.Mock(stdout="boom")):
             ok, summary = github.wait_ci("b", SHA, 60)
         self.assertFalse(ok)
@@ -81,7 +82,7 @@ class CiWorkflowsTest(unittest.TestCase):
 
     def test_wait_ci_ignores_runs_of_other_commits_and_times_out(self):
         github = FakeGitHub({"harness": [run_row(sha="b" * 40)]})
-        with mock.patch.object(dispatch, "ci_workflows", return_value=["harness"]), \
+        with mock.patch.object(github_module, "ci_workflows", return_value=["harness"]), \
                 mock.patch.object(dispatch.time, "sleep"), \
                 mock.patch.object(dispatch.time, "monotonic", side_effect=[0, 0, 1, 2, 999]):
             ok, summary = github.wait_ci("b", SHA, 10)
@@ -90,21 +91,21 @@ class CiWorkflowsTest(unittest.TestCase):
 
     def test_wait_ci_waits_for_a_workflow_that_has_not_started(self):
         github = FakeGitHub({"ci": [run_row()], "harness": []})
-        with mock.patch.object(dispatch, "ci_workflows", return_value=["ci", "harness"]), \
+        with mock.patch.object(github_module, "ci_workflows", return_value=["ci", "harness"]), \
                 mock.patch.object(dispatch.time, "sleep"), \
                 mock.patch.object(dispatch.time, "monotonic", side_effect=[0, 0, 1, 999]):
             self.assertFalse(github.wait_ci("b", SHA, 10)[0])
 
     def test_wait_ci_survives_transient_gh_failures(self):
-        github = FlakyGitHub(dispatch.CI_QUERY_ATTEMPTS - 1, {"harness": [run_row()]})
-        with mock.patch.object(dispatch, "ci_workflows", return_value=["harness"]), \
+        github = FlakyGitHub(github_module.CI_QUERY_ATTEMPTS - 1, {"harness": [run_row()]})
+        with mock.patch.object(github_module, "ci_workflows", return_value=["harness"]), \
                 mock.patch.object(dispatch.time, "sleep") as sleep:
             self.assertEqual(github.wait_ci("b", SHA, 60), (True, ""))
-        self.assertEqual(sleep.call_count, dispatch.CI_QUERY_ATTEMPTS - 1)
+        self.assertEqual(sleep.call_count, github_module.CI_QUERY_ATTEMPTS - 1)
 
     def test_wait_ci_raises_after_repeated_gh_failures(self):
-        github = FlakyGitHub(dispatch.CI_QUERY_ATTEMPTS, {"harness": [run_row()]})
-        with mock.patch.object(dispatch, "ci_workflows", return_value=["harness"]), \
+        github = FlakyGitHub(github_module.CI_QUERY_ATTEMPTS, {"harness": [run_row()]})
+        with mock.patch.object(github_module, "ci_workflows", return_value=["harness"]), \
                 mock.patch.object(dispatch.time, "sleep"), self.assertRaises(RuntimeError):
             github.wait_ci("b", SHA, 60)
 
