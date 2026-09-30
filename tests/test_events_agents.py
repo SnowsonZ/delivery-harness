@@ -833,8 +833,8 @@ class ObservabilityTaskTest(unittest.TestCase):
         def dispatch_once(rel: str, task_id: str) -> RecordingTitleGitHub:
             self.stub_taskbook(rel, self.header(task_id))
             gh = RecordingTitleGitHub(self.repo, ci=(True, "", [7]))
-            code, _, _ = self.run_dispatch(rel, RecordingHost([], executor_script(mixed_stream())), gh)
-            self.assertEqual(code, 0)
+            code, out, err = self.run_dispatch(rel, RecordingHost([], executor_script(mixed_stream())), gh)
+            self.assertEqual(code, 0, f"dispatch 失败：\n--- stdout ---\n{out}\n--- stderr ---\n{err}")
             return gh
 
         # 标题已带前缀：# T905P：夹具标题 → PR 标题恰为「T905P：夹具标题」，不出现两次前缀
