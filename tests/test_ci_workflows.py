@@ -51,6 +51,22 @@ class FlakyGitHub(FakeGitHub):
         return super()._run(argv, cwd, agent, stdin)
 
 
+class WorkflowsFetchFlakyGitHub(FakeGitHub):
+    """前 failures 次查询抛 gh 拉取 Actions workflows 列表的失败（couldn't fetch workflows），之后正常。"""
+
+    def __init__(self, failures, runs_by_workflow):
+        super().__init__(runs_by_workflow)
+        self.failures = failures
+        self.attempts = 0
+
+    def _run(self, argv, cwd=None, agent=False, stdin=None):
+        self.attempts += 1
+        if self.failures > 0:
+            self.failures -= 1
+            raise RuntimeError("gh run list 失败：couldn't fetch workflows: unexpected EOF")
+        return super()._run(argv, cwd, agent, stdin)
+
+
 class CiWorkflowsTest(unittest.TestCase):
     def workflows(self, names):
         return mock.patch.object(common, "setting", lambda *a, **k: names)
@@ -108,6 +124,20 @@ class CiWorkflowsTest(unittest.TestCase):
         with mock.patch.object(github_module, "ci_workflows", return_value=["harness"]), \
                 mock.patch.object(dispatch.time, "sleep"), self.assertRaises(RuntimeError):
             github.wait_ci("b", SHA, 60)
+
+    def test_workflows_fetch_retried(self):
+        github = WorkflowsFetchFlakyGitHub(github_module.CI_QUERY_ATTEMPTS - 1, {"harness": [run_row()]})
+        with mock.patch.object(dispatch.time, "sleep") as sleep:
+            self.assertEqual(github._ci_runs("harness", "b"), [run_row()])
+        self.assertEqual(github.attempts, github_module.CI_QUERY_ATTEMPTS)
+        self.assertEqual(sleep.call_count, github_module.CI_QUERY_ATTEMPTS - 1)
+
+    def test_retry_exhausted_raises(self):
+        github = WorkflowsFetchFlakyGitHub(github_module.CI_QUERY_ATTEMPTS, {"harness": [run_row()]})
+        with mock.patch.object(dispatch.time, "sleep"), self.assertRaises(RuntimeError) as raised:
+            github._ci_runs("harness", "b")
+        self.assertEqual(github.attempts, github_module.CI_QUERY_ATTEMPTS)
+        self.assertIn("couldn't fetch workflows", str(raised.exception))
 
     def test_branch_rounds_counts_distinct_commits_across_listed_workflows(self):
         table = {"ci": [run_row(SHA), run_row("b" * 40)], "harness": [run_row(SHA), run_row("c" * 40, event="push")]}
