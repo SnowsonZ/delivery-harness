@@ -29,4 +29,5 @@ First release as a standalone engine, extracted from [Agent-Notification](https:
 - Switched on by default; `HARNESS_EVENTS=off` (environment, takes precedence) or `[events] enabled = false` in `checks.toml` turns writing off. The optional key ships commented in the config template; this phase adds no required configuration.
 - **Migration:** the event log adds an optional `[events]` section to `.harness/config/checks.toml` (`enabled`, on by default; the environment variable takes precedence). No action is needed to keep current behaviour; set the key only to turn the log off.
 
+- Independent review materials now include the referenced task brief: when path-based detection misses but the PR title or description references `docs/plans/task-*.md`, the materials carry the full brief instead of a placeholder; detections that already match are unchanged.
 Known limits, planned next: English messages and prompts (i18n), configurable directory conventions and default branch, TypeScript language plugin, project adoption with detection (`adopt`), end-to-end trace, audit and alert commands (observability phases 2-6), executor host adapters beyond Pi.
