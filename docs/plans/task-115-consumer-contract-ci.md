@@ -56,7 +56,7 @@ rollback: git revert（仅在用户授权后）
 | 编号 | 验收内容 | 证据类型 | 覆盖（测试名或步骤） | 未实现时怎样失败 |
 |---|---|---|---|---|
 | 不挂规格：B44 | ci.yml 含 `consumer-contract` job：含消费方检出、`engine/cli.py upgrade --target`、`test_harness*` 发现式运行、`verify --quick` 四要素 | 夹具 | `tests.test_consumer_contract_workflow.ConsumerContractWorkflowTest.test_job_structure` | 缺任一要素时失败 |
-| 不挂规格：B44 | 本 PR 的 CI 中该 job 真实运行且通过（以 checks 页为证据，设计方复核核对） | CI | PR checks 的 `consumer-contract` 结果 | job 未跑或失败时不通过 |
+| 不挂规格：B44 | 本 PR 的 CI 中该 job 真实运行且通过（以 checks 页为证据，设计方复核核对） | 人工 | PR checks 的 `consumer-contract` 结果（设计方复核核对） | job 未跑或失败时不通过 |
 
 ## 步骤与提交顺序
 
