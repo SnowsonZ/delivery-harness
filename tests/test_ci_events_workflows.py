@@ -676,6 +676,22 @@ class ObservabilityTaskTest(unittest.TestCase):
 
     # ---- 步骤 2：失败隔离与范围——export 保持只读；事件关闭与导出自身失败不改 job 结论 ----
 
+
+    def test_squash_merge_detection_and_push_title(self):
+        """修订二轮补（设计方）：squash 判定与 push 标题解析的判别力断言。
+
+        单亲提交主题「标题 (#N)」判 squash 并解析 PR 号；真 rebase（单亲、无尾注）仍记 rebase；
+        merge 形式不受影响。
+        """
+        from engine.reports import github_events as ge
+        # squash：单亲 + 「标题 (#N)」尾注
+        self.assertEqual(ge._squash_pr("fix：修复守卫误报 (#96)"), 96)
+        self.assertIsNone(ge._squash_pr("chore: 普通提交"))          # 无尾注
+        self.assertEqual(ge._squash_pr("fix：修复 (#96)\n后续行"), 96)  # 首行含尾注即命中（search 语义）
+        # 判定入口（merge_method）经由真实合并事件夹具在既有测试；此处钉住解析原语，
+        # 禁用 _squash_pr 的定向变异（return None）必须使本用例失败。
+        self.assertIsNotNone(ge._squash_pr("T304：合并、抽审与逃逸事实同步 (#87)"))
+
     def test_export_scope_and_failure_isolation(self):
         project = self.fresh_project("scope")
         self.install(project)
