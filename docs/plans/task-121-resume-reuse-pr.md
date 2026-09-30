@@ -26,6 +26,7 @@ rollback: git revert（仅在用户授权后）
 ## 白名单
 
 - `engine/agents/dispatch.py`
+- `tests/test_run_timeline.py`（仅限假体方法新增：FakeGitHub 补 `existing_pr`，见修订记录）
 - `tests/test_events_agents.py`（新增断言；不删除、不修改既有断言——与 T202 对本文件的单点修订不冲突）
 
 ## 非目标
@@ -60,3 +61,11 @@ rollback: git revert（仅在用户授权后）
 ## 交付与升级
 
 完成项目检查 `bin/verify --full`。设计方另做逐行验收与定向变异复核（去掉既有 PR 查询，复用用例必须失败）。设计方做真实 resume 场景核对（人工）。同一失败连续三轮无新证据时停止该路径；不得自行扩大白名单、改原任务书、实现非目标。
+
+## 修订记录（2026-09-30，设计方裁决首轮升级）
+
+首轮实现正确但停滞于结构冲突：`dispatch.py` 796/800 行、`main()` C901 10 顶格，B70 实现无空间（T120 同源裁决先例）；且 `tests/test_run_timeline.py` 的 FakeGitHub 假体缺 `existing_pr`，冻结断言 AttributeError（假体接口对齐属 T105 先例）。裁决：
+
+- **前置依赖 T123**（GitHub 类抽离至 `engine/agents/github.py`，`dispatch.py` 降至 ~650 行）先行合并；本轮第 2 次（`--resume`）在 T123 之上实现：`existing_pr(branch)` 查询落在 `github.py` 的 GitHub 类，`run` 循环调用复用。
+- **授权假体更新**：`tests/test_events_agents.py` 与 `tests/test_run_timeline.py` 中的假 GitHub 补 `existing_pr` 方法（只增不改既有断言）。
+- 实现位置与白名单按此调整；其余目标终态、验收表不变。
