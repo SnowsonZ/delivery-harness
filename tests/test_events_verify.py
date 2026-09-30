@@ -36,6 +36,8 @@ EVENT_COLUMNS = ["id", "ts", "source", "trace_id", "seq", "prev_hash", "hash", "
                  "duration_ms", "actor_role", "actor_host", "model", "decision_by", "decision_rule",
                  "decision_reason", "error_kind", "error_signature", "outputs", "engine_version", "redacted"]
 FROZEN_TS = "2026-01-02T03:04:05.678Z"
+# T101 固定的一次写入失败提示（逐字）：三态比对只允许这一行、至多一次的差异。
+WRITE_WARN_LINE = "harness：事件写入失败，已跳过（不影响本次运行）\n"
 # C1 的阶段映射与例外（测试独立编码，不读 cli 的表，防止实现与断言同源）。
 EXPECTED_STAGE = {
     "verify": "verify", "integrity": "verify",
@@ -44,6 +46,15 @@ EXPECTED_STAGE = {
     "review": "review", "review-pack": "review",
 }
 QUIET_COMMANDS = {"guard-command", "guard-git"}
+
+
+class _CorruptedCore:
+    """模拟引擎副本损坏的 engine.core：包在，但加载不出任何子模块。"""
+
+    __name__ = "engine.core"
+
+    def __getattr__(self, name):
+        raise ImportError(f"engine copy corrupted: cannot load {name}")
 
 
 class ObservabilityTaskTest(unittest.TestCase):
@@ -145,6 +156,31 @@ class ObservabilityTaskTest(unittest.TestCase):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = cli.main(list(args))
         return code, out.getvalue()
+
+    def run_cli_full(self, *args: str):
+        """三态运行：返回（返回码、stdout、stderr）。"""
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cli.main(list(args))
+        return code, out.getvalue(), err.getvalue()
+
+    def run_verify_full(self, argv: list[str]):
+        """三态运行 verify：返回（返回码、stdout、stderr）。"""
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = verify.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def stderr_without_warn(self, stderr: str) -> str:
+        """去掉至多一行的 T101 固定提示后的 stderr（固定提示超过一次即不合格）。"""
+        self.assertLessEqual(stderr.count(WRITE_WARN_LINE), 1, stderr)
+        return stderr.replace(WRITE_WARN_LINE, "")
+
+    def assert_three_state_equal(self, on, off):
+        """观察开启与关闭的三态等价：stdout、stderr、返回码分别比对（stderr 仅容 T101 固定提示行）。"""
+        self.assertEqual(on[0], off[0])
+        self.assertEqual(on[1], off[1])
+        self.assertEqual(self.stderr_without_warn(on[2]), self.stderr_without_warn(off[2]))
 
     def head_sha(self) -> str:
         return self.git("rev-parse", "HEAD").stdout.strip()
@@ -317,21 +353,21 @@ class ObservabilityTaskTest(unittest.TestCase):
         def boom(*args, **kwargs):
             raise OSError("disk on fire")
 
-        # integrity：file_ref 抛 OSError 时，stdout 与返回码和事件关闭时逐字一致。
+        # integrity：file_ref 抛 OSError 时，stdout、stderr 与返回码和事件关闭时逐字一致。
         self.install_integrity_fixture()
         with mock.patch.dict(os.environ, {"HARNESS_EVENTS": "off"}):
-            off = self.run_cli("integrity")
+            off = self.run_cli_full("integrity")
         with mock.patch.object(events, "file_ref", boom):
-            on = self.run_cli("integrity")
-        self.assertEqual(on, off)
+            on = self.run_cli_full("integrity")
+        self.assert_three_state_equal(on, off)
 
         # verify：store_artifact 抛 OSError 时同样一致。
         self.install_verify_fixture()
         with mock.patch.dict(os.environ, {"HARNESS_EVENTS": "off"}):
-            off = self.run_verify(["--skip", "delta"])
+            off = self.run_verify_full(["--skip", "delta"])
         with mock.patch.object(events, "store_artifact", boom):
-            on = self.run_verify(["--skip", "delta"])
-        self.assertEqual(on, off)
+            on = self.run_verify_full(["--skip", "delta"])
+        self.assert_three_state_equal(on, off)
 
         # 检查自身的业务异常不被观察层遮盖：开与关都抛同一异常。
         def exploding():
@@ -343,6 +379,68 @@ class ObservabilityTaskTest(unittest.TestCase):
                     self.assertRaises(ValueError) as caught:
                 self.run_verify([])
             self.assertEqual(str(caught.exception), "check exploded")
+
+    # ---------- 验收 4b：events 导入失败时入口观察静默丢弃，原行为逐字不变 ----------
+
+    def test_record_dispatch_import_failure_preserves_outcome(self):
+        """events 延迟导入失败（如引擎副本损坏）：观察静默丢弃，
+
+        原 SystemExit/业务异常/返回码与 stderr 逐字不变（与事件关闭时的三态逐项比对）。
+        """
+        from engine.checks import hygiene
+
+        def raises(exc):
+            def stub(rest):
+                raise exc
+            return stub
+
+        fake_core = _CorruptedCore()  # engine.core 在但加载不出 events：from-import 抛 ImportError
+
+        def run(stub, *, broken: bool):
+            """broken 时用坏包替换 sys.modules 里的 engine.core，否则用 HARNESS_EVENTS=off 作基线。"""
+            out, err = io.StringIO(), io.StringIO()
+            code, caught = None, None
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                guard = mock.patch.dict(sys.modules, {"engine.core": fake_core}) if broken \
+                    else mock.patch.dict(os.environ, {"HARNESS_EVENTS": "off"})
+                with guard, mock.patch.object(hygiene, "main", stub):
+                    try:
+                        code = cli.main(["hygiene"])
+                    except BaseException as exc:  # noqa: BLE001  SystemExit 与业务异常都原样接住再比对
+                        caught = exc
+            return code, out.getvalue(), err.getvalue(), caught
+
+        # 夹具有效性：from-import 的 IMPORT_FROM 首步（包属性加载）确实抛 ImportError。
+        def load_events():
+            return fake_core.events
+
+        with self.assertRaises(ImportError):
+            load_events()
+
+        scenarios = [
+            ("返回非零", lambda rest: 3, 3, None, None),
+            ("SystemExit", raises(SystemExit(2)), None, SystemExit, 2),
+            ("业务异常", raises(RuntimeError("boom")), None, RuntimeError, "boom"),
+        ]
+        for label, stub, expected_return, exc_type, exc_detail in scenarios:
+            with self.subTest(label):
+                off = run(stub, broken=False)
+                before = self.max_event_id()
+                broken = run(stub, broken=True)
+                if exc_type is None:
+                    self.assertEqual(broken[0], expected_return)
+                    self.assertIsNone(off[3])
+                else:
+                    self.assertIsNone(broken[0])
+                    for state in (off, broken):
+                        self.assertIs(type(state[3]), exc_type)
+                        if exc_type is SystemExit:
+                            self.assertEqual(state[3].code, exc_detail)
+                        else:
+                            self.assertEqual(str(state[3]), exc_detail)
+                self.assertEqual(broken[1], off[1])  # stdout 逐字一致
+                self.assertEqual(broken[2], off[2])  # stderr 逐字一致（无导入失败提示）
+                self.assertEqual(self.max_event_id(), before)  # 没有事件写入
 
     # ---------- 验收 5：逐个入口核对 C1 映射与守卫/查询例外 ----------
 
