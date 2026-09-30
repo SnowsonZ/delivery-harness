@@ -11,6 +11,17 @@ from engine.core.common import ROOT, ci_workflows
 
 CI_QUERY_ATTEMPTS = 3  # 等 CI 时对 gh 查询的最多尝试次数
 CI_QUERY_RETRY_SECONDS = 5
+# B71：gh run list 列出运行前要先拉取仓库的 Actions workflows 列表，该步 TLS/EOF 等网络瞬断
+# 会以 "couldn't fetch workflows" 报错文本退出（T118/T204 两例实测派发进程正死在此步）。
+# 这类失败与普通 gh 瞬断同一级别，一并纳入 _ci_runs 的重试；文本样本供测试与排障对照。
+CI_RETRIABLE_ERROR_MARKERS = ("couldn't fetch workflows",)
+
+
+def _ci_runs_retriable(error: BaseException) -> bool:
+    """gh 查询失败是否按瞬断重试。gh 包装层失败（_run 统一转成 RuntimeError，stderr 文本可能含
+    CI_RETRIABLE_ERROR_MARKERS 之一——如 couldn't fetch workflows——或 EOF/TLS 等底层网络错误）
+    与返回体解析失败都算瞬断；其余异常类型不是本查询的失败形态，不重试。"""
+    return isinstance(error, (RuntimeError, json.JSONDecodeError))
 
 
 # ---- GitHub（推送与写操作以 Agent 身份经 bin/as-agent） ----
@@ -94,12 +105,15 @@ class GitHub:
         self._run(["gh", "issue", "edit", str(number), "--body-file", "-"], agent=True, stdin=body)
 
     def _ci_runs(self, workflow: str, branch: str) -> list[dict]:
-        """查一个工作流在该分支上的运行。gh 瞬时失败（如网络断开）连续 CI_QUERY_ATTEMPTS 次才抛出，避免一次瞬断中止整个派发。"""
+        """查一个工作流在该分支上的运行。gh 瞬时失败（如网络断开，含 workflows 列表拉取失败）连续
+        CI_QUERY_ATTEMPTS 次才抛出，避免一次瞬断中止整个派发。"""
         for attempt in range(1, CI_QUERY_ATTEMPTS + 1):
             try:
                 return json.loads(self._run(["gh", "run", "list", "--workflow", workflow, "--branch", branch,
                                              "--json", "headSha,status,conclusion,databaseId,url", "--limit", "10"]))
-            except (RuntimeError, json.JSONDecodeError):
+            except Exception as error:  # 瞬断分类收敛在 _ci_runs_retriable，非瞬断原样抛出
+                if not _ci_runs_retriable(error):
+                    raise
                 if attempt == CI_QUERY_ATTEMPTS:
                     raise
                 time.sleep(CI_QUERY_RETRY_SECONDS)

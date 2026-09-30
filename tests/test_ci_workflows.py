@@ -67,6 +67,29 @@ class WorkflowsFetchFlakyGitHub(FakeGitHub):
         return super()._run(argv, cwd, agent, stdin)
 
 
+class MultiCategoryFlakyGitHub(FakeGitHub):
+    """按预置错误文本序列依次抛 gh 查询失败（couldn't fetch workflows / EOF / TLS 判定样本），序列耗尽后正常。"""
+
+    def __init__(self, errors, runs_by_workflow):
+        super().__init__(runs_by_workflow)
+        self.errors = list(errors)
+        self.attempts = 0
+
+    def _run(self, argv, cwd=None, agent=False, stdin=None):
+        self.attempts += 1
+        if self.errors:
+            raise RuntimeError(f"gh run list 失败：{self.errors.pop(0)}")
+        return super()._run(argv, cwd, agent, stdin)
+
+
+class AlienErrorGitHub(FakeGitHub):
+    """查询抛非 gh 失败形态的异常类型（非 RuntimeError / JSONDecodeError），不应被重试吸收。"""
+
+    def _run(self, argv, cwd=None, agent=False, stdin=None):
+        self.queried.append(argv[argv.index("--workflow") + 1])
+        raise ValueError("不是 gh 查询失败")
+
+
 class CiWorkflowsTest(unittest.TestCase):
     def workflows(self, names):
         return mock.patch.object(common, "setting", lambda *a, **k: names)
@@ -138,6 +161,44 @@ class CiWorkflowsTest(unittest.TestCase):
             github._ci_runs("harness", "b")
         self.assertEqual(github.attempts, github_module.CI_QUERY_ATTEMPTS)
         self.assertIn("couldn't fetch workflows", str(raised.exception))
+
+    def test_retriable_judgment_covers_named_error_categories(self):
+        """B71：重试判定显式覆盖 couldn't fetch workflows（workflows 列表拉取失败）与 EOF/TLS 等底层网络
+        错误文本，返回体解析失败同样重试；其余异常类型不属本查询失败形态，不重试。"""
+        for text in ("couldn't fetch workflows: dial tcp: connection refused",
+                     "couldn't fetch workflows: unexpected EOF",
+                     "unexpected EOF", "TLS handshake timeout"):
+            with self.subTest(text=text):
+                self.assertTrue(github_module._ci_runs_retriable(RuntimeError(f"gh run list 失败：{text}")))
+        self.assertTrue(github_module._ci_runs_retriable(json.JSONDecodeError("期望值", "x", 0)))
+        self.assertFalse(github_module._ci_runs_retriable(ValueError("不是 gh 查询失败")))
+
+    def test_workflows_fetch_retried_across_error_categories(self):
+        """B71：前两次失败属不同判定样本（couldn't fetch workflows、TLS），第三次成功：
+        尝试次数与间隔符合 CI_QUERY_ATTEMPTS。"""
+        github = MultiCategoryFlakyGitHub(["couldn't fetch workflows: connection refused", "TLS handshake timeout"],
+                                          {"harness": [run_row()]})
+        with mock.patch.object(github_module.time, "sleep") as sleep:
+            self.assertEqual(github._ci_runs("harness", "b"), [run_row()])
+        self.assertEqual(github.attempts, github_module.CI_QUERY_ATTEMPTS)
+        self.assertEqual(sleep.call_count, github_module.CI_QUERY_ATTEMPTS - 1)
+
+    def test_retry_exhaustion_raises_the_last_error_text(self):
+        """B71：跨判定样本连续失败耗尽重试后原样抛出，错误文本与现状一致（保留末次失败）。"""
+        github = MultiCategoryFlakyGitHub(["TLS handshake timeout", "unexpected EOF",
+                                           "couldn't fetch workflows: unexpected EOF"], {"harness": [run_row()]})
+        with mock.patch.object(github_module.time, "sleep"), self.assertRaises(RuntimeError) as raised:
+            github._ci_runs("harness", "b")
+        self.assertEqual(github.attempts, github_module.CI_QUERY_ATTEMPTS)
+        self.assertIn("couldn't fetch workflows", str(raised.exception))
+
+    def test_non_retriable_error_is_not_retried(self):
+        """非 gh 失败形态的异常不被重试吸收：立即原样抛出、不占尝试次数、不等待（与现状一致）。"""
+        github = AlienErrorGitHub({"harness": [run_row()]})
+        with mock.patch.object(github_module.time, "sleep") as sleep, self.assertRaises(ValueError):
+            github._ci_runs("harness", "b")
+        self.assertEqual(github.queried, ["harness"])
+        self.assertEqual(sleep.call_count, 0)
 
     def test_branch_rounds_counts_distinct_commits_across_listed_workflows(self):
         table = {"ci": [run_row(SHA), run_row("b" * 40)], "harness": [run_row(SHA), run_row("c" * 40, event="push")]}
