@@ -43,7 +43,7 @@ EXPECTED_STAGE = {
     "verify": "verify", "integrity": "verify",
     "risk": "route", "policy": "route",
     "dispatch": "dispatch",
-    "review": "review", "review-pack": "review",
+    "review": "review", "review-pack": "review", "review-plan": "review",
 }
 QUIET_COMMANDS = {"guard-command", "guard-git"}
 
