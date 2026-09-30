@@ -23,6 +23,7 @@
     bin/dispatch stop --all
     bin/dispatch review <PR> [--reviewer opencode|pi|codex|claude-code]   独立评审（engine/agents/review.py）
     bin/dispatch review --pending | --watch [--interval 5]   评审全部待评审的 PR（后台常驻用 --watch）
+    bin/dispatch review-calibrate [--reviewer 名称] [--output 路径]   评审校准打分（不评论 PR）
 """
 
 from __future__ import annotations
@@ -706,6 +707,18 @@ def stop_all(root: Path = ROOT, wait_seconds: float = 30) -> int:
     return 1
 
 
+def review_calibrate_command(args) -> int:
+    """review-calibrate 子命令：在真实历史样本上重跑独立评审并统计 TPR/TNR（不评论 PR）。"""
+    from engine.agents import review as review_module  # review 依赖本模块，按需导入
+
+    target = args.output if args.output.is_absolute() else ROOT / args.output
+    try:
+        return review_module.calibrate(args.reviewer, review_module.CALIBRATION_SAMPLES, target)
+    except (TypeError, ValueError) as error:
+        print(f"校准样本清单有问题：{error}")
+        return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -719,6 +732,10 @@ def main(argv: list[str] | None = None) -> int:
     review.add_argument("--pending", action="store_true", help="评审全部待评审且 CI 已通过的 PR，然后退出")
     review.add_argument("--watch", action="store_true", help="后台常驻：每隔 --interval 分钟评审一轮")
     review.add_argument("--interval", type=float, default=5, help="--watch 的间隔（分钟）")
+    cal = sub.add_parser("review-calibrate", help="评审校准：在真实历史样本上统计 TPR/TNR（不评论 PR）")
+    cal.add_argument("--reviewer", choices=["opencode", "pi", "codex", "claude-code"])
+    cal.add_argument("--output", type=Path, default=Path("build/review/calibration-report.md"),
+                     help="报告路径（相对仓库根，缺省 build/review/calibration-report.md）")
     sub.add_parser("status", help="查看槽位")
     stop = sub.add_parser("stop", help="停机：终止所有正在运行的执行方")
     stop.add_argument("--all", action="store_true", required=True)
@@ -737,6 +754,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.pr is None:
             parser.error("review 需要 PR 编号，或 --pending、--watch")
         return review_module.review_pr(args.pr, args.reviewer)
+    if args.command == "review-calibrate":
+        return review_calibrate_command(args)
     if args.command == "stop":
         return stop_all()
     if (state_dir() / "stop").exists():
