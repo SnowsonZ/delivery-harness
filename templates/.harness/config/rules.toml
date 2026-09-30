@@ -115,3 +115,10 @@ timeout_minutes = 30
 protected_branches = ["main"]
 # 执行方另外不能编辑的项目文件（引擎固定保护 .github、.githooks、.harness 与各 Agent 配置目录）。
 implementer_protected = []
+
+# 派发预警（B46 T205，可选）：取消注释启用 [alerts] 节，删除整节即全部关闭——
+#   最后一轮 CI 预警：预算内最后一轮 CI 在等待前于 PR（无 PR 时在升级议题）上预警，总预算 1 则首轮即预警。
+#   守卫拒绝预警：每轮被守卫拒绝的工具调用数达到 guard_denials_threshold 触发（轮内绝对计数，
+#   一次调用多个拒绝理由算一次）；未配置不启用，非正或非法值禁用该预警并提示配置错误，不影响执行预算。
+# [alerts]
+# guard_denials_threshold = 3
