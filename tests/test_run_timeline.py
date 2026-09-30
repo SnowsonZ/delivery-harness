@@ -435,11 +435,13 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(code, 0)
         slot = self.tmp / "app-slot-1"
         _, record = self.record("task-210-c", 1)
-        # 键集合：原记录字段一个不少、一个不多，新增只有 trace_id/stages/anchors
+        # 键集合：原记录字段一个不少、一个不多，新增只有 trace_id/stages/anchors 与
+        # missing_context/missing_context_status（T202，A1 裁决：恒写两键，C3 unknown 可见性）
         legacy_extra = {"executor_seconds", "ci_rounds_before", "gen_ai.usage.input_tokens",
                         "gen_ai.usage.output_tokens", "cost", "escalation"}
         self.assertEqual(set(record),
-                         set(run_check.RECORD_FIELDS) | legacy_extra | {"trace_id", "stages", "anchors"})
+                         set(run_check.RECORD_FIELDS) | legacy_extra
+                         | {"trace_id", "stages", "anchors", "missing_context", "missing_context_status"})
         # 旧字段语义逐项钉住
         self.assertEqual((record["task"], record["class"], record["attempt"], record["branch"]),
                          ("T210-C", "K7", 1, "task/210-c"))

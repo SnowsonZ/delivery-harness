@@ -26,4 +26,18 @@
 - 需要设计方或用户决定的具体问题：
 
 派发脚本会补上当前状态、已尝试的方案与证据，并交给设计方。
+
+## 完成时的缺失上下文报告
+
+结束前回顾：是否有缺失的上下文、工具或规格影响了你的工作。在最后一条回复的末尾输出一行机器可读报告：
+固定尾标记 `HARNESS_CONTEXT_JSON:` 后跟一行 JSON 数组（它是数据标记，不是 shell 变量，不要用命令构造或求值它）。
+
+- 没有缺失：显式输出 `HARNESS_CONTEXT_JSON: []`。
+- 每个条目只有 `category`、`summary`、`ref` 三个字段。`category` 只能取 `context` / `tool` / `spec` / `other`；
+  `summary` 只能用与类别对应的短 ID：`context_unavailable`（context）、`required_tool_unavailable`（tool）、
+  `spec_unavailable` 与 `spec_ambiguous`（spec）、`other_missing`（other）；`ref` 可选，只写工具 ID
+  （如 `python`）或仓库相对引用（如 `docs/plans/x.md`），不写绝对路径、命令或句子。
+- 例：`HARNESS_CONTEXT_JSON: [{{"category":"tool","summary":"required_tool_unavailable","ref":"gh"}}]`
+- 更详细的说明照常写在回复正文；引擎只从上面的标记行采集，正文与长文不入运行记录。
+
 {feedback}
