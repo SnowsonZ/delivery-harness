@@ -19,6 +19,8 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -502,6 +504,50 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(record2["stages"], [])
         self.assertEqual(record2["anchors"], [])  # 锚点为空
         self.assertEqual(record2["exit"], "ok")
+
+    # ---------- 验收 5（B69）：库锁竞争窗口内读取等待而非立即失败退化为空 ----------
+
+    def test_read_events_waits_for_lock(self):
+        rel = "docs/plans/task-210-f.md"
+        self.write_taskbook(rel, self.header("T210-F"))
+        self.stub_taskbook(rel, self.header("T210-F"))
+        self.commit_guards()
+        gh = FakeGitHub(self.repo, ci=(True, "", [7]))
+        code, _, _ = self.run_dispatch(rel, RecordingHost([], executor_script(mixed_stream())), gh)
+        self.assertEqual(code, 0)
+        branch = "task/210-f"
+        rows = self.trace_events(branch)
+        self.assertEqual([row["step"] for row in rows[6:]], ["push_pr", "ci_wait"])
+
+        # WAL 下写事务不阻塞读者；把库切回回滚日志模式，另一连接的独占写事务才能确定性复现
+        # 锁竞争/恢复窗口：无 busy_timeout 立即抛 database is locked，有则等待持锁者提交后读到完整链
+        path = events_db.db_path()
+        with contextlib.closing(sqlite3.connect(path)) as conn:
+            conn.execute("PRAGMA journal_mode=DELETE")
+
+        def hold_write_transaction():
+            with contextlib.closing(events_db._connect(path)) as conn:
+                conn.execute("BEGIN EXCLUSIVE")
+                time.sleep(1.0)  # 持锁期间主线程发起时间线读取
+                conn.execute("COMMIT")
+
+        holder = threading.Thread(target=hold_write_transaction)
+        holder.start()
+        time.sleep(0.2)  # 让持锁先于读取发生
+        started = time.monotonic()
+        timeline, head = run_timeline.record_fields(branch)
+        elapsed = time.monotonic() - started
+        holder.join()
+        self.assertGreaterEqual(elapsed, 0.5)  # 读取在锁窗口内等待，而非立即失败退化为空
+
+        # 等待后成功：时间线与锚点完整（准入至本地检查六阶段，外加记录后已发生的 push_pr/ci_wait）
+        self.assertEqual([(item["step"], item["status"]) for item in timeline["stages"]],
+                         [("admit", "ok"), ("guard_preflight", "ok"), ("slot", "ok"), ("claim", "ok"),
+                          ("executor_round", "ok"), ("local_verify", "ok"),
+                          ("push_pr", "ok"), ("ci_wait", "ok")])
+        self.assertEqual(timeline["anchors"], [{"source": "local", "stage": "dispatch",
+                                                "head_hash": rows[-1]["hash"], "fixed_in": "run_record"}])
+        self.assertEqual(head, rows[-1]["hash"])
 
 
 if __name__ == "__main__":
