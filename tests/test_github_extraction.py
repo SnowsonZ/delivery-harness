@@ -1,7 +1,8 @@
 """T123 结构断言：GitHub 封装类抽离为 engine/agents/github.py，dispatch.py 仅保留再导出。
 
 纯搬移任务：类行为由既有测试覆盖（如 tests.test_ci_workflows、tests.test_events_agents），
-这里只断言抽离本身成立——再导出别名、无循环导入、dispatch.py 较 main 收缩且新模块逐字含完整类。
+这里只断言抽离本身成立。按任务书修订（PR #74）用源码结构断言，不依赖 git 引用——
+CI 浅克隆里没有 origin/main。
 """
 
 from __future__ import annotations
@@ -13,21 +14,6 @@ from pathlib import Path
 
 ENGINE_REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ENGINE_REPO))
-
-
-def class_block(source: str) -> list[str]:
-    """顶层 class GitHub 定义块：从 class 行到下一个顶层语句（不含），去块尾空行。"""
-    lines = source.splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith("class GitHub:"))
-    end = next((i for i in range(start + 1, len(lines)) if lines[i] and not lines[i][0].isspace()), len(lines))
-    while lines[end - 1] == "":
-        end -= 1
-    return lines[start:end]
-
-
-def git_show(rev_path: str) -> str:
-    return subprocess.run(["git", "show", rev_path], cwd=ENGINE_REPO, capture_output=True, text=True,
-                          check=True).stdout
 
 
 class GithubExtractionTest(unittest.TestCase):
@@ -43,19 +29,16 @@ class GithubExtractionTest(unittest.TestCase):
         self.assertEqual(dispatch.GitHub.__module__, "engine.agents.github")
 
     def test_dispatch_shrinks_github_moved(self):
-        """dispatch.py 较 main 收缩 ≥100 行且不再定义类本身；github.py 逐字含 main 上的完整类与常量。"""
-        current = (ENGINE_REPO / "engine/agents/dispatch.py").read_text(encoding="utf-8")
+        """dispatch.py 不再定义 GitHub 类、保留再导出行；github.py 含完整类与专属常量。"""
+        dispatch_source = (ENGINE_REPO / "engine/agents/dispatch.py").read_text(encoding="utf-8")
         github_source = (ENGINE_REPO / "engine/agents/github.py").read_text(encoding="utf-8")
-        self.assertNotIn("class GitHub:", current)  # 搬移而非复制
+        self.assertNotIn("class GitHub:", dispatch_source)  # 搬移而非复制
+        self.assertIn("from engine.agents.github import GitHub", dispatch_source)  # dispatch.GitHub 逐字可用
+        self.assertIn("class GitHub:", github_source)  # 完整类在新模块
         self.assertIn("CI_QUERY_ATTEMPTS = 3", github_source)
         self.assertIn("CI_QUERY_RETRY_SECONDS = 5", github_source)
-        main_source = git_show("origin/main:engine/agents/dispatch.py")
-        if "class GitHub:" in main_source:  # main 吸收本次抽离之前（含本 PR 的 CI）
-            self.assertLessEqual(len(current.splitlines()), len(main_source.splitlines()) - 100)
-            self.assertEqual(class_block(main_source), class_block(github_source))
-        else:  # main 已吸收抽离之后：行数对照失去基准，退化为断言新模块仍含完整类
-            self.assertIn("class GitHub:", github_source)
-            self.assertIn("def wait_ci", github_source)
+        self.assertIn("# ---- GitHub（推送与写操作以 Agent 身份经 bin/as-agent） ----", github_source)
+        self.assertIn("def wait_ci", github_source)
 
 
 if __name__ == "__main__":
