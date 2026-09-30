@@ -19,6 +19,8 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -435,11 +437,13 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(code, 0)
         slot = self.tmp / "app-slot-1"
         _, record = self.record("task-210-c", 1)
-        # 键集合：原记录字段一个不少、一个不多，新增只有 trace_id/stages/anchors
+        # 键集合：原记录字段一个不少、一个不多，新增只有 trace_id/stages/anchors 与
+        # missing_context/missing_context_status（T202，A1 裁决：恒写两键，C3 unknown 可见性）
         legacy_extra = {"executor_seconds", "ci_rounds_before", "gen_ai.usage.input_tokens",
                         "gen_ai.usage.output_tokens", "cost", "escalation"}
         self.assertEqual(set(record),
-                         set(run_check.RECORD_FIELDS) | legacy_extra | {"trace_id", "stages", "anchors"})
+                         set(run_check.RECORD_FIELDS) | legacy_extra
+                         | {"trace_id", "stages", "anchors", "missing_context", "missing_context_status"})
         # 旧字段语义逐项钉住
         self.assertEqual((record["task"], record["class"], record["attempt"], record["branch"]),
                          ("T210-C", "K7", 1, "task/210-c"))
@@ -503,6 +507,54 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(record2["anchors"], [])  # 锚点为空
         self.assertEqual(record2["exit"], "ok")
 
+    # ---------- 验收 5（B69）：库锁竞争窗口内读取等待而非立即失败退化为空 ----------
+
+    def test_read_events_waits_for_lock(self):
+        rel = "docs/plans/task-210-f.md"
+        self.write_taskbook(rel, self.header("T210-F"))
+        self.stub_taskbook(rel, self.header("T210-F"))
+        self.commit_guards()
+        gh = FakeGitHub(self.repo, ci=(True, "", [7]))
+        code, _, _ = self.run_dispatch(rel, RecordingHost([], executor_script(mixed_stream())), gh)
+        self.assertEqual(code, 0)
+        branch = "task/210-f"
+        rows = self.trace_events(branch)
+        self.assertEqual([row["step"] for row in rows[6:]], ["push_pr", "ci_wait"])
+
+        # WAL 下写事务不阻塞读者；把库切回回滚日志模式，另一连接的独占写事务才能确定性复现
+        # 锁竞争：读取在持锁窗口内等待（连接的 busy_timeout/timeout 生效）而非立即抛
+        # database is locked 退化为空摘要。注意 sqlite3.connect 的 Python 默认 timeout 恰为
+        # 5 秒，与本仓库 busy_timeout=5000 行为等价——本用例防的是「完全无等待」的退化，
+        # 不区分两种 5 秒来源（连接参数单点收口的价值见 run_timeline._read_events 注释）。
+        path = events_db.db_path()
+        with contextlib.closing(sqlite3.connect(path)) as conn:
+            conn.execute("PRAGMA journal_mode=DELETE")
+
+        acquired = threading.Event()
+
+        def hold_write_transaction():
+            with contextlib.closing(events_db._connect(path)) as conn:
+                conn.execute("BEGIN EXCLUSIVE")
+                acquired.set()  # 先拿到锁，再放读者进来（消除先后竞态）
+                time.sleep(1.0)  # 持锁窗口自限时提交：读者在窗口内等待后读到完整链
+                conn.execute("COMMIT")
+
+        holder = threading.Thread(target=hold_write_transaction)
+        holder.start()
+        self.assertTrue(acquired.wait(10), "持锁线程未能获得独占事务")
+        # 读者此时必然撞上独占锁：能返回完整时间线说明读取等待了持锁窗口
+        # （无任何等待超时的连接在此立即抛 database is locked 并退化为空摘要）
+        timeline, head = run_timeline.record_fields(branch)
+        holder.join()
+
+        # 等待后成功：时间线与锚点完整（准入至本地检查六阶段，外加记录后已发生的 push_pr/ci_wait）
+        self.assertEqual([(item["step"], item["status"]) for item in timeline["stages"]],
+                         [("admit", "ok"), ("guard_preflight", "ok"), ("slot", "ok"), ("claim", "ok"),
+                          ("executor_round", "ok"), ("local_verify", "ok"),
+                          ("push_pr", "ok"), ("ci_wait", "ok")])
+        self.assertEqual(timeline["anchors"], [{"source": "local", "stage": "dispatch",
+                                                "head_hash": rows[-1]["hash"], "fixed_in": "run_record"}])
+        self.assertEqual(head, rows[-1]["hash"])
 
 if __name__ == "__main__":
     unittest.main()

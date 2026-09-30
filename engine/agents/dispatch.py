@@ -109,6 +109,10 @@ class Attempt:
     usage: dict = field(default_factory=dict)
     guard_denials: dict[str, int] = field(default_factory=dict)
     executor_note: str = ""
+    # T202：最后一轮缺失报告的安全条目与状态（reported/unknown/invalid），插在 guard_allowed 前
+    # （T105 冻结断言要求它仍是末位字段）。
+    missing_context: list = field(default_factory=list)
+    missing_context_status: str = "unknown"
     guard_allowed: int = 0  # 守卫放行的工具调用数（含普通失败；被守卫拒绝的调用不计入）
 
 
@@ -255,6 +259,18 @@ def render_prompt(task: Task, minutes: int, feedback: str) -> str:
                            branch=task.branch, minutes=minutes, feedback=extra)
 
 
+def _context_report(host, events: Path) -> dict:
+    """宿主的缺失上下文报告（B46 T202）：宿主缺 parse_context 或解析失败时按 unknown 处理，
+    不改变派发判定、退出码与调用序列（C0 失败隔离）。"""
+    parse = getattr(host, "parse_context", None)
+    if parse is None:
+        return {"status": "unknown", "items": [], "diagnostic": "no_marker"}
+    try:
+        return parse(events)
+    except Exception:  # noqa: BLE001  报告解析失败不改变派发判定
+        return {"status": "unknown", "items": [], "diagnostic": "no_marker"}
+
+
 def verify_signature(slot: Path, config: Config) -> tuple[bool, str, str, str]:
     """运行 verify；返回 (通过, 失败摘要, 失败签名, 完整输出)。签名去掉数字与路径，用于识别打转。"""
     result = subprocess.run(config.verify, cwd=slot, capture_output=True, text=True, check=False)
@@ -309,8 +325,11 @@ class Dispatcher:
         self.used_seconds += seconds
         model, usage, denials = self.host.parse(events)
         counts = observation.tool_counts(self.host, events)
+        context = _context_report(self.host, events)
         result = dispatch_host.RunResult(exit_kind, code, seconds, model, usage, denials,
-                                         counts["guard_allowed"])
+                                         missing_context=context["items"],
+                                         missing_context_status=context["status"],
+                                         guard_allowed=counts["guard_allowed"])
         observation.executor_round(task.branch, slot, prompt, events, result,
                                    {"name": self.host.name, "version": self.host.version()}, counts)
         return result
@@ -332,10 +351,15 @@ class Dispatcher:
             for key, value in result.guard_denials.items():
                 attempt.guard_denials[key] = attempt.guard_denials.get(key, 0) + value
             attempt.guard_allowed += result.guard_allowed
+            # 最后报告以最后一轮为准：每轮覆盖，抽取只读、不改变判定与退出码
+            attempt.missing_context = result.missing_context
+            attempt.missing_context_status = result.missing_context_status
             note = slot / ESCALATION_FILE
             if note.exists():
                 attempt.executor_note = note.read_text(encoding="utf-8")[:4000]
-                observation.clarify(task.branch, note)
+                observation.clarify(task.branch, note,
+                                    context={"status": result.missing_context_status,
+                                             "items": result.missing_context})
                 attempt.exit = "clarify"
                 return attempt, prompts
             if result.exit != "ok":
@@ -387,6 +411,8 @@ class Dispatcher:
             "failure_signatures": attempt.signatures,
             "ci_rounds_before": ci_rounds,
             "guard_denials": attempt.guard_denials,
+            "missing_context": attempt.missing_context,
+            "missing_context_status": attempt.missing_context_status,
             "gen_ai.usage.input_tokens": attempt.usage.get("input_tokens"),
             "gen_ai.usage.output_tokens": attempt.usage.get("output_tokens"),
             "cost": attempt.usage.get("cost"),
