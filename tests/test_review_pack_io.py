@@ -3,11 +3,14 @@
 夹具在匿名临时 git 仓库里走真实产品入口：小 diff 经 review.write_materials 组装，断言
 diff.patch 与旧口径逐字一致（全量、单文件）；大 diff 经 review_pack_io.write_diff 分片，
 断言文件边界对齐、每片 ≤ 2MB、按序拼接与原始 diff 逐字节等价；pack 经 review_pack.build
-生成，断言材料清单列出全部 diff 文件与行数、分片时顶部含「分 N 片，无截断」说明。
+生成，断言材料清单列出全部 diff 文件与行数、分片时顶部含「分 N 片，无截断」说明；
+C6 审计（dispatch_observation.review_materials）按同一分片集合读取（任务书修订第二轮）：
+小 diff 单份材料、形状逐字段不变，分片时每片各记一份、哈希与大小与盘上字节一致。
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -16,7 +19,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from engine.agents import review, review_pack, review_pack_io
+from engine.agents import dispatch_observation, review, review_pack, review_pack_io
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
@@ -120,6 +123,34 @@ class ReviewPackIoTest(unittest.TestCase):
         self.assertEqual(lines[2], f"diff 分 {len(files)} 片，无截断。")  # 顶部的显式说明
         for path in files:  # 全部片文件与各自行数
             self.assertIn(f"- `{path.name}`：{line_count(path.read_bytes())} 行", pack)
+
+    # ---------- 修订第二轮：C6 审计材料按分片集合读取（观察旁路，形状逐字段核对） ----------
+
+    def test_review_materials_single_file_unchanged(self):
+        base = self.commit({"docs/note.md": "整理前\n"}, "before")
+        self.commit({"docs/note.md": "整理后\n", "src/app.py": "print('hi')\n"}, "after")
+        review.write_materials(self.repo, base, "# 夹具\n\n小改动。\n", "")
+        materials = dispatch_observation.review_materials(self.repo, base, "HEAD", None, 1)
+        self.assertEqual([item["kind"] for item in materials], ["task", "diff", "ci", "pr", "pack"])
+        data = (self.repo / "build" / "review" / "diff.patch").read_bytes()
+        self.assertEqual(materials[1], {"kind": "diff", "ref": f"{base}...HEAD",  # 单文件时形状不变
+                                        "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
+                                        "encoding": "utf8", "recipe": {"id": "diff_v1"}})
+
+    def test_review_materials_read_shard_set(self):
+        base = self.commit({"docs/note.md": "占位\n"}, "before")
+        self.commit(self.bulk_files(45), "bulk change")
+        shards = review_pack_io.write_diff(self.repo, base)
+        self.assertGreaterEqual(len(shards), 2)
+        diff_items = [item for item in dispatch_observation.review_materials(self.repo, base, "HEAD", None, 1)
+                      if item["kind"] == "diff"]
+        self.assertEqual(len(diff_items), len(shards))  # 每片各记一份，观察旁路不丢
+        for item, path in zip(diff_items, shards):
+            data = path.read_bytes()
+            self.assertEqual(item["ref"], f"{base}...HEAD")  # 每片引用同一比较范围
+            self.assertEqual(item["sha256"], hashlib.sha256(data).hexdigest())  # 盘上字节一致
+            self.assertEqual(item["size"], len(data))
+            self.assertEqual(item["recipe"], {"id": "diff_v1"})
 
 
 if __name__ == "__main__":
