@@ -1,4 +1,4 @@
-"""B59 评审校准：真实历史样本清单的装载、calibrate 的打分机制与 bin/dispatch review-calibrate 子命令。
+"""B59 评审校准：真实历史样本清单的装载、review_calibrate 的打分机制与 bin/dispatch review-calibrate 子命令。
 
 打分用假评审方（脚本化输出）走真实的 run_reviewer → parse_output 通道，在隔离的最小 git 项目里跑，
 不碰网络也不碰真实 PR。
@@ -78,7 +78,7 @@ class ReviewCalibrationTest(unittest.TestCase):
 
     def run_calibration(self, answers: list[str]) -> Path:
         output = self.tmp / "report.md"
-        code = review.calibrate(None, self.manifest, output, root=self.tmp / "work",
+        code = review.review_calibrate(None, self.manifest, output, root=self.tmp / "work",
                                 reviewer=ScriptedReviewer(answers))
         self.assertEqual(code, 0)
         return output
@@ -136,16 +136,16 @@ class ReviewCalibrationTest(unittest.TestCase):
 
     def test_cli_wiring(self):
         # 子命令注册与缺省输出路径。
-        with mock.patch.object(review, "calibrate", return_value=0) as calibrate:
+        with mock.patch.object(review, "review_calibrate", return_value=0) as review_calibrate:
             self.assertEqual(dispatch.main(["review-calibrate"]), 0)
-            calibrate.assert_called_once_with(None, review.CALIBRATION_SAMPLES,
+            review_calibrate.assert_called_once_with(None, review.CALIBRATION_SAMPLES,
                                               dispatch.ROOT / "build" / "review" / "calibration-report.md")
-        with mock.patch.object(review, "calibrate", return_value=0) as calibrate:
+        with mock.patch.object(review, "review_calibrate", return_value=0) as review_calibrate:
             self.assertEqual(dispatch.main(["review-calibrate", "--reviewer", "pi",
                                             "--output", "build/x/report.md"]), 0)
-            calibrate.assert_called_once_with("pi", review.CALIBRATION_SAMPLES, dispatch.ROOT / "build/x/report.md")
+            review_calibrate.assert_called_once_with("pi", review.CALIBRATION_SAMPLES, dispatch.ROOT / "build/x/report.md")
         # 清单装载失败时明确报错并返回 2。
-        with mock.patch.object(review, "calibrate", side_effect=ValueError("校准样本第 1 条：expected 非法")):
+        with mock.patch.object(review, "review_calibrate", side_effect=ValueError("校准样本第 1 条：expected 非法")):
             self.assertEqual(dispatch.main(["review-calibrate"]), 2)
         # 既有子命令解析逐字不变。
         with mock.patch.object(review, "review_pr", return_value=0) as review_pr:

@@ -713,7 +713,7 @@ def review_calibrate_command(args) -> int:
 
     target = args.output if args.output.is_absolute() else ROOT / args.output
     try:
-        return review_module.calibrate(args.reviewer, review_module.CALIBRATION_SAMPLES, target)
+        return review_module.review_calibrate(args.reviewer, review_module.CALIBRATION_SAMPLES, target)
     except (TypeError, ValueError) as error:
         print(f"校准样本清单有问题：{error}")
         return 2

@@ -11,9 +11,9 @@
 凭据，结论由本脚本以 Agent 身份评论到 PR。
 试行期内评审结论只是给用户的输入，不替代用户审批。
 
-校准（设计 8.3）有两个入口：`calibrate_cases` 用已知有问题的改动（由事故回放用例在 main 上重新注入）与
+校准（设计 8.3）有两个入口：`calibrate` 用已知有问题的改动（由事故回放用例在 main 上重新注入）与
 已知良好的已合并 PR，统计抓住问题的比例（TPR）与放过好改动的比例（TNR），结果写入 evals/review/results/；
-`calibrate`（B59）对 docs/review/calibration/samples.json 里的真实历史样本（pr + head + 期望结论）逐个重跑
+`review_calibrate`（B59）对 docs/review/calibration/samples.json 里的真实历史样本（pr + head + 期望结论）逐个重跑
 独立评审，统计 TPR/TNR 与逐样本偏差，报告写本地 markdown，不评论任何 GitHub PR。
 
     bin/dispatch review <PR> [--reviewer pi|codex|claude-code]
@@ -550,8 +550,8 @@ def prepare_sample(workspace: Path, sample: dict, main_ref: str, root: Path) -> 
 MAX_CONSECUTIVE_FAILURES = 3
 
 
-def calibrate_cases(reviewer_name: str, limit: int | None = None, root: Path = ROOT, resume: Path | None = None,
-                    reviewer: Reviewer | None = None, jobs: int = 1) -> dict:
+def calibrate(reviewer_name: str, limit: int | None = None, root: Path = ROOT, resume: Path | None = None,
+              reviewer: Reviewer | None = None, jobs: int = 1) -> dict:
     """逐个样本评审，每完成一个就写盘；--resume 跳过已有有效结论的样本；--jobs 并行（每个任务独占一个评审
     工作区）；评审方连续失败 3 次即停（如额度用尽）。"""
     workspace = review_workspace(root)
@@ -737,8 +737,8 @@ def render_calibration_report(samples_path: Path, results: list[dict], summary: 
     return "\n".join(lines) + "\n"
 
 
-def calibrate(review_name: str | None, samples_path: Path, output: Path, *, root: Path = ROOT,
-              reviewer: Reviewer | None = None) -> int:
+def review_calibrate(review_name: str | None, samples_path: Path, output: Path, *, root: Path = ROOT,
+                     reviewer: Reviewer | None = None) -> int:
     """B59 评审校准：对真实历史样本（pr + head + 期望结论）逐个重跑独立评审，统计 TPR/TNR 与逐样本偏差，
     报告写本地 markdown（不评论到任何 GitHub PR）。样本检出失败与评审方失败进 errors，不进 TPR/TNR 分母。"""
     samples = load_samples(samples_path)
@@ -789,7 +789,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "pr":
         return review_pr(args.number, args.reviewer)
-    calibrate_cases(args.reviewer, args.limit, resume=args.resume, jobs=args.jobs)
+    calibrate(args.reviewer, args.limit, resume=args.resume, jobs=args.jobs)
     return 0
 
 
