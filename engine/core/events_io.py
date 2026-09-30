@@ -1,24 +1,25 @@
-"""C5 事件导出与幂等导入（可观测性 P3）：EventBundle v1、查询、导出、导入与写盘。
+"""C5 事件导出与幂等导入（可观测性 P3）：EventBundle v1、查询、导出、导入、写盘与 CI 下载。
 
-查询返回设计 JSON 形状的事件字典（嵌套 inputs/outputs/decision/error/actor；id 是本机定位号，
-不入哈希，导入可重映射）。导出按 (source, trace_id) 整链导出完整前缀与锚点；since/stage/status
-属于展示过滤（query），不出现在导出里——筛选后的断链子集不是可导入包。manifest 只收录通过安全
-扫描的规范化 UTF-8 JSON 内容产物；原始命令输出、verify 完整日志与 Pi 流（非规范化 JSON 或含
-命令/会话痕迹）因此绝不外发，SQLite/WAL/SHM 更不在其中。
-导入验证 schema、来源、隐私、规范化哈希与链完整性后事务提交：按事件哈希去重；同 source/trace/seq
-不同 hash 为冲突，不覆盖、不重排、不重算哈希；坏包整体不写，逐项发现以 findings 返回。
-来源核对只做包内 schema 级（ci: 前缀必须带全 run/attempt/job 三键）；bundle origin 与 GitHub API
-的一致性核对属于消费方（T302 load_ci，C5「不能只信包自报ci」）。load_ci 由 T302 在本模块实现，
-这里只定义合同。
+查询返回设计 JSON 形状的事件字典（id 是本机定位号，不入哈希，导入可重映射）；导出按
+(source, trace) 整链导出完整前缀与锚点——since/stage/status 属展示过滤，筛选后的断链子集不是可
+导入包；manifest 只收录通过安全扫描的规范化 UTF-8 JSON 内容产物，原始命令输出、verify 完整日志
+与 Pi 流绝不外发，SQLite/WAL/SHM 更不在其中。导入验证 schema、来源、隐私、规范化哈希与链完整性
+后事务提交：按事件哈希去重，同 source/trace/seq 不同 hash 为冲突，坏包整体不写、逐项发现以
+findings 返回。load_ci 下载时再按 GitHub API 核对仓库、工作流路径、run/head 与包 origin（不能只
+信包自报 ci），内容只解析不执行；manifest 内容产物文件不随导入恢复（缺失由再次导出如实报告）。
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
 import sqlite3
+import subprocess
+import urllib.parse
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -106,8 +107,7 @@ def _row_to_event(row: dict, refs: list[dict]) -> dict:
         "id": row["id"], "ts": row["ts"], "source": row["source"], "trace_id": row["trace_id"],
         "seq": row["seq"], "prev_hash": row["prev_hash"], "hash": row["hash"],
         "stage": row["stage"], "step": row["step"], "status": row["status"],
-        "duration_ms": row["duration_ms"], "inputs": [dict(item) for item in refs],
-        "outputs": outputs,
+        "duration_ms": row["duration_ms"], "inputs": [dict(item) for item in refs], "outputs": outputs,
         "decision": _unflatten(row, _DECISION_COLUMNS), "error": _unflatten(row, _ERROR_COLUMNS),
         "actor": _unflatten(row, _ACTOR_COLUMNS),
         "engine_version": row["engine_version"], "redacted": row["redacted"],
@@ -128,8 +128,8 @@ def _event_to_row(event: dict) -> tuple[dict, list[dict]]:
         "decision_by": decision.get("by"), "decision_rule": decision.get("rule"),
         "decision_reason": decision.get("reason"),
         "error_kind": error.get("kind"), "error_signature": error.get("signature"),
-        "outputs": json.dumps(event.get("outputs") or {}, sort_keys=True,
-                              separators=(",", ":"), ensure_ascii=False),
+        "outputs": json.dumps(event.get("outputs") or {}, sort_keys=True, separators=(",", ":"),
+                              ensure_ascii=False),
         "engine_version": event["engine_version"], "redacted": event["redacted"],
     }
     refs = [events_db._normalize_ref(dict(item)) for item in (event.get("inputs") or [])]
@@ -142,8 +142,8 @@ def query(*, trace_id: str | None = None, source: str | None = None, since=None,
           stage: str | None = None, status: str | None = None) -> list[dict]:
     """查询事件（展示视图，不是可导入 bundle）：trace、来源、since、stage、status 过滤。
 
-    source 可为精确链或 local/ci/github 类型前缀；since 为 UTC datetime 或 ISO 字符串（含边界），
-    解析失败抛 ValueError 由观察命令转诊断。不存在的库返回空列表，上层按无数据处理。
+    source 为精确链或 local/ci/github 前缀；since 为 UTC datetime 或 ISO（含边界），坏值抛
+    ValueError 由观察命令转诊断；无库返回空列表，上层按无数据处理。
     """
     cutoff = _parse_since(since) if since is not None else None
     rows = events_db.read_events(trace_id=trace_id, stage=stage, status=status)
@@ -152,10 +152,8 @@ def query(*, trace_id: str | None = None, source: str | None = None, since=None,
     for row in rows:
         if source is not None and not _source_matches(row["source"], source):
             continue
-        if cutoff is not None:
-            moment = _parse_utc(row["ts"])
-            if moment is None or moment < cutoff:
-                continue
+        if cutoff is not None and ((moment := _parse_utc(row["ts"])) is None or moment < cutoff):
+            continue
         result.append(_row_to_event(row, refs.get(row["id"], [])))
     return result
 
@@ -174,8 +172,7 @@ def _origin() -> dict:
     if os.environ.get("CI") == "true":
         branch = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or ""
         run_id = os.environ.get("GITHUB_RUN_ID")
-        run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT")
-        job = os.environ.get("GITHUB_JOB")
+        run_attempt, job = os.environ.get("GITHUB_RUN_ATTEMPT"), os.environ.get("GITHUB_JOB")
         if run_id and run_attempt and job:
             origin["run_id"], origin["run_attempt"], origin["job"] = run_id, run_attempt, job
         workflow_ref = os.environ.get("GITHUB_WORKFLOW_REF")
@@ -191,8 +188,7 @@ def _origin() -> dict:
 def export_bundle(*, trace_id: str | None = None, source: str | None = None) -> dict:
     """导出 EventBundle v1：每条 (source, trace) 的完整链前缀、锚点与安全 manifest。
 
-    source 同 query 的匹配规则；不含 since/stage 展示过滤。findings 记录被安全扫描排除的产物，
-    不中断导出。库不存在时各列表为空。
+    source 同 query 的匹配规则；不含展示过滤；findings 记被排除产物、不中断导出；无库各列表为空。
     """
     rows = events_db.read_events(trace_id=trace_id)
     if source is not None:
@@ -208,8 +204,7 @@ def export_bundle(*, trace_id: str | None = None, source: str | None = None) -> 
             continue
         chain_keys.add(key)
         chains.append({"source": row["source"], "trace_id": row["trace_id"], "head_hash": row["hash"]})
-    anchors = [anchor for anchor in events_db.read_anchors()
-               if (anchor["source"], anchor["trace_id"]) in chain_keys]
+    anchors = [a for a in events_db.read_anchors() if (a["source"], a["trace_id"]) in chain_keys]
     artifacts, findings = _build_manifest(events_out)
     return {"schema_version": BUNDLE_SCHEMA_VERSION, "origin": _origin(), "events": events_out,
             "anchors": anchors, "artifacts": artifacts, "chains": chains, "findings": findings}
@@ -221,9 +216,8 @@ def _harvest_digests(events_out: list[dict]) -> list[str]:
     for event in events_out:
         candidates = [item.get("sha256") for item in event["inputs"] if item.get("kind") == "artifact"]
         candidates.extend(event["outputs"].values())
-        for digest in candidates:
-            if isinstance(digest, str) and _HASH_RE.fullmatch(digest) and digest not in digests:
-                digests.append(digest)
+        fresh = [d for d in dict.fromkeys(candidates) if isinstance(d, str) and _HASH_RE.fullmatch(d)]
+        digests += [d for d in fresh if d not in digests]
     return digests
 
 
@@ -237,8 +231,7 @@ def _artifact_bytes(path: Path) -> bytes | None:
 def _safe_json_document(content: bytes) -> bool:
     """内容是否为安全可发布的规范化 UTF-8 JSON 对象：可解析、字节即规范化形式、逐字段无禁项。"""
     try:
-        text = content.decode("utf-8")
-        parsed = json.loads(text)
+        parsed = json.loads(text := content.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         return False
     if not isinstance(parsed, dict):
@@ -250,10 +243,9 @@ def _safe_json_document(content: bytes) -> bool:
 def _json_strings_safe(node) -> bool:
     """递归扫描 JSON 值：字符串不得含换行/本机路径/会话标记/shell 结构，键须合规短标识。"""
     if isinstance(node, str):
-        if any(ban in node for ban in _TEXT_BANS) or any(ban in node for ban in _SHELL_BANS):
+        if any(ban in node for ban in (*_TEXT_BANS, *_SHELL_BANS)):
             return False
-        lowered = node.lower()
-        return not any(ban in lowered or ban in node for ban in _SESSION_BANS)
+        return not any(ban in node.lower() or ban in node for ban in _SESSION_BANS)
     if isinstance(node, dict):
         return all(isinstance(key, str) and _KEY_RE.fullmatch(key) is not None
                    and _json_strings_safe(value) for key, value in node.items())
@@ -287,7 +279,7 @@ def _build_manifest(events_out: list[dict]) -> tuple[list[dict], list[dict]]:
 def write_bundle(bundle: dict, target: Path) -> None:
     """把 bundle 序列化为规范化 UTF-8 JSON 文本并原子写入 target（先临时文件再替换）。
 
-    序列化或写盘失败抛异常，不当成功；不校验 bundle 内容（校验属于 import_bundle / 设计方验收）。
+    序列化或写盘失败抛异常，不当成功；不校验内容（校验属于 import_bundle / 设计方验收）。
     """
     target = Path(target)
     text = json.dumps(bundle, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -304,9 +296,8 @@ def write_bundle(bundle: dict, target: Path) -> None:
 
 def _event_prefix(event, index: int) -> str:
     digest = event.get("hash") if isinstance(event, dict) else None
-    if isinstance(digest, str) and _HASH_RE.fullmatch(digest):
-        return f"事件[{index}] {digest[:12]}…"
-    return f"事件[{index}]"
+    head = f"事件[{index}] {digest[:12]}…" if isinstance(digest, str) and _HASH_RE.fullmatch(digest) else f"事件[{index}]"
+    return head
 
 
 def _validate_envelope(bundle, findings: list[dict]) -> bool:
@@ -315,8 +306,7 @@ def _validate_envelope(bundle, findings: list[dict]) -> bool:
         findings.append(_finding("schema", "bundle 不是 JSON 对象"))
         return False
     if set(bundle) != set(_BUNDLE_KEYS):
-        missing = sorted(set(_BUNDLE_KEYS) - set(bundle))
-        extra = sorted(set(bundle) - set(_BUNDLE_KEYS))
+        missing, extra = sorted(set(_BUNDLE_KEYS) - set(bundle)), sorted(set(bundle) - set(_BUNDLE_KEYS))
         findings.append(_finding("schema", f"bundle 顶层键不符（缺 {missing}，多 {extra}）"))
         return False
     version = bundle["schema_version"]
@@ -324,8 +314,7 @@ def _validate_envelope(bundle, findings: list[dict]) -> bool:
         findings.append(_finding("schema", "schema_version 不是整数"))
         return False
     if version > BUNDLE_SCHEMA_VERSION:
-        findings.append(_finding("future_schema",
-                                 f"bundle schema 版本较新（{version} > {BUNDLE_SCHEMA_VERSION}），不导入"))
+        findings.append(_finding("future_schema", f"bundle schema 版本较新（{version} > {BUNDLE_SCHEMA_VERSION}），不导入"))
         return False
     if version != BUNDLE_SCHEMA_VERSION:
         findings.append(_finding("schema", f"未知 schema 版本 {version}"))
@@ -365,8 +354,8 @@ def _validate_core_fields(event: dict, prefix: str, findings: list[dict]) -> boo
     if not _is_int(event["seq"]) or event["seq"] < 1 or not _is_int(event["redacted"]) or event["redacted"] < 0:
         findings.append(_finding("schema", f"{prefix} seq/redacted 不是非负整数"))
         return False
-    if not isinstance(event["prev_hash"], str) or not (event["prev_hash"] == ""
-                                                       or _HASH_RE.fullmatch(event["prev_hash"])):
+    if not (isinstance(event["prev_hash"], str)
+            and (event["prev_hash"] == "" or _HASH_RE.fullmatch(event["prev_hash"]))):
         findings.append(_finding("schema", f"{prefix} prev_hash 形状不符"))
         return False
     if not isinstance(event["hash"], str) or _HASH_RE.fullmatch(event["hash"]) is None:
@@ -375,8 +364,7 @@ def _validate_core_fields(event: dict, prefix: str, findings: list[dict]) -> boo
     if not isinstance(event["ts"], str) or _parse_utc(event["ts"]) is None:
         findings.append(_finding("schema", f"{prefix} ts 不是可解析的 UTC 时间"))
         return False
-    duration = event.get("duration_ms")
-    if duration is not None and not _is_int(duration):
+    if (duration := event.get("duration_ms")) is not None and not _is_int(duration):
         findings.append(_finding("schema", f"{prefix} duration_ms 不是整数"))
         return False
     if "id" in event and (not _is_int(event["id"]) or event["id"] < 1):
@@ -387,17 +375,15 @@ def _validate_core_fields(event: dict, prefix: str, findings: list[dict]) -> boo
 
 def _validate_texts(event: dict, prefix: str, findings: list[dict]) -> bool:
     """自由文本列：沿用 T101 隐私过滤口径（超长、本机路径、换行即禁项），step 另要求原样无首尾空白。"""
-    for name, limit in (("source", _LIMIT), ("trace_id", _REF_LIMIT), ("step", _LIMIT),
-                        ("engine_version", _LIMIT)):
+    for name, limit in (("source", _LIMIT), ("trace_id", _REF_LIMIT), ("step", _LIMIT), ("engine_version", _LIMIT)):
         if not _valid_text(event[name], limit):
             findings.append(_finding("privacy", f"{prefix} 的 {name} 含隐私禁项或超限"))
             return False
     if event["step"] != event["step"].strip():
         findings.append(_finding("schema", f"{prefix} 的 step 带首尾空白（emit 会先剥离）"))
         return False
-    if event["source"].startswith("ci:"):
-        parts = event["source"].split(":")
-        if len(parts) != 4 or any(not part for part in parts):
+    parts = event["source"].split(":") if event["source"].startswith("ci:") else []
+    if parts and (len(parts) != 4 or any(not part for part in parts)):
             findings.append(_finding("schema", f"{prefix} 的 source 不是 ci:<run>:<attempt>:<job> 形状"))
             return False
     return True
@@ -405,9 +391,7 @@ def _validate_texts(event: dict, prefix: str, findings: list[dict]) -> bool:
 
 def _validate_scalar(value) -> bool:
     """outputs 值：标量或合规短字符串（None 合法，沿用原过滤口径）。"""
-    if value is None or isinstance(value, (bool, int, float)):
-        return True
-    return _valid_text(value, _LIMIT)
+    return value is None or isinstance(value, (bool, int, float)) or _valid_text(value, _LIMIT)
 
 
 def _validate_outputs(event: dict, prefix: str, findings: list[dict]) -> bool:
@@ -423,8 +407,7 @@ def _validate_outputs(event: dict, prefix: str, findings: list[dict]) -> bool:
     return True
 
 
-def _validate_nested_mapping(nested, name: str, limits: dict[str, int], prefix: str,
-                             findings: list[dict]) -> bool:
+def _validate_nested_mapping(nested, name: str, limits: dict[str, int], prefix: str, findings: list[dict]) -> bool:
     """decision/error/actor 之一：键集合固定，值合规（role 另受枚举约束）。"""
     if nested is None:
         return True
@@ -434,11 +417,10 @@ def _validate_nested_mapping(nested, name: str, limits: dict[str, int], prefix: 
     for key, value in nested.items():
         if value is None:
             continue
-        if key == "role":
-            if value not in events.ACTOR_ROLES:
-                findings.append(_finding("schema", f"{prefix} 的 actor.role 不在枚举内"))
-                return False
-        elif not _valid_text(value, limits[key]):
+        if key == "role" and value not in events.ACTOR_ROLES:
+            findings.append(_finding("schema", f"{prefix} 的 actor.role 不在枚举内"))
+            return False
+        if key != "role" and not _valid_text(value, limits[key]):
             findings.append(_finding("privacy", f"{prefix} 的 {name}.{key} 含隐私禁项或超限"))
             return False
     return True
@@ -470,12 +452,10 @@ def _validate_inputs(event: dict, prefix: str, findings: list[dict]) -> bool:
             if item.get(name) is not None and not _valid_text(item[name], limit):
                 findings.append(_finding("privacy", f"{prefix} 的引用 {name} 含隐私禁项或超限"))
                 return False
-        sha256 = item.get("sha256")
-        if sha256 is not None and _HASH_RE.fullmatch(sha256) is None:
+        if item.get("sha256") is not None and _HASH_RE.fullmatch(item["sha256"]) is None:
             findings.append(_finding("schema", f"{prefix} 的引用 sha256 形状不符"))
             return False
-        size = item.get("size")
-        if size is not None and not (_is_int(size) and size >= 0):
+        if (size := item.get("size")) is not None and not (_is_int(size) and size >= 0):
             # emit 只写非负 int（len(content)）；数字字符串/浮点经 SQLite INTEGER 亲和改型后
             # 与导入时验证的哈希口径不一致，负数则是 emit 不可能写出的形状，一律拒绝。
             findings.append(_finding("schema", f"{prefix} 的引用 size 不是非负整数"))
@@ -497,8 +477,7 @@ def _validate_event(event, index: int, findings: list[dict]) -> tuple[dict, list
     if unknown or missing:
         findings.append(_finding("schema", f"{prefix} 字段不符（缺 {sorted(missing)}，多 {sorted(unknown)}）"))
         return None
-    if not (_validate_texts(event, prefix, findings)
-            and _validate_core_fields(event, prefix, findings)
+    if not (_validate_texts(event, prefix, findings) and _validate_core_fields(event, prefix, findings)
             and _validate_nested(event, prefix, findings)):
         return None
     row, refs = _event_to_row(event)
@@ -514,7 +493,7 @@ def _chain_heads(entries: list, findings: list[dict]) -> dict[tuple[str, str], s
     for entry in entries:
         ok = (isinstance(entry, dict) and set(entry) == {"source", "trace_id", "head_hash"}
               and all(_valid_text(entry[name], _REF_LIMIT) for name in ("source", "trace_id"))
-              and isinstance(entry["head_hash"], str) and _HASH_RE.fullmatch(entry["head_hash"]))
+              and _HASH_RE.fullmatch(str(entry["head_hash"])) is not None)
         if not ok:
             findings.append(_finding("schema", "chains 项形状不符"))
             continue
@@ -549,7 +528,7 @@ def _check_merged_chain(key: tuple[str, str], existing: dict[int, dict],
 def _plan_chains(bundle: dict, validated: list[tuple[dict, list[dict]]], findings: list[dict]):
     """按链规划导入：包内去重、与库去重（按哈希）、seq 冲突与合并链完整性。
 
-    返回 (新增 (row, refs) 列表, skipped 数, 每链合并哈希集合)；出现发现时不写任何行。
+    返回 (新增 (row, refs) 列表, skipped 数, 每链合并哈希集合)；有发现时不写任何行。
     """
     heads = _chain_heads(bundle["chains"], findings)
     grouped: dict[tuple[str, str], list[tuple[dict, list[dict]]]] = {}
@@ -575,13 +554,11 @@ def _plan_chains(bundle: dict, validated: list[tuple[dict, list[dict]]], finding
         for row, _ in fresh:
             hit = existing.get(row["seq"])
             if hit is not None and hit["hash"] != row["hash"]:
-                findings.append(_finding("seq_conflict",
-                                         f"{key[0]}/{key[1]} seq={row['seq']} 已有不同 hash，不覆盖"))
+                findings.append(_finding("seq_conflict", f"{key[0]}/{key[1]} seq={row['seq']} 已有不同 hash，不覆盖"))
         hashes = _check_merged_chain(key, existing, fresh, heads[key], findings)
-        if hashes is None:
-            continue
-        chain_hashes[key] = hashes
-        fresh_all.extend(fresh)
+        if hashes is not None:
+            chain_hashes[key] = hashes
+            fresh_all.extend(fresh)
     return fresh_all, skipped, chain_hashes
 
 
@@ -590,8 +567,7 @@ def _valid_anchor(anchor, chain_hashes: dict[tuple[str, str], set[str]], finding
     if not isinstance(anchor, dict) or set(anchor) != set(_ANCHOR_KEYS):
         findings.append(_finding("anchor", "锚点字段不符"))
         return False
-    for name, limit in (("source", _REF_LIMIT), ("trace_id", _REF_LIMIT), ("stage", _LIMIT),
-                        ("fixed_in", _LIMIT)):
+    for name, limit in (("source", _REF_LIMIT), ("trace_id", _REF_LIMIT), ("stage", _LIMIT), ("fixed_in", _LIMIT)):
         if not _valid_text(anchor[name], limit):
             findings.append(_finding("anchor", f"锚点的 {name} 含隐私禁项、超限或为空"))
             return False
@@ -611,8 +587,7 @@ def _valid_anchor(anchor, chain_hashes: dict[tuple[str, str], set[str]], finding
     return True
 
 
-def _plan_anchors(bundle: dict, chain_hashes: dict[tuple[str, str], set[str]],
-                  findings: list[dict]) -> list[dict]:
+def _plan_anchors(bundle: dict, chain_hashes: dict[tuple[str, str], set[str]], findings: list[dict]) -> list[dict]:
     """校验并按整行幂等挑选要写的新锚点（与库内及包内完全相同的不再写）。"""
     columns = ("source", "trace_id", "stage", "head_hash", "fixed_in", "ts")
     existing = {tuple(row[name] for name in columns) for row in events_db.read_anchors()}
@@ -632,35 +607,191 @@ def _plan_anchors(bundle: dict, chain_hashes: dict[tuple[str, str], set[str]],
 def import_bundle(bundle: dict) -> dict:
     """幂等导入 EventBundle，返回 {imported, skipped, findings}；坏包整体不写。
 
-    验证（schema、来源、隐私、规范化哈希、链完整性）全部通过后才在单个事务里写入事件、引用与
-    锚点；任何发现都不写，findings 逐项给出 code 与不含内容的 detail。
+    验证（schema、来源、隐私、哈希、链完整性）全过后才在单事务里写事件、引用与锚点；任何发现都
+    不写，findings 逐项给出 code 与不含内容的 detail。
     """
     findings: list[dict] = []
     if not _validate_envelope(bundle, findings):
         return {"imported": 0, "skipped": 0, "findings": findings}
-    validated: list[tuple[dict, list[dict]]] = []
-    for index, event in enumerate(bundle["events"]):
-        triple = _validate_event(event, index, findings)
-        if triple is not None:
-            validated.append(triple)
+    validated = [triple for index, event in enumerate(bundle["events"])
+                 if (triple := _validate_event(event, index, findings)) is not None]
     fresh, skipped, chain_hashes = _plan_chains(bundle, validated, findings)
-    if not findings:
-        anchors = _plan_anchors(bundle, chain_hashes, findings)
+    anchors = [] if findings else _plan_anchors(bundle, chain_hashes, findings)
     if findings:
         return {"imported": 0, "skipped": 0, "findings": findings}
     try:
         imported = events_db.import_rows(fresh, anchors)
     except sqlite3.IntegrityError:
         return {"imported": 0, "skipped": 0,
-                "findings": [_finding("seq_conflict", "写入时撞上已有事件（并发或约束），整体未写")]}
+                "findings": [_finding("seq_conflict", "写入时撞上已有事件（并发），整体未写")]}
     except RuntimeError as exc:
         return {"imported": 0, "skipped": 0, "findings": [_finding("storage", str(exc))]}
     return {"imported": imported, "skipped": skipped, "findings": []}
 
 
-def load_ci(pr: int, *, head: str | None = None, gh=None) -> dict:
-    """下载指定 PR 的 CI 事件包（harness 与 route 多 job/attempt、分页、按 API 核对来源）并幂等导入。
+# ---- CI 事件包下载（C5 load_ci，T302）：只信 API，不信包自报；下载内容只解析、不执行 ----
 
-    合同见共用合同 C5；T302 在本模块实现下载适配，T301 只定义合同、不留成功的假实现。
+_TRUSTED_PATHS = frozenset(f".github/workflows/{name}{ext}"
+                           for name in ("harness", "auto-merge") for ext in (".yml", ".yaml"))
+_PACKAGE_RE = re.compile(r"harness-events-(\d+)-(\d+)-(.+)\Z")
+
+
+class GhClient:
+    """load_ci 缺省 gh 客户端：只读查询与 artifact 下载，失败抛 RuntimeError。"""
+
+    def _run(self, argv: list[str]) -> bytes:
+        result = subprocess.run(["gh", *argv], capture_output=True, check=False)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.decode("utf-8", "replace").strip() or f"gh 退出码 {result.returncode}")
+        return result.stdout
+
+    def pr(self, pr: int) -> dict:
+        data = json.loads(self._run(["pr", "view", str(pr), "--json", "headRefName,headRefOid,baseRepository"]))
+        base = (data.get("baseRepository") or {}).get("name")
+        owner = ((data.get("baseRepository") or {}).get("owner") or {}).get("login")
+        return {"headRefName": data.get("headRefName"), "headRefOid": data.get("headRefOid"),
+                "repository": f"{owner}/{base}" if owner and base else None}
+
+    def api(self, route: str):
+        return json.loads(self._run(["api", route]))
+
+    def download(self, url: str) -> bytes:
+        return self._run(["api", url])
+
+
+def _repo_identity(value: str) -> str:
+    """GitHub 仓库身份（owner/repo）：兼容 https/ssh 远程 URL；无 URL 形状时原样参与比较。"""
+    match = re.search(r"[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?\Z", value.strip())
+    return f"{match[1]}/{match[2]}" if match else value
+
+
+def _list_all(client, route: str, key: str, findings: list[dict]) -> list[dict] | None:
+    """按 total_count 分页取全列表；API 失败、形状不符或 50 页不收敛记 api 发现并放弃。"""
+    items: list[dict] = []
+    for page in range(1, 51):
+        try:
+            data = client.api(f"{route}&page={page}")
+        except (RuntimeError, ValueError) as exc:
+            findings.append(_finding("api", f"列出 {key} 第 {page} 页失败：{exc}"))
+            return None
+        batch = data.get(key) if isinstance(data, dict) else None
+        if not isinstance(batch, list):
+            findings.append(_finding("api", f"{key} 响应形状不符（第 {page} 页）"))
+            return None
+        items += [item for item in batch if isinstance(item, dict)]
+        total = data.get("total_count")
+        if not batch or (isinstance(total, int) and len(items) >= total):
+            return items
+    findings.append(_finding("api", f"{key} 分页 50 页未收敛，已放弃"))
+    return None
+
+
+def _package_member(members: dict[str, bytes]) -> dict | None:
+    """zip 内唯一的 harness-events JSON 包成员（按形状初筛）；没有或多个都视为坏包。"""
+    found: list[dict] = []
+    for name, content in sorted(members.items()):
+        if name.lower().endswith(".json"):
+            try:
+                parsed = json.loads(content)
+            except ValueError:
+                parsed = None
+            if (isinstance(parsed, dict) and parsed.get("schema_version") == BUNDLE_SCHEMA_VERSION
+                    and "origin" in parsed and isinstance(parsed.get("events"), list)):
+                found.append(parsed)
+    return found[0] if len(found) == 1 else None
+
+
+def _import_package(data: bytes, match: re.Match, branch: str, head: str, repo: str,
+                    findings: list[dict]) -> tuple[int, int] | None:
+    """一个下载完成的包：zip→bundle→origin/来源核对→幂等导入；坏包记发现返回 None。"""
+    run_id, attempt, job = match.groups()
+    label = f"包 {run_id}/{attempt}/{job}"
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+        members = {name: archive.read(name) for name in archive.namelist() if not name.endswith("/")}
+    except zipfile.BadZipFile:
+        findings.append(_finding("package_corrupt", f"{label} 不是有效的 zip"))
+        return None
+    bundle = _package_member(members)
+    if bundle is None:
+        findings.append(_finding("package_corrupt", f"{label} 找不到唯一的 harness-events JSON"))
+        return None
+    origin = bundle.get("origin") if isinstance(bundle.get("origin"), dict) else {}
+    expected = {"run_id": run_id, "run_attempt": attempt, "job": job, "head_sha": head, "head_branch": branch}
+    wrong = [key for key, want in expected.items() if str(origin.get(key)) != want]
+    if "repository" not in origin or _repo_identity(str(origin["repository"])) != _repo_identity(repo):
+        wrong.append("repository")
+    if wrong:
+        findings.append(_finding("origin_mismatch", f"{label} origin 与 API 不符（{','.join(wrong)}）"))
+        return None
+    if any(event.get("source") != f"ci:{run_id}:{attempt}:{job}" for event in bundle["events"]):
+        findings.append(_finding("source_mismatch", f"{label} 事件来源不是 ci:{run_id}:{attempt}:{job}"))
+        return None
+    result = import_bundle(bundle)
+    findings.extend(result["findings"])
+    return result["imported"], result["skipped"]
+
+
+def _download_run(client, run: dict, packages: list[dict], branch: str, head: str, repo: str,
+                  findings: list[dict]) -> tuple[int, int]:
+    """下载并导入一个运行的事件包，返回（新增，跳过）；过期/名字不符/下载失败逐项记发现。"""
+    imported = skipped = 0
+    for item in packages:
+        name = str(item.get("name"))
+        if item.get("expired"):
+            findings.append(_finding("artifact_expired", f"artifact {name} 已过期，未下载"))
+            continue
+        match = _PACKAGE_RE.fullmatch(name)
+        if match[1] != str(run.get("id")) or match[2] != str(run.get("run_attempt")):
+            findings.append(_finding("artifact_name", f"artifact {name} 物理名与运行不符，未下载"))
+            continue
+        try:
+            data = client.download(str(item.get("archive_download_url")))
+        except (RuntimeError, ValueError) as exc:
+            findings.append(_finding("api", f"下载 {name} 失败：{exc}"))
+            continue
+        if result := _import_package(data, match, branch, head, repo, findings):
+            imported, skipped = imported + result[0], skipped + result[1]
+    return imported, skipped
+
+
+def load_ci(pr: int, *, head: str | None = None, gh=None) -> dict:
+    """下载 PR 关联的 CI 事件包（harness 与 auto-merge 多 job/attempt）并幂等导入（C5）。
+
+    只信 API：仓库、工作流路径、run/head 与物理名逐项核对包 origin 与事件 source；过期/缺失/
+    坏包/其他 head 的运行逐项记 findings；分页不收敛明确报告。
     """
-    raise NotImplementedError("load_ci 由 T302 实现")
+    findings: list[dict] = []
+    client = GhClient() if gh is None else gh
+    try:
+        info = client.pr(pr)
+        branch, resolved, repo = info.get("headRefName"), head or info.get("headRefOid"), info.get("repository")
+    except (RuntimeError, ValueError, AttributeError) as exc:
+        return {"imported": 0, "skipped": 0, "findings": [_finding("api", f"查询 PR {pr} 失败：{exc}")]}
+    if not (isinstance(branch, str) and branch and isinstance(resolved, str)
+            and _SHA_RE.fullmatch(resolved) and isinstance(repo, str) and repo):
+        return {"imported": 0, "skipped": 0,
+                "findings": [_finding("api", f"PR {pr} 的 head/仓库信息缺失或形状不符")]}
+    route = f"repos/{repo}/actions/runs?branch={urllib.parse.quote(branch, safe='')}&per_page=100"
+    runs = _list_all(client, route, "workflow_runs", findings)
+    if runs is None:
+        return {"imported": 0, "skipped": 0, "findings": findings}
+    trusted = [run for run in runs if run.get("path") in _TRUSTED_PATHS]
+    stale = sorted({str(run.get("headSha")) for run in trusted if run.get("headSha") != resolved})
+    if stale:
+        findings.append(_finding("head_mismatch", f"{len(stale)} 个其他 head 的运行未导入"
+                                                 f"（只导入 head {resolved[:7]}…）"))
+    imported = skipped = 0
+    for run in sorted(trusted, key=lambda item: str(item.get("id"))):
+        if run.get("headSha") != resolved:
+            continue
+        artifacts = _list_all(client, f"repos/{repo}/actions/runs/{run.get('id')}/artifacts?per_page=100",
+                              "artifacts", findings)
+        if artifacts is None:
+            continue
+        packages = [item for item in artifacts if _PACKAGE_RE.fullmatch(str(item.get("name") or ""))]
+        if not packages:
+            findings.append(_finding("artifact_missing", f"运行 {run.get('id')} 没有 harness-events 事件包"))
+        got = _download_run(client, run, packages, branch, resolved, repo, findings)
+        imported, skipped = imported + got[0], skipped + got[1]
+    return {"imported": imported, "skipped": skipped, "findings": findings}
