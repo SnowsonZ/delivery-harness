@@ -11,17 +11,6 @@ from engine.core.common import ROOT, ci_workflows
 
 CI_QUERY_ATTEMPTS = 3  # 等 CI 时对 gh 查询的最多尝试次数
 CI_QUERY_RETRY_SECONDS = 5
-# B71：gh run list 列出运行前要先拉取仓库的 Actions workflows 列表，该步 TLS/EOF 等网络瞬断
-# 会以 "couldn't fetch workflows" 报错文本退出（T118/T204 两例实测派发进程正死在此步）。
-# 这类失败与普通 gh 瞬断同一级别，一并纳入 _ci_runs 的重试；文本样本供测试与排障对照。
-CI_RETRIABLE_ERROR_MARKERS = ("couldn't fetch workflows",)
-
-
-def _ci_runs_retriable(error: BaseException) -> bool:
-    """gh 查询失败是否按瞬断重试。gh 包装层失败（_run 统一转成 RuntimeError，stderr 文本可能含
-    CI_RETRIABLE_ERROR_MARKERS 之一——如 couldn't fetch workflows——或 EOF/TLS 等底层网络错误）
-    与返回体解析失败都算瞬断；其余异常类型不是本查询的失败形态，不重试。"""
-    return isinstance(error, (RuntimeError, json.JSONDecodeError))
 
 
 # ---- GitHub（推送与写操作以 Agent 身份经 bin/as-agent） ----
@@ -105,15 +94,12 @@ class GitHub:
         self._run(["gh", "issue", "edit", str(number), "--body-file", "-"], agent=True, stdin=body)
 
     def _ci_runs(self, workflow: str, branch: str) -> list[dict]:
-        """查一个工作流在该分支上的运行。gh 瞬时失败（如网络断开，含 workflows 列表拉取失败）连续
-        CI_QUERY_ATTEMPTS 次才抛出，避免一次瞬断中止整个派发。"""
+        """查一个工作流在该分支上的运行。gh 瞬时失败（如网络断开）连续 CI_QUERY_ATTEMPTS 次才抛出，避免一次瞬断中止整个派发。"""
         for attempt in range(1, CI_QUERY_ATTEMPTS + 1):
             try:
                 return json.loads(self._run(["gh", "run", "list", "--workflow", workflow, "--branch", branch,
                                              "--json", "headSha,status,conclusion,databaseId,url", "--limit", "10"]))
-            except Exception as error:  # 瞬断分类收敛在 _ci_runs_retriable，非瞬断原样抛出
-                if not _ci_runs_retriable(error):
-                    raise
+            except (RuntimeError, json.JSONDecodeError):
                 if attempt == CI_QUERY_ATTEMPTS:
                     raise
                 time.sleep(CI_QUERY_RETRY_SECONDS)
@@ -123,17 +109,24 @@ class GitHub:
         """等 rules.toml [dispatch] ci_workflows 列出的每个工作流在该提交上跑完；全部成功才算通过。
 
         detail 非 None 时写入 run_ids（本次结论对应的 Actions 运行 ID），供派发的 ci_wait 观察事件
-        使用；返回值与 gh 调用序列保持不变。
+        使用；返回值与 gh 调用序列保持不变。查询重试耗尽仍失败时按「CI 结果未知」返回，不向上抛
+        （B71）：异常出 wait_ci 会崩掉整个派发进程，摘要带已推 head 与失败摘要，随派发既有升级
+        通道（PR 评论或议题）留痕，由人重跑或补查。
         """
         workflows = ci_workflows()
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             found = {}
-            for workflow in workflows:
-                runs = self._ci_runs(workflow, branch)
-                run = next((item for item in runs if item["headSha"] == sha), None)
-                if run and run["status"] == "completed":
-                    found[workflow] = run
+            try:
+                for workflow in workflows:
+                    runs = self._ci_runs(workflow, branch)
+                    run = next((item for item in runs if item["headSha"] == sha), None)
+                    if run and run["status"] == "completed":
+                        found[workflow] = run
+            except (RuntimeError, json.JSONDecodeError) as error:  # B71：重试耗尽仍失败，CI 结果未知；不再上抛崩派发进程
+                if detail is not None:
+                    detail["run_ids"] = []
+                return False, f"CI 结果未知（已推 head {sha}）：{error}"
             failed = next((run for run in found.values() if run["conclusion"] != "success"), None)
             if failed:
                 log = subprocess.run(["gh", "run", "view", str(failed["databaseId"]), "--log-failed"], cwd=self.root,
