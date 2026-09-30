@@ -33,7 +33,9 @@ PiHost.parse_observability 从最后的 assistant 完成消息抽取，只读数
 - `engine/prompts/dispatch_prompt.md`
 - `engine/agents/dispatch.py`
 - `engine/agents/dispatch_host.py`
+- `engine/agents/dispatch_observation.py`
 - `tests/test_missing_context.py`（新增；不存在才可开始）
+- `tests/test_run_timeline.py`（仅限一处：`test_legacy_record_fields_preserved` 的期望键集合与其注释追加 `missing_context`、`missing_context_status` 两键，见修订记录 A1）
 
 ## 非目标
 
@@ -70,3 +72,13 @@ PiHost.parse_observability 从最后的 assistant 完成消息抽取，只读数
 完成项目检查 `bin/verify --full`，不修改既有测试、质量基线来换通过。验收必须调用产品入口并核对具体结果，不能仅 mock emit 返回值或检查测试函数存在。设计方另做逐行验收与针对本任务断言的变异复核；修改判定/守卫/派发/配置时还由设计方做Agent-Notification独立worktree等价验证（追溯表G2），不是执行方自己写“通过”。
 
 同一失败连续三轮无新证据时停止该路径；预算或接口不符则按既有升级方式报告当前差距、已尝试与新证据、推荐备选及待决定问题。每条验收的正负断言必须保留，不能为赶预算删减断言或失败方式；如夹具样本需缩小，先报告设计方，确认不损失覆盖后按原流程修订，不自行缩范围。不得自行扩大白名单、改原任务书、实现待办B47/B52等非目标。
+
+
+## 修订记录（2026-09-30，设计方裁决升级工单 #45）
+
+执行方首轮停下报告两处合同冲突，经设计方对代码逐条核实（断言与注释均逐字属实），裁决如下，本节与白名单修订一并生效：
+
+- **A1（采纳）**：`tests/test_run_timeline.py::test_legacy_record_fields_preserved` 的期望键集合追加 `missing_context`、`missing_context_status` 两键（其注释「新增只有 trace_id/stages/anchors」同步更新）。共用文件链本就预定 T202 扩展记录，该断言写于 T202 定义之前；C3 的 unknown 可见性要求恒写两键，不得以 A2 缩减合同。
+- **B1（采纳）**：`engine/agents/dispatch_observation.py` 纳入白名单，改动限于 `clarify` 增加可选 context 参数与 outputs 组装一处（D025 本列 T202 为承担方，白名单漏列属拆分遗漏）；不得在 dispatch.py 复刻或另发事件。
+- **次级点（认可）**：`dispatch_host.py` 新增 `parse_context(events)` 承担尾标记抽取与诊断（只读），`parse_observability` 返回保持恰 3 键（T105 冻结断言不动），其 `missing_context` 改取 `parse_context` 的安全条目。
+- 执行方报备的质量棘轮（新函数 C901 ≤10）与 RunResult 字段序（新字段插在 `guard_allowed` 前、构造处关键字传参）已确认计入。
