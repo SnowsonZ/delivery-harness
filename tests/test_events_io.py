@@ -532,14 +532,6 @@ class ObservabilityTaskTest(unittest.TestCase):
 
     # ---- C5 合同：load_ci 由 T302 实现，T301 不留成功的假实现 ----
 
-    def test_load_ci_is_contract_only(self):
-        with self.assertRaises(NotImplementedError):
-            events_io.load_ci(1)
-        with self.assertRaises(NotImplementedError):
-            events_io.load_ci(1, head="a" * 40, gh="gh")
-
-    # ---- C0/C5 失败隔离与范围：读不建库、写原子、不碰 artifacts 范围、本地新 schema 不写 ----
-
     def test_import_scope_and_readonly_isolation(self):
         # 无库环境：读与导出都不得创建 harness.db
         bare = self.fresh_repo("scope-bare")

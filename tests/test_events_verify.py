@@ -45,7 +45,7 @@ EXPECTED_STAGE = {
     "dispatch": "dispatch",
     "review": "review", "review-pack": "review", "review-plan": "review",
 }
-QUIET_COMMANDS = {"guard-command", "guard-git"}
+QUIET_COMMANDS = set(cli.QUIET_COMMANDS)
 
 
 class _CorruptedCore:
