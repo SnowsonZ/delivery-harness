@@ -465,6 +465,44 @@ class ObservabilityTaskTest(unittest.TestCase):
                                          cwd=slot)
         self.assertTrue(finding.ok, finding.reason)
 
+    # ---------- 验收 4：原推送次数与 CI 轮次不变；sink 不可用时锚点为空且原任务继续 ----------
+
+    def test_no_extra_push_for_post_record_stages(self):
+        rel = "docs/plans/task-210-d.md"
+        self.write_taskbook(rel, self.header("T210-D"))
+        self.stub_taskbook(rel, self.header("T210-D"))
+        self.commit_guards()
+        gh = FakeGitHub(self.repo, ci=(True, "", [7]))
+        code, _, _ = self.run_dispatch(rel, RecordingHost([], executor_script(mixed_stream())), gh)
+        self.assertEqual(code, 0)
+        # 真实调用序列：认领推送 + 记录推送共两次，等一次 CI；不为补 push_pr/ci_wait 锚点再写记录推送
+        self.assertEqual(gh.calls, [("remote_branch_exists", "task/210-d"), ("push", "task/210-d"),
+                                    ("push", "task/210-d"), ("open_pr", "task/210-d"),
+                                    ("wait_ci", "task/210-d")])
+        _, record = self.record("task-210-d", 1)
+        self.assertEqual(record["ci_rounds_before"], 0)
+        self.assertNotIn("push_pr", [item["step"] for item in record["stages"]])
+        self.assertNotIn("ci_wait", [item["step"] for item in record["stages"]])
+        self.assertEqual(record["anchors"][0]["fixed_in"], "run_record")
+        self.assertTrue(record["anchors"][0]["head_hash"])
+
+        # sink 不可用（库损坏）：读不到链，记录 stages/anchors 为空，原任务照常完成、调用序列不变
+        events_db.db_path().write_bytes(b"this is not a sqlite database at all")
+        rel_b = "docs/plans/task-210-e.md"
+        self.write_taskbook(rel_b, self.header("T210-E"))
+        self.stub_taskbook(rel_b, self.header("T210-E"))
+        gh2 = FakeGitHub(self.repo, ci=(True, "", [7]))
+        code, _, _ = self.run_dispatch(rel_b, RecordingHost([], executor_script(mixed_stream())), gh2)
+        self.assertEqual(code, 0)
+        self.assertEqual(gh2.calls, [("remote_branch_exists", "task/210-e"), ("push", "task/210-e"),
+                                     ("push", "task/210-e"), ("open_pr", "task/210-e"),
+                                     ("wait_ci", "task/210-e")])
+        _, record2 = self.record("task-210-e", 1)
+        self.assertEqual(record2["trace_id"], "task/210-e")
+        self.assertEqual(record2["stages"], [])
+        self.assertEqual(record2["anchors"], [])  # 锚点为空
+        self.assertEqual(record2["exit"], "ok")
+
 
 if __name__ == "__main__":
     unittest.main()
