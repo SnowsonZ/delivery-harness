@@ -309,6 +309,11 @@ def _p_ts(value, location, problems) -> None:
     _check_str(value, location, problems, _TIMESTAMP_RE.fullmatch)
 
 
+def _p_ts_legacy(value, location, problems) -> None:
+    """旧记录的 started_at/ended_at：禁项必查，不按时间戳语法拒绝既有旧形态（评审 #51 G2 回归）。"""
+    _check_str(value, location, problems, lambda _text: True)
+
+
 def _p_sha(value, location, problems) -> None:
     _check_str(value, location, problems, _HEX64_RE.fullmatch)
 
@@ -477,7 +482,7 @@ _TOP_FIELDS = {
     "branch": _p_token, "trace_id": _p_token,
     "gen_ai.agent.name": _p_token, "host_version": _p_token, "gen_ai.request.model": _p_token,
     "prompt_sha256": _p_sha, "prompt_path": _p_path, "guard_ref": _p_token,
-    "started_at": _p_ts, "ended_at": _p_ts, "executor_seconds": _number_factory(),
+    "started_at": _p_ts_legacy, "ended_at": _p_ts_legacy, "executor_seconds": _number_factory(),
     "exit": _enum_factory(_EXIT_WORDS), "retries": _int_factory(0),
     "failure_signatures": _p_signatures, "ci_rounds_before": _int_factory(0),
     "guard_denials": _p_guard_denials,

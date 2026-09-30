@@ -265,6 +265,10 @@ class ObservabilityTaskTest(unittest.TestCase):
              lambda r: r["stages"][0]["inputs"][0].update(ref="/Users/someone/x.md"), "本机路径"),
             ("C05 顶层 Windows 路径",
              lambda r: r.update(prompt_path="C:\\Users\\someone\\1.prompt.md"), "本机路径"),
+            ("C05 旧格式时间字段中的路径",
+             lambda r: r.update(started_at="2026-01-02 /Users/someone/notes"), "本机路径"),
+            ("C05 旧格式时间字段中的会话",
+             lambda r: r.update(ended_at="done after User: review"), "会话正文"),
             ("C06 可信理由追加正文", lambda r: r.update(guard_denials={RESET_HARD_REASON + "；再跑一遍": 1}),
              "未知理由"),
             ("C06 CLEAN_X 前缀后追加正文", lambda r: r.update(guard_denials={CLEAN_X_PREFIX + "伪造的追加说明": 1}),
@@ -319,9 +323,13 @@ class ObservabilityTaskTest(unittest.TestCase):
     # ---------- 验收 2：真实旧形状与新 C3 字段通过，可信理由通过、伪造追加不行 ----------
 
     def test_old_and_new_safe_records_pass(self):
-        # 旧格式：没有新增字段，guard_denials 是提及命令的可信理由，签名含固定问题描述
+        # 旧格式：没有新增字段，guard_denials 是提及命令的可信理由，签名含固定问题描述；
+        # started_at/ended_at 的占位形态（Agent-Notification 历史夹具 docs/runs/task-005-sample）
+        # 属合法旧格式，不按时间戳语法拒绝（评审 #51 G2 回归）
         old = {key: value for key, value in valid_record().items()
                if key not in ("trace_id", "stages", "anchors")}
+        old["started_at"] = "s"
+        old["ended_at"] = "e"
         old["failure_signatures"] = ["lint:abc123456789", "工作区有未提交的改动：所有改动都要提交", "没有新的提交"]
         old["guard_denials"] = {RESET_HARD_REASON: 1, MERGE_REASON: 2}
         self.assertEqual(run_check.scan_record(old), [])
