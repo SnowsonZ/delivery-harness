@@ -242,6 +242,7 @@ class _Replay:
         self.ran: list[str] = []
         self.failed: list[str] = []
         self.trace: list[str] = []
+        self.swallowed: list[str] = []
         self.step_outputs: dict[str, dict[str, str]] = {}
         self.conclusion = "success"
         self.summary_path = project.parent / f"job-summary-{next(_INSTANCE)}.md"
@@ -312,9 +313,12 @@ class _Replay:
                 self.step_outputs[step_id] = _output_file(output)
             self.trace.append(f"{name}: code={result.returncode} {result.stderr.strip()[-400:]}")
             self.ran.append(name)
-            if result.returncode != 0 and not step.get("continue-on-error"):
-                self.failed.append(name)
-                self.conclusion = "failure"
+            if result.returncode != 0:
+                if step.get("continue-on-error"):
+                    self.swallowed.append(name)  # 观察自身失败被隔离，不改变 job 结论
+                else:
+                    self.failed.append(name)
+                    self.conclusion = "failure"
 
     def _command(self, script: str, stub: Path) -> str:
         """引擎判定换成桩命令；ci_events 用安装布局里的真实模块；其余 python 换当前解释器。"""
@@ -472,6 +476,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         replay.run(steps, stub=stub)
         self.assertEqual(replay.conclusion, "failure", replay.trace)
         self.assertEqual(replay.failed, ["Verify"], replay.trace)
+        self.assertEqual(replay.swallowed, [])  # 失败重放里观察步骤自身全部成功
         for label in ("Export harness events", "Upload harness events", "Harness event summary"):
             self.assertIn(label, replay.ran, label)
         self.assertEqual(replay.uploads, [{"name": "harness-events-5100-1-harness",
@@ -661,6 +666,50 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertIn('--branch "$HEAD_BRANCH"', policy["run"])
         harness_steps = self.template("harness.yml")["jobs"]["harness"]["steps"]
         self.assertFalse([step for step in harness_steps if "GITHUB_HEAD_REF" in (step.get("env") or {})])
+
+    # ---- 步骤 2：失败隔离与范围——export 保持只读；事件关闭与导出自身失败不改 job 结论 ----
+
+    def test_export_scope_and_failure_isolation(self):
+        project = self.fresh_project("scope")
+        self.install(project)
+        env = self.subprocess_env(project, "harness", 1, "5500")
+        # 无事件：导出空包成功，且不创建事件库（导出保持只读，读不建库）
+        target = self.tmp / "scope-export"
+        result = self.run_ci_events(project, ["export", "--target", str(target)], env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        bundle = json.loads((target / "harness-events.json").read_text(encoding="utf-8"))
+        self.assertEqual((bundle["events"], bundle["anchors"], bundle["chains"]), ([], [], []))
+        self.assertFalse((project / ".git/harness/harness.db").exists())
+        # 事件关闭：整条观察链路静默，导出仍成功且无库
+        checks = project / ".harness/config/checks.toml"
+        checks.write_text(checks.read_text(encoding="utf-8") + "\n[events]\nenabled = false\n", encoding="utf-8")
+        target = self.tmp / "scope-off"
+        result = self.run_ci_events(project, ["export", "--target", str(target)], env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads((target / "harness-events.json").read_text(
+            encoding="utf-8"))["events"], [])
+        self.assertFalse((project / ".git/harness/harness.db").exists())
+        # summary 对坏输入明确返回 2：文件缺失、非法 JSON 与非对象形状都不当成功
+        for content in (None, "不是 JSON", '[{"events": []}]'):
+            bad = self.tmp / "bad.json"
+            if content is not None:
+                bad.write_text(content, encoding="utf-8")
+            result = self.run_ci_events(project, ["summary", "--bundle", str(bad)], env)
+            self.assertEqual((result.returncode, result.stderr != ""), (2, True), content)
+
+        # 重放：导出自身失败（RUNNER_TEMP 指向文件之下，目录建不出来）不改 job 结论，
+        # upload/summary 照常执行——观察失败被 continue-on-error 隔离（共用合同 C0）
+        blocked = self.tmp / "blocked-file"
+        blocked.write_text("not a dir\n", encoding="utf-8")
+        env = self.subprocess_env(project, "harness", 2, "5600")
+        env["RUNNER_TEMP"] = str(blocked / "runner-temp")
+        replay = _Replay(project, env, self.replay_context())
+        replay.run(self.template("harness.yml")["jobs"]["harness"]["steps"], stub=self.write_stub(project))
+        self.assertEqual((replay.conclusion, replay.failed), ("success", []), replay.trace)
+        self.assertEqual(replay.swallowed, ["Export harness events", "Harness event summary"], replay.trace)
+        self.assertIn("Upload harness events", replay.ran)
+        self.assertEqual(replay.uploads[0]["name"], "harness-events-5600-2-harness")
+
 
 if __name__ == "__main__":
     unittest.main()
