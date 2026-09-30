@@ -105,21 +105,33 @@ class GitHub:
                 time.sleep(CI_QUERY_RETRY_SECONDS)
         return []
 
+    def _completed_runs(self, workflows: list[str], branch: str, sha: str) -> dict[str, dict]:
+        """一轮轮询：每个工作流各查一次，返回该提交上已完结的工作流 → 运行；查询失败原样抛出。"""
+        found = {}
+        for workflow in workflows:
+            runs = self._ci_runs(workflow, branch)
+            run = next((item for item in runs if item["headSha"] == sha), None)
+            if run and run["status"] == "completed":
+                found[workflow] = run
+        return found
+
     def wait_ci(self, branch: str, sha: str, timeout: float, detail: dict | None = None) -> tuple[bool, str]:
         """等 rules.toml [dispatch] ci_workflows 列出的每个工作流在该提交上跑完；全部成功才算通过。
 
         detail 非 None 时写入 run_ids（本次结论对应的 Actions 运行 ID），供派发的 ci_wait 观察事件
-        使用；返回值与 gh 调用序列保持不变。
+        使用；返回值与 gh 调用序列保持不变。查询重试耗尽仍失败时按「CI 结果未知」返回，不向上抛
+        （B71）：异常出 wait_ci 会崩掉整个派发进程，摘要带已推 head 与失败摘要，随派发既有升级
+        通道（PR 评论或议题）留痕，由人重跑或补查。
         """
         workflows = ci_workflows()
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            found = {}
-            for workflow in workflows:
-                runs = self._ci_runs(workflow, branch)
-                run = next((item for item in runs if item["headSha"] == sha), None)
-                if run and run["status"] == "completed":
-                    found[workflow] = run
+            try:
+                found = self._completed_runs(workflows, branch, sha)
+            except (RuntimeError, json.JSONDecodeError) as error:  # B71：重试耗尽仍失败，CI 结果未知；不再上抛崩派发进程
+                if detail is not None:
+                    detail["run_ids"] = []
+                return False, f"CI 结果未知（已推 head {sha}）：{error}"
             failed = next((run for run in found.values() if run["conclusion"] != "success"), None)
             if failed:
                 log = subprocess.run(["gh", "run", "view", str(failed["databaseId"]), "--log-failed"], cwd=self.root,
