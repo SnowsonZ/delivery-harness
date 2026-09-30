@@ -39,6 +39,7 @@ COMMANDS = {
     "dispatch": "engine.agents.dispatch",
     "review": "engine.agents.review",
     "review-pack": "engine.agents.review_pack",
+    "review-plan": "engine.agents.plan_review",
     "identity": "engine.agents.identity",
     # 报告
     "metrics": "engine.reports.metrics",
