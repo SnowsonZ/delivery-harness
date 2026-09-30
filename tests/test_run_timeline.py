@@ -550,5 +550,23 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(head, rows[-1]["hash"])
 
 
+    def test_record_uses_events_db_connect(self):
+        """T116 接线断言：时间线读取经 events_db._connect（连接参数单点收口）。
+
+        说明（设计方 2026-09-30）：sqlite3.connect 的默认 timeout 恰为 5 秒，与
+        busy_timeout=5000 行为等价，锁行为无法区分两种连接方式；本断言钉住的是
+        接线路径——连接参数后续调整时时间线读取自动跟随。
+        """
+        rel = "docs/plans/task-210-g.md"
+        self.write_taskbook(rel, self.header("T210-G"))
+        self.stub_taskbook(rel, self.header("T210-G"))
+        self.commit_guards()
+        gh = FakeGitHub(self.repo, ci=(True, "", [7]))
+        with mock.patch.object(events_db, "_connect", wraps=events_db._connect) as spy:
+            code, _, _ = self.run_dispatch(rel, RecordingHost([], executor_script(mixed_stream())), gh)
+        self.assertEqual(code, 0)
+        self.assertTrue(spy.called, "时间线读取未走 events_db._connect")
+
+
 if __name__ == "__main__":
     unittest.main()
