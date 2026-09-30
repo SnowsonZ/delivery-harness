@@ -38,7 +38,8 @@
 | B70 | `dispatch --resume` 在该分支已有 PR 时不复用而新建，`gh pr create` 报错崩溃（T203/T119 两例）：resume 应查询既有 PR 并复用（反馈注入既有 PR） | 小 | 评审方 | T203/T119 resume 实测（2026-09-30）；任务书 T121（task-121-resume-reuse-pr.md）|
 | B71 | `wait_ci` 查询 Actions workflows 端点的瞬时失败（TLS/EOF）无重试（`gh run list` 有 3 次重试但 workflows 列表拉取不在覆盖内），T118/T204 两例派发进程死在等 CI 阶段（产物已推送、PR 已开，仅失去自动重跑）：把 workflows 拉取纳入同一重试 | 小 | 评审方 | T118/T204 实测（2026-09-30）；任务书 T122（task-122-wait-ci-retry.md）|
 | B72 | 派发结束/失败后槽位工作树残留并占住分支，后续 resume/同名任务 checkout 被拒（T203 resume 首撞）：dispatch 结束路径应归还槽位（detach 或清理）；期间需人工 `git worktree remove --force` | 小 | 评审方 | T203/T119 resume 实测（2026-09-30） |
-| B74 | `write_materials` 的评审 diff 200K 截断：大 diff PR（如 T301 的 1.8 万行夹具）在评审材料中丢失全部代码改动，评审只能按描述验收（T301 首轮评审严重项）。修法：超限时 diff 落盘为附件文件并在 pack 中引用，或分段；评审工作区按任务隔离（同 B59 发现） | 中 | 评审方 | T301 首轮评审（2026-09-30） |
+| B76 | T301 修订（#69）规定的锚点幂等回归未落进第二轮（二轮推送先于修订定稿）：`_plan_anchors` 去重无测试覆盖，定向变异「禁用锚点去重」下重导入测试仍通过。补断言：重导入相同锚点零重写 | 小 | 评审方 | T301 变异复核（2026-09-30） |
+| B74 | `write_materials` 的评审 diff 200K 截断：大 diff PR（如 T301 的 1.8 万行夹具）在评审材料中丢失全部代码改动，评审只能按描述验收（T301 首轮评审严重项）。修法：超限时 diff 落盘为附件文件并在 pack 中引用，或分段；评审工作区按任务隔离（同 B59 发现） | 中 | 评审方 | T301 首轮评审（2026-09-30）；任务书 T124（task-124-review-pack-diff.md，已提级：四次评审材料失效）|
 | B75 | 校准样本清单 `docs/review/calibration/samples.json` 的 #51 样本 head `48ad84b` 已被第二轮推进、检出失败（errors 1）：清单条目应指向该 PR 的稳定语义状态或标注 head 可更新规则 | 小 | 评审方 | T119 校准基线运行（2026-09-30） |
 | B73 | 间歇性 macOS flake：`test_pr_title_has_no_duplicate_prefix`、`test_record_contains_timeline_and_exact_anchor` 等整 dispatch 夹具测试在 macOS runner 偶发 dispatch 返回 1（main 近 14 次 ci 三红；本地与 CI=true 无法复现）。诊断断言已入 #59；下次 flake 依日志修根因，必要时给整 dispatch 夹具加确定性时钟/事件同步 | 中 | 评审方 | main ci #37/#38/#58、PR #61 实测 |
 | B69 | `run_timeline._read_events` 用裸 `sqlite3.connect` 未沿用 `events_db._connect` 的 `busy_timeout`：库锁竞争窗口内读取异常后退化为空时间线（方向安全、偶发）。改用既有连接参数并补回归 | 小 | 评审方 | PR #43 评审（2026-09-30）；任务书 T116（task-116-read-events-busy-timeout.md）|
