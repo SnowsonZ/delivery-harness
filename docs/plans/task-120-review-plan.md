@@ -17,7 +17,7 @@ rollback: git revert（仅在用户授权后）
 
 # T120：任务拆分评审工具化 `review-plan`（B54）
 
-负责方：**派发任务**。设计方：codex 席位（现由 Zcode 代行）；独立评审方 OpenCode。依据：待办 B54；[任务拆分流程](../../task-splitting.md)（现按其手工执行拆分评审）；先读 `engine/agents/review.py` 既有评审入口。
+负责方：**派发任务**。设计方：codex 席位（现由 Zcode 代行）；独立评审方 OpenCode。依据：待办 B54；[任务拆分流程](../task-splitting.md)（现按其手工执行拆分评审）；先读 `engine/agents/review.py` 既有评审入口。
 
 ## 目标终态
 
