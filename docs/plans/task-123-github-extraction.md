@@ -22,7 +22,7 @@ rollback: git revert（仅在用户授权后）
 ## 目标终态
 
 1. `engine/agents/dispatch.py` 中的 `GitHub` 类及其专属常量（`CI_QUERY_ATTEMPTS`、`CI_QUERY_RETRY_SECONDS`）与 `# ---- GitHub（推送与写操作以 Agent 身份经 bin/as-agent） ----` 分节整体**逐字搬移**到新模块 `engine/agents/github.py`；仅调整模块内 import。
-2. `dispatch.py` 保留再导出行 `from engine.agents.github import GitHub`，使 `dispatch.GitHub` 引用（review.py 的 `dispatch.GitHub(root)`、既有测试）逐字继续可用；`dispatch.py` 行数较 main 下降 ≥100。
+2. `dispatch.py` 保留再导出行 `from engine.agents.github import GitHub`，使 `dispatch.GitHub` 引用（review.py 的 `dispatch.GitHub(root)`、既有测试）逐字继续可用；`dispatch.py` 不再定义 GitHub 类（行数随纯搬移显著下降）。
 3. 搬移为纯移动：类代码零修改；既有全部测试零修改逐字通过。
 
 ## 白名单
@@ -51,7 +51,7 @@ rollback: git revert（仅在用户授权后）
 |---|---|---|---|---|
 | 不挂规格：B70 | 既有全部测试零修改逐字通过 | 夹具 | `bin/verify --full`（tests 项）与 `tests.test_events_agents` 全类 | 任何既有断言被改动时失败 |
 | 不挂规格：B70 | `dispatch.GitHub is github.GitHub` 且两模块无循环导入（双 import 断言） | 夹具 | `tests.test_github_extraction.GithubExtractionTest.test_alias_and_no_cycle` | 再导出缺失或循环导入时失败 |
-| 不挂规格：B70 | `dispatch.py` 行数较 main 下降 ≥100 且新模块含完整 GitHub 类 | 夹具 | `…test_dispatch_shrinks_github_moved` | 搬移不完整时失败 |
+| 不挂规格：B70 | `dispatch.py` 不再含 `class GitHub` 定义、`github.py` 含之、再导出行存在（源码结构断言，不依赖 git 引用——CI 浅克隆无 origin/main） | 夹具 | `…test_dispatch_shrinks_github_moved` | 搬移不完整时失败 |
 
 ## 步骤与提交顺序
 

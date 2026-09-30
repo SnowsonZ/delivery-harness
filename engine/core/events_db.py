@@ -335,6 +335,138 @@ def add_anchor(source: str, trace_id: str, stage: str, head_hash: str, fixed_in:
                      (source, trace_id, stage, head_hash, fixed_in, _now()))
 
 
+# ---- 读取与批量导入（T301 events_io 的存储原语）：不改表结构，user_version 保持 1 ----
+
+def read_events(source: str | None = None, trace_id: str | None = None,
+                stage: str | None = None, status: str | None = None) -> list[dict]:
+    """按可选精确过滤读取事件全列（含 id），按 (source, trace_id, seq) 排序。
+
+    没有库或库版本比本代码新时返回空列表（与 chain_head 的缺省行为一致：上层按无数据处理）。
+    """
+    path = db_path()
+    if path is None or not path.exists():
+        return []
+    with closing(_connect(path)) as conn:
+        if not _schema_ready(conn):
+            return []
+        where, params = [], []
+        for column, value in (("source", source), ("trace_id", trace_id),
+                              ("stage", stage), ("status", status)):
+            if value is not None:
+                where.append(f"{column}=?")
+                params.append(value)
+        clause = f" WHERE {' AND '.join(where)}" if where else ""
+        rows = conn.execute(
+            f"SELECT {','.join(EVENT_COLUMNS)} FROM events{clause} ORDER BY source, trace_id, seq",
+            params,
+        ).fetchall()
+    return [dict(zip(EVENT_COLUMNS, values)) for values in rows]
+
+
+def read_refs(event_ids: list[int]) -> dict[int, list[dict]]:
+    """按事件 id 批量读取规范化输入引用（保留行序，None 值键省略），返回 {event_id: [引用]}。"""
+    path = db_path()
+    if path is None or not path.exists() or not event_ids:
+        return {}
+    with closing(_connect(path)) as conn:
+        if not _schema_ready(conn):
+            return {}
+        placeholders = ",".join("?" * len(event_ids))
+        rows = conn.execute(
+            f"SELECT event_id, kind, ref, sha256, size FROM refs WHERE event_id IN ({placeholders}) ORDER BY rowid",
+            event_ids,
+        ).fetchall()
+    grouped: dict[int, list[dict]] = {}
+    for event_id, *values in rows:
+        grouped.setdefault(event_id, []).append(_normalize_ref(dict(zip(_REF_KEYS, values))))
+    return grouped
+
+
+def read_anchors(source: str | None = None, trace_id: str | None = None) -> list[dict]:
+    """按可选链过滤读取锚点（不含 id，字段与表列一致），保持表内顺序。"""
+    path = db_path()
+    if path is None or not path.exists():
+        return []
+    with closing(_connect(path)) as conn:
+        if not _schema_ready(conn):
+            return []
+        where, params = [], []
+        if source is not None:
+            where.append("source=?")
+            params.append(source)
+        if trace_id is not None:
+            where.append("trace_id=?")
+            params.append(trace_id)
+        clause = f" WHERE {' AND '.join(where)}" if where else ""
+        rows = conn.execute(
+            "SELECT source, trace_id, stage, head_hash, fixed_in, ts FROM anchors"
+            f"{clause} ORDER BY id",
+            params,
+        ).fetchall()
+    keys = ("source", "trace_id", "stage", "head_hash", "fixed_in", "ts")
+    return [dict(zip(keys, values)) for values in rows]
+
+
+def present_hashes(digests: list[str]) -> set[str]:
+    """返回这些事件 hash 中已存在库里的部分（events_io 按事件哈希幂等去重用）。"""
+    path = db_path()
+    if path is None or not path.exists() or not digests:
+        return set()
+    with closing(_connect(path)) as conn:
+        if not _schema_ready(conn):
+            return set()
+        placeholders = ",".join("?" * len(digests))
+        rows = conn.execute(f"SELECT hash FROM events WHERE hash IN ({placeholders})", digests).fetchall()
+    return {row[0] for row in rows}
+
+
+def import_rows(events: list[tuple[dict, list[dict]]], anchors: list[dict]) -> int:
+    """事务写入已验证的导入事件与锚点，返回写入的事件数；任一失败整体回滚。
+
+    事件按调用方给定的 seq/prev_hash/hash 原样写入（不重排、不重算哈希）；(source, trace_id, seq)
+    撞上已有行时以 IntegrityError 抛出，不覆盖；锚点按整行幂等（六字段完全相同的不重复写）。
+    不在 git 仓库或库版本比本代码新时抛 RuntimeError，由调用方转为发现报告，不写半包。
+    """
+    path = db_path()
+    if path is None:
+        raise RuntimeError("不在 git 仓库，没有可导入的事件库")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    anchor_keys = ("source", "trace_id", "stage", "head_hash", "fixed_in", "ts")
+    with closing(_connect(path)) as conn:
+        if not _schema_ready(conn):
+            raise RuntimeError("事件库 schema 比本代码新，不导入")
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            columns = [name for name in EVENT_COLUMNS if name != "id"]
+            for row, refs in events:
+                cursor = conn.execute(
+                    f"INSERT INTO events ({','.join(columns)}) VALUES ({','.join('?' * len(columns))})",
+                    tuple(row[name] for name in columns),
+                )
+                for item in refs:
+                    conn.execute(
+                        "INSERT INTO refs (event_id,direction,kind,ref,sha256,size) VALUES (?,?,?,?,?,?)",
+                        (cursor.lastrowid, "in", item.get("kind"), item.get("ref"),
+                         item.get("sha256"), item.get("size")),
+                    )
+            for anchor in anchors:
+                values = [anchor[name] for name in anchor_keys]
+                conn.execute(
+                    "INSERT INTO anchors (source,trace_id,stage,head_hash,fixed_in,ts)"
+                    " SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM anchors"
+                    " WHERE source=? AND trace_id=? AND stage=? AND head_hash=? AND fixed_in=? AND ts=?)",
+                    [*values, *values],
+                )
+            conn.execute("COMMIT")
+            return len(events)
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            raise
+
+
 # ---- 保留期清理（B40）：无守护进程，每天首次 emit 顺带执行，失败只报告不改变业务 ----
 
 # 只删内容寻址目录里名字为 64 位十六进制的普通文件，与派发原始流 round-N.jsonl。
