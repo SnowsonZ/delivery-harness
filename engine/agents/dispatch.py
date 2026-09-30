@@ -44,6 +44,7 @@ from pathlib import Path
 from engine.agents import dispatch_host, run_timeline
 from engine.agents import dispatch_observation as observation
 from engine.checks import acceptance, taskbook
+from engine.core import alerts
 from engine.core.common import ENGINE_DIR, ROOT, ci_workflows, git, load_rules, setting
 
 PROMPT_TEMPLATE = ENGINE_DIR / "prompts" / "dispatch_prompt.md"
@@ -330,12 +331,14 @@ class Dispatcher:
         result = dispatch_host.RunResult(exit_kind, code, seconds, model, usage, denials,
                                          missing_context=context["items"],
                                          missing_context_status=context["status"],
+                                         guard_denied=counts["guard_denied"],
                                          guard_allowed=counts["guard_allowed"])
         observation.executor_round(task.branch, slot, prompt, events, result,
                                    {"name": self.host.name, "version": self.host.version()}, counts)
         return result
 
-    def local_rounds(self, task: Task, slot: Path, guard: Path, feedback: str, trace_dir: Path) -> tuple[Attempt, list[str]]:
+    def local_rounds(self, task: Task, slot: Path, guard: Path, feedback: str, trace_dir: Path,
+                     pr: int | None = None) -> tuple[Attempt, list[str]]:
         """5 与 6：执行方 → verify，失败带摘要重试；返回本次尝试与每轮提示词。"""
         attempt, prompts = Attempt(ok=False, exit="retries"), []
         base = git("rev-parse", "HEAD", cwd=slot)
@@ -345,6 +348,7 @@ class Dispatcher:
             prompt = render_prompt(task, task.budget["wall_clock_min"], feedback)
             prompts.append(prompt)
             result = self.run_executor(task, slot, guard, prompt, trace_dir / f"round-{round_no + 1}.jsonl")
+            alerts.guard_round_alert(task.branch, task.id, result.guard_denied, pr=pr, gh=self.github)
             attempt.executor_seconds += result.seconds
             attempt.model = result.model or attempt.model
             for key, value in result.usage.items():
@@ -464,7 +468,7 @@ class Dispatcher:
         while True:
             started = _now()
             update_slot(self.root, index, attempt=number)
-            attempt, prompts = self.local_rounds(task, slot, guard, feedback, runs / str(number))
+            attempt, prompts = self.local_rounds(task, slot, guard, feedback, runs / str(number), pr=pr)
             prompt_sha = self.write_record(task, slot, number, attempt, prompts, guard_ref, started, ci_rounds)
             self.github.push(slot, task.branch)
             if not attempt.ok:
@@ -477,6 +481,7 @@ class Dispatcher:
             ci_rounds += 1
             head = git("rev-parse", "HEAD", cwd=slot)
             detail: dict = {}
+            alerts.last_round_alert(task.branch, task.id, ci_rounds, task.budget["ci_rounds"], pr=pr, gh=self.github)
             ok, summary = self.github.wait_ci(task.branch, head, self.config.ci_timeout_seconds, detail)
             observation.ci_wait(task.branch, pr, head, ci_rounds, ok, summary, detail.get("run_ids"))
             if ok:
@@ -490,7 +495,7 @@ class Dispatcher:
             feedback, number = summary, number + 1
 
     def escalate(self, task: Task, pr: int | None, attempt: Attempt, reason: str) -> None:
-        body = escalation_body(task, attempt, reason)
+        body = escalation_body(task, attempt, reason, pr=pr)
         target = "pr" if pr is not None else "issue"
         sent = False
         try:
@@ -558,7 +563,7 @@ def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str, root: Pa
     ]) + "\n"
 
 
-def escalation_body(task: Task, attempt: Attempt, reason: str) -> str:
+def escalation_body(task: Task, attempt: Attempt, reason: str, pr: int | None = None) -> str:
     lines = [
         f"### 升级：{task.id}（{reason}）", "",
         f"- **当前状态与目标差距**：任务书 `{task.path}`，分支 `{task.branch}`；退出方式：{EXIT_TEXT.get(attempt.exit, attempt.exit)}。",
@@ -571,6 +576,7 @@ def escalation_body(task: Task, attempt: Attempt, reason: str) -> str:
         lines += ["#### 执行方的说明（`build/dispatch/escalation.md`）", "", attempt.executor_note, ""]
     else:
         lines += ["- **可选方案与推荐**、**需要决定的问题**：执行方未提供，由设计方判断。", ""]
+    lines += alerts.timeline_lines(task.branch, pr)  # T205：trace、安全阶段摘要与时间线入口
     lines += ["完整事件流在派发机器本地（git 公共目录下 `dispatch/runs/`），不入库。"]
     return "\n".join(lines) + "\n"
 
@@ -630,6 +636,24 @@ class GitHub:
         for label in labels:
             argv += ["--label", label]
         self._run(argv, agent=True, stdin=body)
+
+    def list_comments(self, pr: int) -> list[dict]:
+        """分页列出 PR 评论（id 与正文），供告警远端标记去重（B46 T205）。"""
+        raw = self._run(["gh", "api", f"repos/{{owner}}/{{repo}}/issues/{pr}/comments", "--paginate", "--slurp"])
+        return [item for page in json.loads(raw or "[]") for item in page]
+
+    def edit_comment(self, comment_id: int, body: str) -> None:
+        self._run(["gh", "api", "-X", "PATCH", f"repos/{{owner}}/{{repo}}/issues/comments/{comment_id}",
+                   "--input", "-"], agent=True, stdin=json.dumps({"body": body}))
+
+    def list_issues(self, label: str) -> list[dict]:
+        """带标签的全部议题（编号与正文，最多 200 条）：告警无 PR 时按远端标记查升级议题。"""
+        raw = self._run(["gh", "issue", "list", "--state", "all", "--label", label, "--limit", "200",
+                         "--json", "number,body"])
+        return json.loads(raw or "[]")
+
+    def edit_issue(self, number: int, body: str) -> None:
+        self._run(["gh", "issue", "edit", str(number), "--body-file", "-"], agent=True, stdin=body)
 
     def _ci_runs(self, workflow: str, branch: str) -> list[dict]:
         """查一个工作流在该分支上的运行。gh 瞬时失败（如网络断开）连续 CI_QUERY_ATTEMPTS 次才抛出，避免一次瞬断中止整个派发。"""

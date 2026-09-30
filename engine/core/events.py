@@ -14,6 +14,7 @@ import sys
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from engine import __version__ as ENGINE_VERSION
@@ -32,6 +33,8 @@ _FORBIDDEN_PREFIXES = ("/Users/", "/home/")
 _DROP = object()
 
 _warned = False
+_cleanup_warned = False
+_days_warned = False
 
 
 def _warn_once() -> None:
@@ -40,6 +43,53 @@ def _warn_once() -> None:
     if not _warned:
         _warned = True
         print("harness：事件写入失败，已跳过（不影响本次运行）", file=sys.stderr)
+
+
+def artifact_days() -> int:
+    """[events] artifact_days：本机产物保留天数，缺省 30。
+
+    非法值（非整数、布尔、非正数）与配置读取失败提示一次并按 30 处理；不影响 emit 与原判定。
+    """
+    global _days_warned
+    try:
+        value = setting("events", "artifact_days", 30)
+    except Exception:  # noqa: BLE001  配置损坏时按缺省处理
+        return 30
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        if not _days_warned:
+            _days_warned = True
+            print("harness：[events] artifact_days 配置非法，按缺省 30 处理", file=sys.stderr)
+        return 30
+    return value
+
+
+def _cleanup_warn_once(reasons: list[str]) -> None:
+    """同一进程内只向 stderr 提示一次清理未完成（不逐条刷屏，不影响业务）。"""
+    global _cleanup_warned
+    if not _cleanup_warned:
+        _cleanup_warned = True
+        print(f"harness：本机产物清理未完成，已跳过（不影响本次运行）：{len(reasons)} 项", file=sys.stderr)
+
+
+def _maybe_cleanup() -> None:
+    """每天首次 emit 顺带执行一次本机保留期清理（B40）：无守护进程，跨进程以日期标志保证一天一轮。
+
+    当天已有人清理则直接返回；执行与取配置的任何失败都只提示一次，不改变 emit 与业务返回。
+    清理本身不产生事件：事件/引用/锚点永不因保留期删除，也不让清理递归进 emit。
+    """
+    try:
+        now = datetime.fromisoformat(events_db._now())
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        if not events_db.claim_cleanup_day(now.strftime("%Y-%m-%d")):
+            return
+        cutoff = now - timedelta(days=artifact_days())
+        problems = events_db.run_retention_cleanup(cutoff)
+    except Exception as exc:  # noqa: BLE001  设计要求：清理失败不得影响调用方
+        _cleanup_warn_once([str(exc) or type(exc).__name__])
+        return
+    if problems:
+        _cleanup_warn_once(problems)
 
 
 def enabled() -> bool:
@@ -266,7 +316,10 @@ def emit(stage: str, step: str, status: str, *, trace_id: str | None = None,
                                                trace_id or current_trace(), duration_ms,
                                                outputs, decision, error,
                                                actor or {"role": "engine", "host": _host_class(source)}, inputs)
-        return events_db.insert_event(payload, clean_inputs)
+        event_id = events_db.insert_event(payload, clean_inputs)
+        # 清理挂在成功的 emit 之后：主路径失败时不叠加清理提示，保持「失败只提示一次」
+        _maybe_cleanup()
+        return event_id
     except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
         _warn_once()
         return None
