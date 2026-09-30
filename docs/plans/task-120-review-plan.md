@@ -22,7 +22,7 @@ rollback: git revert（仅在用户授权后）
 ## 目标终态
 
 1. `engine/agents/review.py` 新增 `review_plan(plan_doc: Path, output: Path) -> int`：以指定设计/计划文档（如 `docs/plans/2026-09-29-observability-execution-plan.md`）为主材料，自动收集同目录关联材料（该文档正文中链接到的 `docs/plans/*.md`、`docs/*.md` 本地文件，含追溯表、共用合同与全部 `task-*.md`），复用既有材料组装与评审执行（`write_materials` 同格式落盘、`run_reviewer`、`parse_output`），在只读评审工作区运行；结论（含 findings）与材料清单写入 `output`（markdown），**不评论到任何 GitHub PR**；设计文档不存在或链接目标缺失时列出缺失清单并在输出中标注（不静默跳过）。
-2. `bin/dispatch` 新增子命令 `review-plan <设计文档路径> [--output 路径]`（缺省 `build/review/plan-verdict.md`）；既有子命令行为逐字不变。
+2. 入口为 `bin/harness review-plan <设计文档路径> [--output 路径]`（经 `engine/cli.py` 的 `COMMANDS` 注册表，缺省 `build/review/plan-verdict.md`；修订 #66 的裁决位置）；既有命令行为逐字不变。
 3. 回归测试为新增文件（见验收）；既有测试全部不动。
 
 实现前先核对 `task-splitting.md` 的材料范围描述与 `write_materials`/`run_reviewer` 现状，差异停下报告设计方，不自行补实现。

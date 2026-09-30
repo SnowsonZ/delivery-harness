@@ -125,7 +125,7 @@ class ReviewCalibrationTest(unittest.TestCase):
         self.assertEqual([item["head"] for item in samples], [
             "bce25432cbc2644d6c11336e302f3e1b97f1c21b",
             "639bf1cedb7729aa4d6d7d1fa4426c60a40464b7",
-            "48ad84b1e5e8572ea35c69a52fcf9c9b1e75135a",
+            "2eb3cbef73ed69405b1d521c556adef44084504b",  # B75：#51 样本指向第二轮修复 head
             "80203b88605e8cdd30ff3c1c0cb175e64dc422f9",
             "b8e48fb99223faa7615b15707e214d2478db4366",
             "7fcd54bf3a2c4fa4bde18e9e454689b5e9f196ee",
