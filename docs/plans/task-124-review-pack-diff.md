@@ -36,6 +36,9 @@ rollback: git revert（仅在用户授权后）
 - `engine/agents/review.py`（仅 `write_materials` 的 diff 段替换为对新模块的调用，净减行）
 - `engine/agents/review_pack.py`（仅 diff 文件清单消费的同步）
 - `tests/test_review_pack_io.py`（新增）
+- `engine/prompts/review_prompt.md`（材料清单句改为「diff.patch，或超 2MB 时的 diff-01.patch、diff-02.patch… 全部分片」）
+- `engine/agents/dispatch_observation.py`（`review_materials` 读取 diff 的单文件名改为 glob 分片集合，仍走观察旁路）
+- `CHANGELOG.md`（Unreleased 补分片行为条目；无配置键无 Migration）
 
 ## 非目标
 
@@ -72,3 +75,13 @@ rollback: git revert（仅在用户授权后）
 ## 交付与升级
 
 完成项目检查 `bin/verify --full`。设计方另做逐行验收与定向变异复核（去掉分片逻辑回退为截断，行 2 必须失败；清单不列片文件，行 3 必须失败）。G2 免（同 T118 先例）。同一失败连续三轮无新证据时停止该路径；不得自行扩大白名单、改原任务书、实现非目标。
+
+
+## 修订记录（2026-09-30，设计方裁决首轮评审「不通过」）
+
+评审四条发现全部成立（两个消费方未接上是最关键的真问题——分片后大 diff 场景评审提示词找不到材料、C6 审计缺条目，修复在目标场景不能兑现）。第二轮补齐：
+
+1. **评审提示词**（`engine/prompts/review_prompt.md`）：材料清单改为分片感知（单文件或全部分片）。
+2. **C6 审计**（`dispatch_observation.py`）：`review_materials` 读 diff 改为 glob 分片集合，观察旁路保持；补大 diff 夹具断言。
+3. **CHANGELOG**：Unreleased 补条目（分片行为、pack 新清单节）。
+4. **人工验收（验收第 4 行）**：设计方以真实 ≥2MB diff PR 出包核对，结论写 PR 评论（本轮由设计方在合并前执行）。
