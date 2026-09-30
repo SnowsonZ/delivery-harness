@@ -474,6 +474,12 @@ class Dispatcher:
                 self.escalate(task, pr, attempt, f"本地未完成（{EXIT_TEXT.get(attempt.exit, attempt.exit)}）")
                 return 1
             if pr is None:
+                # B70：开新 PR 前先查该分支是否已有开放 PR（resume 时上一轮已开出），有则复用编号，
+                # 后续 CI 轮次反馈照旧注入既有 PR；查询为空或适配器没有这个查询（既有桩）才走原新建路径。
+                lookup = getattr(self.github, "existing_pr", None)
+                if lookup is not None:
+                    pr = lookup(task.branch)
+            if pr is None:
                 body = pr_body(task, attempt, number, prompt_sha, root=self.root)
                 pr = self.github.open_pr(slot, task.branch, _pr_title(self.root, task), body)
                 observation.push_pr(task.branch, slot, pr, f"docs/runs/{folder}/{number}.json", body)

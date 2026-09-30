@@ -39,6 +39,16 @@ class GitHub:
                          "--body-file", "-"], cwd=slot, agent=True, stdin=body)
         return int(url.rstrip("/").rsplit("/", 1)[-1])
 
+    def existing_pr(self, branch: str) -> int | None:
+        """分支已有的开放 PR 编号，没有则 None（B70）：开新 PR 前查询，已有则复用编号不再新建。
+        查询失败（如网络断开）按「无既有 PR」处理，保留原新建路径。"""
+        try:
+            raw = self._run(["gh", "pr", "list", "--head", branch, "--state", "open",
+                             "--json", "number", "--limit", "1"])
+            return int(json.loads(raw or "[]")[0]["number"])
+        except (RuntimeError, TypeError, ValueError, KeyError, IndexError):
+            return None
+
     def comment(self, pr: int, body: str, label: str | None = None) -> str:
         """评论 PR 并返回评论 URL（供观察事件记录；标签逻辑不变）。"""
         url = self._run(["gh", "pr", "comment", str(pr), "--body-file", "-"], agent=True, stdin=body)
