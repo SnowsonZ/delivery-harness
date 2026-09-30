@@ -55,7 +55,7 @@ def _fix_anchors(source: str) -> int:
     """导出前把各链链头固定为 ci_artifact 锚点（set_anchor 永不抛异常）；返回固定的锚点数。"""
     fixed = 0
     for chain_source, trace in _chains(source):
-        head = events.chain_head(chain_source, trace)
+        head = events.chain_head(trace, chain_source)  # 签名是 chain_head(trace_id, source)
         if head:
             events.set_anchor(trace, ANCHOR_STAGE, head, ANCHOR_FIXED_IN, chain_source)
             fixed += 1
