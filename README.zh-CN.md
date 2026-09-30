@@ -61,6 +61,8 @@
 | Agent 层 | `guard-command`，由各宿主钩子调用（`.claude/`、`.codex/`、`.opencode/`、`.pi/`、`.zcode/`） | 改写历史、推 tag、强推 main、合并或批准 PR、设置覆盖变量、删除议题与撤登记标签；执行方不能编辑判定器、合同与运行记录 |
 | git 层 | `guard-git` + `.githooks/`，规则读 origin/main 上的版本 | 与用哪家 Agent 无关：保护分支上提交、改写、推送卫生 |
 | 服务端 | ruleset、CI、单独的 Agent 账号与批准 App | 本机两层都被绕过时的兜底：必须经 PR、必需检查、非推送者批准 |
+**本地事件日志**（可观测性一期）：判定、派发、守卫与路由把结构化事件写入 git 公共目录下的本地库（`harness/harness.db`，不入版本控制）与内容寻址产物目录；按 `(来源, 追踪 ID)` 哈希链串联，事后可校验是否被改动。事件只作观察，不参与任何判定与合并路由；环境变量 `HARNESS_EVENTS=off` 或 `checks.toml` 的 `[events] enabled = false` 可关闭。trace/audit 等查询命令在后续阶段。
+
 
 ## 安装与使用
 
