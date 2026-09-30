@@ -10,7 +10,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
+import stat
 import time
 from contextlib import closing
 from datetime import UTC, datetime
@@ -331,3 +333,208 @@ def add_anchor(source: str, trace_id: str, stage: str, head_hash: str, fixed_in:
             return
         conn.execute("INSERT INTO anchors (source,trace_id,stage,head_hash,fixed_in,ts) VALUES (?,?,?,?,?,?)",
                      (source, trace_id, stage, head_hash, fixed_in, _now()))
+
+
+# ---- 保留期清理（B40）：无守护进程，每天首次 emit 顺带执行，失败只报告不改变业务 ----
+
+# 只删内容寻址目录里名字为 64 位十六进制的普通文件，与派发原始流 round-N.jsonl。
+_HASH_NAME = re.compile(r"[0-9a-f]{64}\Z")
+_ROUND_NAME = re.compile(r"round-\d+\.jsonl\Z")
+
+
+def claim_cleanup_day(today: str) -> bool:
+    """当天首次进入返回 True：以 O_CREAT|O_EXCL 原子创建 .cleanup-<日期> 标志（兼任跨进程锁）。
+
+    标志放在 git 公共目录的 harness/ 下且不删除：同日再次 emit 与并发进程都得到 False。
+    时钟回退到更早日期按回退后的日期领旗；即使因此多跑一轮，删除阈值也随当前时钟前移，不会多删。
+    """
+    directory = common_dir()
+    if directory is None:
+        return False
+    try:
+        harness_dir = directory / "harness"
+        harness_dir.mkdir(parents=True, exist_ok=True)
+        fd = os.open(harness_dir / f".cleanup-{today}", os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    except OSError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(f"{today}\n")
+    return True
+
+
+def _parse_utc(value) -> datetime | None:
+    """解析库里的 UTC ISO 时间戳；损坏或缺失时返回 None（调用方按无法判断跳过）。"""
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def cleanup_artifacts(cutoff: datetime) -> list[str]:
+    """删除过期本机产物：以 UTC created 判定（早于 cutoff 才过期），文件与索引行一起清。
+
+    只删内容寻址目录内名字合法的普通文件；符号链接、目录、非法名字与路径穿越一律跳过并计入
+    问题列表。events/refs/anchors 行不在此清理范围；文件已不在时仍清掉过期的索引行。
+    """
+    problems: list[str] = []
+    path = db_path()
+    directory = artifacts_dir()
+    if path is None or directory is None or not path.exists():
+        return problems
+    with closing(_connect(path)) as conn:
+        if not _schema_ready(conn):
+            return problems
+        for digest, created in conn.execute("SELECT sha256, created FROM artifacts").fetchall():
+            moment = _parse_utc(created)
+            if moment is None or moment >= cutoff:
+                continue
+            if not _HASH_NAME.fullmatch(str(digest)):
+                problems.append("产物索引名字不合法，已跳过（不删除）")
+                continue
+            target = directory / digest
+            try:
+                info = os.lstat(target)
+            except FileNotFoundError:
+                pass  # 文件已不在：过期的索引行一并清理
+            except OSError as exc:
+                problems.append(f"产物无法确认，已跳过：{exc.strerror or exc}")
+                continue
+            else:
+                if not stat.S_ISREG(info.st_mode):
+                    problems.append("产物位置不是普通文件（可能是符号链接），已跳过")
+                    continue
+                try:
+                    target.unlink()
+                except OSError as exc:
+                    problems.append(f"产物删除失败，已跳过：{exc.strerror or exc}")
+                    continue
+            conn.execute("DELETE FROM artifacts WHERE sha256=?", (digest,))
+    return problems
+
+
+def _alive(pid: int) -> bool:
+    """探活：系统明确 ProcessLookupError 才算不活动；权限不明等其余情形按活动处理（保守，不误删）。"""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _protected_tasks(slots: Path) -> tuple[set[str], list[str]]:
+    """收集仍活动槽位锁保护的 task 目录名，返回 (受保护集合, 问题列表)。只读锁文件，不修改派发状态。
+
+    任一锁坏 JSON、缺 pid、pid 非正整数或读取失败时问题列表非空：调用方当轮整体跳过原始流清理，
+    不按「读不到等于终止」删除。存活锁保护该 task 的全部 attempt 目录（F4）。
+    """
+    protected: set[str] = set()
+    problems: list[str] = []
+    try:
+        locks = sorted(slots.glob("*.json"))
+    except OSError:
+        return set(), ["槽位锁目录无法读取"]
+    for lock in locks:
+        try:
+            data = json.loads(lock.read_text(encoding="utf-8") or "{}")
+        except (OSError, ValueError):
+            problems.append("槽位锁读取失败")
+            continue
+        pid = data.get("pid") if isinstance(data, dict) else None
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+            problems.append("槽位锁缺少有效 pid")
+            continue
+        task = data.get("task")
+        if not isinstance(task, str) or not task:
+            problems.append("槽位锁缺少 task")
+            continue
+        if _alive(pid):
+            protected.add(task)
+    return protected, problems
+
+
+def _is_real_dir(path: Path) -> bool:
+    """lstat 确认是真实目录（不追随符号链接）。"""
+    try:
+        return stat.S_ISDIR(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _delete_expired_stream(path: Path, cutoff_ts: float) -> list[str]:
+    """删除 mtime（UTC）早于 cutoff 的 round-N.jsonl 普通文件；删除前重新 lstat，符号链接不追随。"""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        return [f"原始流无法确认，已跳过：{exc.strerror or exc}"]
+    if not stat.S_ISREG(info.st_mode):
+        return ["原始流不是普通文件（可能是符号链接），已跳过"]
+    if info.st_mtime >= cutoff_ts:
+        return []
+    try:
+        path.unlink()
+    except OSError as exc:
+        return [f"原始流删除失败，已跳过：{exc.strerror or exc}"]
+    return []
+
+
+def cleanup_dispatch_streams(runs: Path, cutoff: datetime) -> list[str]:
+    """删除已终止运行的过期派发原始流（runs/<任务>/<attempt>/round-N.jsonl）。
+
+    runs 指向 <git 公共目录>/dispatch/runs；活动锁（pid 存活）保护该任务的全部 attempt 目录，
+    无锁任务按原始流 mtime（UTC）判定。锁读取或探活不确定时当轮整体跳过并报告；
+    只删名字为 round-N.jsonl 的普通文件，符号链接与目录不删、不跟随，不修改锁与派发状态。
+    """
+    protected, lock_problems = _protected_tasks(runs.parent / "slots")
+    if lock_problems:
+        return [*lock_problems, "原始流清理当轮跳过"]
+    if not _is_real_dir(runs):
+        return []
+    cutoff_ts = cutoff.timestamp()
+    problems: list[str] = []
+    try:
+        task_dirs = sorted(runs.iterdir())
+    except OSError:
+        return ["原始流目录无法读取"]
+    for task_dir in task_dirs:
+        if task_dir.name in protected or not _is_real_dir(task_dir):
+            if task_dir.name not in protected:
+                problems.append("原始流任务目录不是普通目录，已跳过")
+            continue
+        try:
+            attempt_dirs = sorted(task_dir.iterdir())
+        except OSError:
+            problems.append("attempt 目录无法读取，已跳过")
+            continue
+        for attempt_dir in attempt_dirs:
+            if not _is_real_dir(attempt_dir):
+                problems.append("attempt 目录不是普通目录，已跳过")
+                continue
+            try:
+                rounds = sorted(attempt_dir.iterdir())
+            except OSError:
+                problems.append("原始流目录无法读取，已跳过")
+                continue
+            for round_file in rounds:
+                if _ROUND_NAME.fullmatch(round_file.name):
+                    problems.extend(_delete_expired_stream(round_file, cutoff_ts))
+    return problems
+
+
+def run_retention_cleanup(cutoff: datetime) -> list[str]:
+    """B40 保留期清理入口：过期产物文件与索引 + 终止运行的过期原始流，返回问题列表。
+
+    产物按库里的 UTC created、原始流按文件 mtime（UTC）判定，都只在早于 cutoff 时删除。
+    任一异常由调用方（engine.core.events）吞掉并提示一次，不影响 emit 与业务返回。
+    """
+    problems = cleanup_artifacts(cutoff)
+    common = common_dir()
+    if common is not None:
+        problems.extend(cleanup_dispatch_streams(common / "dispatch" / "runs", cutoff))
+    return problems
