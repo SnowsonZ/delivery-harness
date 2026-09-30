@@ -220,6 +220,18 @@ def old_marker_head(body: str) -> str:
     return json.loads(body.split(review.REVIEW_MARK, 1)[1].split(" -->", 1)[0])["head"]
 
 
+class RecordingTitleGitHub(FakeGitHub):
+    """在 FakeGitHub 之上另存 open_pr 的标题与正文（calls 调用序列保持不变）。"""
+
+    def __init__(self, repo, **kwargs):
+        super().__init__(repo, **kwargs)
+        self.titles: list[str] = []
+
+    def open_pr(self, slot, branch, title, body):
+        self.titles.append(title)
+        return super().open_pr(slot, branch, title, body)
+
+
 class ObservabilityTaskTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="dh-events-agents-"))
@@ -274,7 +286,7 @@ class ObservabilityTaskTest(unittest.TestCase):
                 "spec_refs": [],
                 "budget": {"wall_clock_min": 5, "retries": retries, "ci_rounds": 1, "tokens": None}}
 
-    def write_taskbook(self, rel: str, header_dict: dict):
+    def write_taskbook(self, rel: str, header_dict: dict, *, title: str = "# 任务：夹具"):
         budget = header_dict["budget"]
         (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
         (self.repo / rel).write_text(
@@ -285,7 +297,7 @@ class ObservabilityTaskTest(unittest.TestCase):
             "budget:\n"
             f"  wall_clock_min: {budget['wall_clock_min']}\n  retries: {budget['retries']}\n"
             f"  ci_rounds: {budget['ci_rounds']}\n  tokens: null\n"
-            "rollback: git revert\n---\n\n# 任务：夹具\n",
+            f"rollback: git revert\n---\n\n{title}\n",
             encoding="utf-8")
 
     def stub_taskbook(self, rel: str, header_dict: dict, *, exists=True):
@@ -811,6 +823,62 @@ class ObservabilityTaskTest(unittest.TestCase):
         for label, index in (("gh", 0), ("comment", 1), ("stdout", 2)):
             self.assertEqual(off[index], healthy[index], label)
             self.assertEqual(off[index], broken[index], label)
+
+    # ---------- 验收 5：PR 标题不重复任务 id 前缀、人工验收一节按验收表条件化 ----------
+
+    def test_pr_title_has_no_duplicate_prefix(self):
+        """任务书标题已带「TXXX：」前缀时 PR 标题不重复拼接（B65）；无前缀时照常补上。"""
+        self.commit_guards()
+
+        def dispatch_once(rel: str, task_id: str) -> RecordingTitleGitHub:
+            self.stub_taskbook(rel, self.header(task_id))
+            gh = RecordingTitleGitHub(self.repo, ci=(True, "", [7]))
+            code, _, _ = self.run_dispatch(rel, RecordingHost([], executor_script(mixed_stream())), gh)
+            self.assertEqual(code, 0)
+            return gh
+
+        # 标题已带前缀：# T905P：夹具标题 → PR 标题恰为「T905P：夹具标题」，不出现两次前缀
+        rel = "docs/plans/task-905-p.md"
+        self.write_taskbook(rel, self.header("T905P"), title="# T905P：夹具标题")
+        self.assertEqual(dispatch_once(rel, "T905P").titles, ["T905P：夹具标题"])
+
+        # 标题无前缀：# 任务：夹具 → PR 标题「T905Q：夹具」
+        rel = "docs/plans/task-905-q.md"
+        self.write_taskbook(rel, self.header("T905Q"))
+        self.assertEqual(dispatch_once(rel, "T905Q").titles, ["T905Q：夹具"])
+
+    def test_pr_body_manual_section_conditional(self):
+        """验收表存在「人工」证据行时 pr_body 写指引，否则写「无」（B57）。"""
+        self.commit_guards()
+        manual_table = ("\n| 编号 | 验收内容 | 证据类型 | 覆盖 |\n|---|---|---|---|\n"
+                        "| M1 | 真机人工验收 | 人工 | 无 |\n")
+        auto_table = ("\n| 编号 | 验收内容 | 证据类型 | 覆盖 |\n|---|---|---|---|\n"
+                      "| A1 | 夹具验收 | 夹具 | `tests.test_fixture.SomeTest` |\n")
+        guidance = "见任务书验收表中的人工条目（`bin/harness acceptance --manual`）。"
+
+        def dispatch_once(rel: str, task_id: str, title: str) -> RecordingTitleGitHub:
+            self.write_taskbook(rel, self.header(task_id), title=title)
+            self.stub_taskbook(rel, self.header(task_id))
+            gh = RecordingTitleGitHub(self.repo, ci=(True, "", [7]))
+            code, _, _ = self.run_dispatch(rel, RecordingHost([], executor_script(mixed_stream())), gh)
+            self.assertEqual(code, 0)
+            return gh
+
+        # 有「人工」行：写指引
+        gh = dispatch_once("docs/plans/task-905-r.md", "T905R", "# 任务：夹具" + manual_table)
+        self.assertIn(f"## 需要人工验收的部分\n\n{guidance}\n", gh.pr_bodies[0])
+
+        # 表内只有可自动化行：写「无」，不写指引
+        gh = dispatch_once("docs/plans/task-905-s.md", "T905S", "# 任务：夹具" + auto_table)
+        self.assertIn("## 需要人工验收的部分\n\n无\n", gh.pr_bodies[0])
+        self.assertNotIn("bin/harness acceptance --manual", gh.pr_bodies[0])
+
+        # 没有验收表：同样写「无」（直接调用 pr_body，钉住 root 参数）
+        rel = "docs/plans/task-905-t.md"
+        self.write_taskbook(rel, self.header("T905T"))
+        task = dispatch.Task(rel, "T905T", "K7", "R3", {}, [], "task/905-t")
+        body = dispatch.pr_body(task, dispatch.Attempt(ok=True, exit="ok"), 1, "a" * 64, root=self.repo)
+        self.assertIn("## 需要人工验收的部分\n\n无\n", body)
 
 
 if __name__ == "__main__":
