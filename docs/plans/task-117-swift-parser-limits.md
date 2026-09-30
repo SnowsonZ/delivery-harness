@@ -54,7 +54,7 @@ rollback: git revert（仅在用户授权后）
 |---|---|---|---|---|
 | 不挂规格：B33 | 协议计算属性 `var x: T { get }` 不计入函数集合（含函数体量统计） | 夹具 | `tests.test_swift_parser_limits.SwiftParserLimitsTest.test_protocol_computed_property_not_function` | 仍计为函数时失败 |
 | 不挂规格：B33 | 含插值内嵌字符串的行：字符串边界与大括号计数正确（`"a\(b("c"))d"` 类样例） | 夹具 | `…test_interpolated_string_braces` | 解析提前结束、计数错乱时失败 |
-| 不挂规格：B33 | 既有 Swift 判定行为不变（既有测试全类逐字通过） | 夹具 | 既有 Swift 测试全类 | 行为被改动时失败 |
+| 不挂规格：B33 | 既有 Swift 判定行为不变（quality 指标路径逐字通过） | 夹具 | `tests.test_events_checks` 全类与 `bin/verify --full` | 行为被改动时失败 |
 
 ## 步骤与提交顺序
 
@@ -62,7 +62,7 @@ rollback: git revert（仅在用户授权后）
 
 | # | 改动 | 涉及文件 | 验证方式 | 对应验收 |
 |---|---|---|---|---|
-| 1 | 两处解析修复与回归断言 | `engine/lang/swift.py`、`tests/test_swift_parser_limits.py` | `python3 -W error::ResourceWarning -m unittest tests.test_swift_parser_limits.SwiftParserLimitsTest -v` 及既有 Swift 测试全类 | 本任务验收全部行 |
+| 1 | 两处解析修复与回归断言 | `engine/lang/swift.py`、`tests/test_swift_parser_limits.py` | `python3 -W error::ResourceWarning -m unittest tests.test_swift_parser_limits.SwiftParserLimitsTest tests.test_events_checks -v` | 本任务验收全部行 |
 | 2 | 验证范围，整理交付证据 | `tests/` | `bin/verify --full` | C0与本任务验收 |
 
 ## 交付与升级
