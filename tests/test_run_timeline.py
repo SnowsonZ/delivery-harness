@@ -155,6 +155,10 @@ class FakeGitHub:
             detail["run_ids"] = list(run_ids)
         return ok, summary
 
+    def existing_pr(self, branch):
+        """分支已有开放 PR 的桩（B70/T121）：缺省无既有 PR；不记入 calls，既有调用序列断言不变。"""
+        return getattr(self, "existing", None)
+
 
 class ObservabilityTaskTest(unittest.TestCase):
     def setUp(self):
