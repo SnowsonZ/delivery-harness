@@ -54,6 +54,9 @@ order = []
 # 事件与审计（可观测性，可选）。库与产物在 git 公共目录（.git/harness/），不入库、不上传。
 # [events]
 # enabled = true   # false 关闭事件写入；环境变量 HARNESS_EVENTS=off 优先于本配置。缺省开启。
+# artifact_days = 30  # 本机产物保留天数，缺省 30；非法或非正整数提示一次并按 30 处理。
+#                     # 每天首次 emit 顺带清理到期的内容寻址产物文件与索引、终止运行的派发原始流；
+#                     # 事件、引用与锚点永不因保留期删除。
 
 # [release]
 # version_file = "src/version.py"
