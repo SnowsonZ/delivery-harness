@@ -26,11 +26,22 @@ With `[platform] approval = "none"` the agent and the owner are the same GitHub 
 
 What still holds: pull requests and passing `harness` are required on the default branch, history rewrites and deletions are refused, and `policy` still routes only R0/R1 in autonomous classes to auto-merge. To narrow the exposure, give the agent a fine-grained personal access token limited to this repository (contents and pull requests only, no administration, so it cannot edit the ruleset) instead of your full `gh` login, and keep every class in `autonomy.toml` at human review until you trust the setup. Moving to two accounts later only needs the second account, an App and `approval = "app"`.
 
+## Event log
+
+Gates, dispatch, guards and routing append structured events to a local log (`harness/harness.db` in the git common directory, untracked, plus content-addressed artifacts). Properties that matter for security:
+
+- **Observation, not control.** Events never feed routing, guards or merge decisions; every judgment stays reproducible from git and CI evidence alone. Deleting or corrupting the log changes nothing about what merges.
+- **Tamper-evident, not tamper-proof.** The per-`(source, trace id)` hash chain makes edits detectable after the fact (`verify_chain`), but anyone with the same OS user as the owner - including executors - can edit or delete the log. Same-host tampering is the documented boundary (see Known limits); dispatch therefore never reads events for decisions.
+- **Local only.** In this phase nothing from the log leaves the machine; CI publishes only its own pass/fail evidence, not the event database.
+- **Isolated chains.** Each CI run/attempt/job chains under its own source (`ci:<run_id>:<run_attempt>:<job>`), so one job cannot append to another's history.
+- **Silence is possible.** The environment switch or the `[events]` config key turns the log off, and a broken sink degrades to one fixed stderr notice - the log is a debugging aid, not an alarm system.
+
 ## Known limits
 
 - Guard hooks depend on each agent host's hook support and on the owner trusting the project once; an untrusted project leaves only the git and server layers.
 - Executors run with the same OS user as the owner. Credential isolation across operating systems is not implemented yet.
 - Command parsing is structural but not a full shell; unparsable commands fall back to conservative string rules.
+- The event log is local metadata, not a security control: same-OS-user processes (including executors) can edit or delete it, and the hash chain only makes tampering detectable after the fact.
 - Windows is not supported (hooks are POSIX shell).
 
 ## Reporting a vulnerability
