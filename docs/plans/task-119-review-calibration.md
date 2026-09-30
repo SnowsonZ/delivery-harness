@@ -80,3 +80,13 @@ rollback: git revert（仅在用户授权后）
 ## 交付与升级
 
 完成项目检查 `bin/verify --full`。设计方另做逐行验收与定向变异复核（打分公式反向、manifest 校验放松，各自必须被断言抓住）。工具-only、不改既有引擎行为：G2 免（同 T118 先例）。同一失败连续三轮无新证据时停止该路径；不得自行扩大白名单、改原任务书、实现非目标。
+
+
+## 修订记录（2026-09-30，设计方裁决执行方升级取证）
+
+执行方第二轮实现时取证发现：**main 的 `consumer-contract` job 在红**——消费方契约测试 `test_calibration_stops_after_three_failures_and_resumes`（Agent-Notification `tests/test_harness_review_independent.py`）调用 `review.calibrate(..., resume=...)`，当前引擎的 `calibrate` 不满足该签名。该测试在本地运行时被 skip、仅 CI 环境真实执行，故此前的 556 本地对照未暴露。裁决：
+
+- **calibrate 的目标形状以消费方契约为准**：实现须读消费方 `tests/test_harness_review_independent.py` 中该测试（及其引用的辅助）所期望的 `calibrate` 签名与语义（含 `resume` 参数、三次失败停止、样本回放），按其实现；与 B59 打分需求的合并方式由实现方在该形状内完成（打分入口可另立 `review_calibrate`，消费方契约只约束 `calibrate`）。
+- **新增验收（人工）**：以本 PR 引擎 upgrade 消费方 main 后，其 harness 契约测试**全绿**（`consumer-contract` job 在本仓库 CI 同步变绿即同等证据）；这是本任务合并的前置条件。
+- **记录卫生**：执行方取证用的 CI 日志含 GitHub runner 的工作区绝对路径（本机路径规则命中的那一类），prompt 快照须占位后方可提交（本轮已由设计方按此落库）；后续样本执行输出同理。
+- 白名单不变（`calibrate` 在 `engine/agents/review.py` 内）；既有 4 行验收不变。
