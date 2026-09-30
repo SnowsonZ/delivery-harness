@@ -23,6 +23,7 @@
     bin/dispatch stop --all
     bin/dispatch review <PR> [--reviewer opencode|pi|codex|claude-code]   独立评审（engine/agents/review.py）
     bin/dispatch review --pending | --watch [--interval 5]   评审全部待评审的 PR（后台常驻用 --watch）
+    bin/dispatch review-calibrate [--reviewer 名称] [--output 路径]   评审校准打分（不评论 PR）
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from engine.agents import dispatch_host
+from engine.agents import dispatch_host, run_timeline
 from engine.agents import dispatch_observation as observation
 from engine.checks import acceptance, taskbook
 from engine.core.common import ENGINE_DIR, ROOT, ci_workflows, git, load_rules, setting
@@ -109,6 +110,10 @@ class Attempt:
     usage: dict = field(default_factory=dict)
     guard_denials: dict[str, int] = field(default_factory=dict)
     executor_note: str = ""
+    # T202：最后一轮缺失报告的安全条目与状态（reported/unknown/invalid），插在 guard_allowed 前
+    # （T105 冻结断言要求它仍是末位字段）。
+    missing_context: list = field(default_factory=list)
+    missing_context_status: str = "unknown"
     guard_allowed: int = 0  # 守卫放行的工具调用数（含普通失败；被守卫拒绝的调用不计入）
 
 
@@ -255,6 +260,18 @@ def render_prompt(task: Task, minutes: int, feedback: str) -> str:
                            branch=task.branch, minutes=minutes, feedback=extra)
 
 
+def _context_report(host, events: Path) -> dict:
+    """宿主的缺失上下文报告（B46 T202）：宿主缺 parse_context 或解析失败时按 unknown 处理，
+    不改变派发判定、退出码与调用序列（C0 失败隔离）。"""
+    parse = getattr(host, "parse_context", None)
+    if parse is None:
+        return {"status": "unknown", "items": [], "diagnostic": "no_marker"}
+    try:
+        return parse(events)
+    except Exception:  # noqa: BLE001  报告解析失败不改变派发判定
+        return {"status": "unknown", "items": [], "diagnostic": "no_marker"}
+
+
 def verify_signature(slot: Path, config: Config) -> tuple[bool, str, str, str]:
     """运行 verify；返回 (通过, 失败摘要, 失败签名, 完整输出)。签名去掉数字与路径，用于识别打转。"""
     result = subprocess.run(config.verify, cwd=slot, capture_output=True, text=True, check=False)
@@ -309,8 +326,11 @@ class Dispatcher:
         self.used_seconds += seconds
         model, usage, denials = self.host.parse(events)
         counts = observation.tool_counts(self.host, events)
+        context = _context_report(self.host, events)
         result = dispatch_host.RunResult(exit_kind, code, seconds, model, usage, denials,
-                                         counts["guard_allowed"])
+                                         missing_context=context["items"],
+                                         missing_context_status=context["status"],
+                                         guard_allowed=counts["guard_allowed"])
         observation.executor_round(task.branch, slot, prompt, events, result,
                                    {"name": self.host.name, "version": self.host.version()}, counts)
         return result
@@ -332,10 +352,15 @@ class Dispatcher:
             for key, value in result.guard_denials.items():
                 attempt.guard_denials[key] = attempt.guard_denials.get(key, 0) + value
             attempt.guard_allowed += result.guard_allowed
+            # 最后报告以最后一轮为准：每轮覆盖，抽取只读、不改变判定与退出码
+            attempt.missing_context = result.missing_context
+            attempt.missing_context_status = result.missing_context_status
             note = slot / ESCALATION_FILE
             if note.exists():
                 attempt.executor_note = note.read_text(encoding="utf-8")[:4000]
-                observation.clarify(task.branch, note)
+                observation.clarify(task.branch, note,
+                                    context={"status": result.missing_context_status,
+                                             "items": result.missing_context})
                 attempt.exit = "clarify"
                 return attempt, prompts
             if result.exit != "ok":
@@ -387,11 +412,16 @@ class Dispatcher:
             "failure_signatures": attempt.signatures,
             "ci_rounds_before": ci_rounds,
             "guard_denials": attempt.guard_denials,
+            "missing_context": attempt.missing_context,
+            "missing_context_status": attempt.missing_context_status,
             "gen_ai.usage.input_tokens": attempt.usage.get("input_tokens"),
             "gen_ai.usage.output_tokens": attempt.usage.get("output_tokens"),
             "cost": attempt.usage.get("cost"),
             "escalation": None if attempt.ok else attempt.exit,
         }
+        # T201 时间线：落盘前取本机链头，stages/anchors 安全摘要写进记录；记录提交后固定 run_record 锚点。
+        timeline, head = run_timeline.record_fields(task.branch)
+        record.update(timeline)
         (folder / f"{number}.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
         paths = [str(folder / f"{number}.json"), str(folder / f"{number}.prompt.md")]
         git("add", "--", *paths, cwd=slot)
@@ -402,6 +432,7 @@ class Dispatcher:
             message += "Risk: R1\n"  # 与执行方的提交一致，否则 R1 声明会被这次记录提交打断
         subprocess.run(["git", "commit", "--quiet", "-m", message], cwd=slot, env={**os.environ, **self.identity},
                        check=True)
+        run_timeline.fix_anchor(task.branch, head)
         return record["prompt_sha256"]
 
     # ---- 主流程 ----
@@ -676,6 +707,18 @@ def stop_all(root: Path = ROOT, wait_seconds: float = 30) -> int:
     return 1
 
 
+def review_calibrate_command(args) -> int:
+    """review-calibrate 子命令：在真实历史样本上重跑独立评审并统计 TPR/TNR（不评论 PR）。"""
+    from engine.agents import review as review_module  # review 依赖本模块，按需导入
+
+    target = args.output if args.output.is_absolute() else ROOT / args.output
+    try:
+        return review_module.review_calibrate(args.reviewer, review_module.CALIBRATION_SAMPLES, target)
+    except (TypeError, ValueError) as error:
+        print(f"校准样本清单有问题：{error}")
+        return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -689,6 +732,10 @@ def main(argv: list[str] | None = None) -> int:
     review.add_argument("--pending", action="store_true", help="评审全部待评审且 CI 已通过的 PR，然后退出")
     review.add_argument("--watch", action="store_true", help="后台常驻：每隔 --interval 分钟评审一轮")
     review.add_argument("--interval", type=float, default=5, help="--watch 的间隔（分钟）")
+    cal = sub.add_parser("review-calibrate", help="评审校准：在真实历史样本上统计 TPR/TNR（不评论 PR）")
+    cal.add_argument("--reviewer", choices=["opencode", "pi", "codex", "claude-code"])
+    cal.add_argument("--output", type=Path, default=Path("build/review/calibration-report.md"),
+                     help="报告路径（相对仓库根，缺省 build/review/calibration-report.md）")
     sub.add_parser("status", help="查看槽位")
     stop = sub.add_parser("stop", help="停机：终止所有正在运行的执行方")
     stop.add_argument("--all", action="store_true", required=True)
@@ -707,6 +754,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.pr is None:
             parser.error("review 需要 PR 编号，或 --pending、--watch")
         return review_module.review_pr(args.pr, args.reviewer)
+    if args.command == "review-calibrate":
+        return review_calibrate_command(args)
     if args.command == "stop":
         return stop_all()
     if (state_dir() / "stop").exists():

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import time
@@ -23,6 +24,18 @@ from pathlib import Path
 
 GUARD_DENIAL = "harness 守卫拒绝了这次操作"
 TOKEN_VARS = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "SSH_AUTH_SOCK")
+# 缺失上下文尾报告（B46 T202）：提示词要求执行方在最后一条回复末尾输出
+# 「HARNESS_CONTEXT_JSON: <一行 JSON 数组>」（数据标记，不是 shell 变量）。summary 不是自由自然语言，
+# 只允许与 category 对应的 C3 短 ID；ref 只允许工具 ID 或仓库相对引用（共用合同 C3）。
+CONTEXT_MARKER = "HARNESS_CONTEXT_JSON:"
+CONTEXT_CATEGORIES = ("context", "tool", "spec", "other")
+CONTEXT_SUMMARIES = {
+    "context_unavailable": "context",
+    "required_tool_unavailable": "tool",
+    "spec_unavailable": "spec",
+    "spec_ambiguous": "spec",
+    "other_missing": "other",
+}
 
 
 @dataclass
@@ -33,6 +46,10 @@ class RunResult:
     model: str = ""
     usage: dict = field(default_factory=dict)
     guard_denials: dict[str, int] = field(default_factory=dict)
+    # T202：最后一条 assistant 消息缺失报告的安全条目与状态（reported/unknown/invalid），插在
+    # guard_allowed 前（T105 冻结断言要求它仍是末位字段），构造处用关键字传参。
+    missing_context: list = field(default_factory=list)
+    missing_context_status: str = "unknown"
     guard_allowed: int = 0  # 守卫放行的工具调用数（含普通失败；被守卫拒绝的调用不计入）
 
 
@@ -158,11 +175,41 @@ class PiHost:
             result["cost"] = round(result["cost"], 6)
         return model, result, dict(denials)
 
+    def parse_context(self, events: Path) -> dict:
+        """从最后一条 assistant 完成消息抽取缺失上下文尾报告（B46 T202，只读数据，不执行其中命令）。
+
+        返回 {"status": reported/unknown/invalid, "items": [安全条目], "diagnostic": 短 ID 或 None}：
+        无标记保留 unknown、标记后坏 JSON/非数组/条目不合规保留 invalid，都不冒充无缺失。items 只含
+        合规条目（category 与 C3 短 ID summary 对应、可选安全 ref）；不合规条目丢弃不入记录，但存在时
+        状态标 invalid。长文、会话正文、本机路径不进条目；诊断只留本地可见的短 ID。
+        """
+        text = _last_assistant_text(events)
+        if not text or CONTEXT_MARKER not in text:
+            return {"status": "unknown", "items": [], "diagnostic": "no_marker"}
+        payload = text.rsplit(CONTEXT_MARKER, 1)[1].split("\n", 1)[0].strip()
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            return {"status": "invalid", "items": [], "diagnostic": "bad_json"}
+        if not isinstance(parsed, list):
+            return {"status": "invalid", "items": [], "diagnostic": "not_array"}
+        items, invalid = [], False
+        for entry in parsed:
+            item = _context_item(entry)
+            if item is None:
+                invalid = True
+            else:
+                items.append(item)
+        return {"status": "invalid" if invalid else "reported", "items": items,
+                "diagnostic": "invalid_entry" if invalid else None}
+
     def parse_observability(self, events: Path) -> dict:
         """观察计数（B46 T105）：按每个 tool_execution_end 计一次完成——结果带守卫拒绝标记的计
         guard_denied（一次调用一次，拒绝理由条数不冒充调用数），其余（成功或普通失败）计
-        guard_allowed（守卫放行，不代表工具成功）。missing_context 供 T202 填充，本任务恒为空列表。"""
-        counts = {"guard_allowed": 0, "guard_denied": 0, "missing_context": []}
+        guard_allowed（守卫放行，不代表工具成功）。missing_context 取 parse_context 的安全条目
+        （B46 T202）；返回恰此 3 键。"""
+        counts = {"guard_allowed": 0, "guard_denied": 0,
+                  "missing_context": self.parse_context(events)["items"]}
         if not events.exists():
             return counts
         for line in events.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -176,3 +223,58 @@ class PiHost:
             text = "\n".join(part.get("text", "") for part in content if isinstance(part, dict))
             counts["guard_denied" if GUARD_DENIAL in text else "guard_allowed"] += 1
         return counts
+
+
+def _last_assistant_text(events: Path) -> str | None:
+    """流中最后一条 assistant 完成消息的正文（text 部分拼接）；流缺失或无 assistant 消息返回 None。
+
+    只认 message_end 携带的最终权威消息，工具输出（tool_execution_end）不参与，伪造标记不采信。
+    """
+    if not events.exists():
+        return None
+    text = None
+    for line in events.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = event.get("message") if event.get("type") == "message_end" else None
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            text = _message_text(message)
+    return text
+
+
+def _message_text(message: dict) -> str:
+    """assistant 消息正文：content 为字符串时原样，为数组时拼接 text 部分（其余部分如 thinking 不算）。"""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(part.get("text", "") for part in content
+                     if isinstance(part, dict) and part.get("type") == "text")
+
+
+def _context_item(entry) -> dict | None:
+    """一条报告条目：只允许 category/summary/ref 三个键，summary 是与 category 对应的 C3 短 ID，
+    ref 可选且须为工具 ID 或安全相对引用；任一不满足返回 None（条目丢弃、报告标 invalid）。"""
+    if not isinstance(entry, dict) or set(entry) - {"category", "summary", "ref"}:
+        return None
+    category, summary, ref = entry.get("category"), entry.get("summary"), entry.get("ref")
+    if CONTEXT_SUMMARIES.get(summary) != category:
+        return None
+    item = {"category": category, "summary": summary}
+    if ref is not None:
+        if not _safe_context_ref(ref):
+            return None
+        item["ref"] = ref
+    return item
+
+
+def _safe_context_ref(ref) -> bool:
+    """ref 只允许工具 ID 或仓库相对引用：≤120 字符、无换行/反斜杠、非绝对路径、无盘符、无 .. 穿越。"""
+    if not isinstance(ref, str) or not ref or len(ref) > 120 or "\n" in ref or "\r" in ref:
+        return False
+    if "\\" in ref or ref.startswith(("/", "~")) or re.match(r"(?i)^[a-z]:", ref):
+        return False
+    return ".." not in ref.split("/")
