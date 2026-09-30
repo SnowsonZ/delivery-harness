@@ -23,6 +23,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from engine.core import events
 from engine.core.common import ROOT, clean_git_env, git
 from engine.routing import risk
 
@@ -73,6 +74,16 @@ def run(base: str, head: str = "HEAD", cwd: Path = ROOT) -> tuple[bool, bool, st
     return completed.returncode == 0, not intended or completed.returncode == TAMPERED, summary
 
 
+def _record(base: str, head: str, ok: bool, enforced: bool, summary: str) -> None:
+    """观察旁路：一条 base_tests 事件（是否通过、是否强制、安全摘要行），失败不影响原判定。"""
+    try:
+        events.emit(stage="ci", step="base_tests", status="ok" if ok else "fail",
+                    inputs=[events.ref("rev", base), events.ref("rev", head)],
+                    outputs={"ok": ok, "enforced": enforced, "summary": summary or None})
+    except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
+        return
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", required=True)
@@ -80,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path, default=ROOT, help="要检查的仓库（默认本仓库）")
     args = parser.parse_args(argv)
     ok, enforced, summary = run(args.base, args.head, cwd=args.repo)
+    _record(args.base, args.head, ok, enforced, summary)  # 观察：结果、强制与摘要行
     if ok:
         print(f"✓ base 版本的已有测试在 head 代码上全部通过（{summary}）")
         return 0

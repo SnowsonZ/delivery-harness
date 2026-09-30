@@ -1,0 +1,26 @@
+{
+  "task": "T108",
+  "class": "K7",
+  "attempt": 1,
+  "branch": "task/108-events-checks",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "c8bdcb384541508e512f8e83815f906df38e0e016b0310b7f8f18ca67b88e27a",
+  "prompt_path": "docs/runs/task-108-events-checks/1.prompt.md",
+  "guard_ref": "60ef4681c6d6c1b9aac630d2ae8d68f7e70c5415",
+  "started_at": "2026-09-29T22:47:54+00:00",
+  "ended_at": "2026-09-29T23:43:08+00:00",
+  "executor_seconds": 3283.0,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {
+    "覆盖变量只供人使用，Agent 不能自行放开守卫": 1
+  },
+  "gen_ai.usage.input_tokens": 19183899,
+  "gen_ai.usage.output_tokens": 112984,
+  "cost": 0.660083,
+  "escalation": null
+}

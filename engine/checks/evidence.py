@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from engine.checks import verify
+from engine.core import events
 from engine.core.cases import load_project_cases
 from engine.core.common import ROOT, clean_git_env, commit_field, git, path_matches
 
@@ -386,6 +387,21 @@ def render_markdown(evidences: dict[str, DefectEvidence], base: str, head: str, 
     return "\n".join(lines) + "\n"
 
 
+def _record(evidences: dict[str, DefectEvidence]) -> None:
+    """观察旁路：每个缺陷编号一条事件（有无提交、是否改代码、修复前后结果），不含缺陷正文。"""
+    try:
+        for evidence in evidences.values():
+            events.emit(stage="ci", step="evidence", status="ok" if evidence.ok else "fail",
+                        outputs={"defect": evidence.defect, "commits": len(evidence.commits),
+                                 "doc_only": evidence.doc_only, "code_files": len(evidence.code_files),
+                                 "tests": len(evidence.python_tests) + len(evidence.swift_refs),
+                                 "before": evidence.before or None, "after": evidence.after or None,
+                                 "withdrawn": bool(evidence.withdrawn_by),
+                                 "problems": len(evidence.problems), "warnings": len(evidence.warnings)})
+    except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
+        return
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", required=True)
@@ -398,10 +414,11 @@ def main(argv: list[str] | None = None) -> int:
 
     ids = [item for item in (args.ids or "").split(",") if item]
     evidences = analyse(
-        args.base, args.head, ids or None, run_tests=not args.no_run, swift=args.swift
+        args.base, args.head, ids or None, run_tests=not args.no_run, swift=args.swift, cwd=ROOT
     )
+    _record(evidences)  # 观察：每个缺陷的提交、代码改动与修复前后结果
     coverage = replay_coverage(evidences)
-    report = render_markdown(evidences, args.base, args.head) + "\n" + render_replay(coverage)
+    report = render_markdown(evidences, args.base, args.head, ROOT) + "\n" + render_replay(coverage)
     print(report)
     if args.markdown:
         with open(args.markdown, "a") as handle:
