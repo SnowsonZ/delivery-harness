@@ -10,6 +10,7 @@ A verifiable delivery harness for AI coding agents. It turns "the agent says it 
 - **Checks that check themselves.** Fixes carrying a `Defect:` trailer must fail before the fix and pass after it; existing tests run at their base version so an agent cannot weaken them; historic incidents are re-injected (replay) and must be caught; mutation scores and quality baselines only move in one direction.
 - **Risk routing instead of trust.** Every change is classified R0–R3 from the paths it touches, not from what the author claims. Low-risk, well-verified classes merge automatically; everything else goes to a human. Autonomy is granted per task class with an error budget and is withdrawn automatically when the budget is exceeded.
 - **Three layers of guards.** Agent-tool hooks (Claude Code, Codex, OpenCode, Pi, Zcode) refuse destructive commands and edits to the harness itself; git hooks protect branches and tags regardless of which agent is used; server-side rulesets and a separate agent account are the backstop.
+- **Local event log.** Gates, dispatch, guards and routing write a structured, privacy-filtered event trail to a local per-repository log (inside the git directory, untracked), chained per source and trace id so edits are detectable. Events never affect judgments; the environment switch turns them off. Trace, audit and alert commands are planned next.
 - **Dispatch and independent review.** `dispatch` hands a merged task brief to an executor agent in an isolated worktree slot, runs the gates outside the executor, opens the PR and escalates when stuck. `dispatch review` has a different agent review R2+ PRs read-only.
 
 ## How it is installed
@@ -84,7 +85,7 @@ All commands run through `bin/harness <command>` (or `python3 .harness/engine/cl
 
 ## Status
 
-Version 0.1 extracts the engine from the project where it was built and proven ([Agent-Notification](https://github.com/SnowsonZ/Agent-Notification)); behaviour is unchanged there, verified by identical test counts, quality metrics and mutation scores before and after. Messages and prompts are in Chinese for now; English localisation, configurable directory conventions, a TypeScript language plugin and end-to-end tracing are planned — see [CHANGELOG](CHANGELOG.md).
+Version 0.1 extracts the engine from the project where it was built and proven ([Agent-Notification](https://github.com/SnowsonZ/Agent-Notification)); behaviour is unchanged there, verified by identical test counts, quality metrics and mutation scores before and after. Messages and prompts are in Chinese for now; English localisation, configurable directory conventions, a TypeScript language plugin are planned, and the local event log (observability phase 1) has landed - trace, audit and alert commands are next — see [CHANGELOG](CHANGELOG.md).
 
 This repository develops itself with its own engine: `.harness/`, `bin/`, the git and agent hooks and `.github/workflows/` are this project's own instance (with `.harness/engine/` a vendored copy of the previous merged engine), not part of the product. The product is `engine/` and `templates/`.
 
