@@ -79,3 +79,28 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python .harness/engine/cli.py metrics --base "${{ steps.base.outputs.sha }}" --github --markdown "$GITHUB_STEP_SUMMARY"
+
+      # 事件导出与 summary 是观察旁路（设计 2.5、4）：判定失败也要执行并上传，供事后 trace --ci 导入；
+      # 观察自身失败不改变 job 结果（continue-on-error），也不替换上面各步骤自己写入的 summary 内容。
+      # 临时事件库在 git 公共目录（.git/harness/），上传的只有导出的 JSON 包与 manifest 内的安全内容产物。
+      - name: Export harness events
+        if: ${{ always() }}
+        continue-on-error: true
+        run: python .harness/engine/reports/ci_events.py export --target "$RUNNER_TEMP/harness-events"
+
+      # 逻辑名 harness-events；物理名带 run/attempt/job 唯一后缀（下载侧 load_ci 按它核对），保留 90 天。
+      - name: Upload harness events
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-events-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: ${{ runner.temp }}/harness-events
+          retention-days: 90
+
+      - name: Harness event summary
+        if: ${{ always() }}
+        continue-on-error: true
+        run: >-
+          python .harness/engine/reports/ci_events.py summary
+          --bundle "$RUNNER_TEMP/harness-events/harness-events.json" >> "$GITHUB_STEP_SUMMARY"
