@@ -531,6 +531,13 @@ class ObservabilityTaskTest(unittest.TestCase):
                          {"sha256": safe["sha256"], "size": len(safe_bytes), "file": safe["sha256"]})
         self.assertEqual(sorted(finding["code"] for finding in bundle["findings"]),
                          ["artifact_missing", "artifact_unsafe"])  # 原始日志与悬空哈希被排除
+        # 导出前链头已固定为 ci_artifact 锚点并随包携带（设计 2.5、D016：锚点随 artifact 上传即被固定）
+        self.assertEqual(len(bundle["anchors"]), 1)
+        anchor = bundle["anchors"][0]
+        self.assertEqual((anchor["source"], anchor["trace_id"]),
+                         (bundle["chains"][0]["source"], bundle["chains"][0]["trace_id"]))
+        self.assertEqual((anchor["stage"], anchor["fixed_in"]), ("ci", "ci_artifact"))
+        self.assertEqual(anchor["head_hash"], bundle["chains"][0]["head_hash"])
         self.assertFalse([name for name in files if name.endswith((".db", ".db-wal", ".db-shm"))])
         for path in target.iterdir():
             self.assertNotIn(b"raw verify log", path.read_bytes())
