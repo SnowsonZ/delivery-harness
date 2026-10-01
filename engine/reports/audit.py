@@ -207,35 +207,43 @@ class _Auditor:
         for row in self.event_rows:
             if _source_class(row["source"]) != "local":
                 continue  # CI 事件的产物在 CI 侧（C5 导入不恢复内容），到期由 load_ci 发现报告
-            for item in row["inputs"]:
-                if not isinstance(item, dict) or not isinstance(item.get("sha256"), str):
-                    continue
-                if item.get("kind") == "artifact":
-                    self._add(check="artifact", kind="artifact", ref=item.get("ref") or item["sha256"],
-                              sha256=item["sha256"], size=item.get("size"), source="local",
-                              stage=row["stage"], expectation="event", event_ts=row["ts"],
-                              artifact=item.get("ref") if _HASH_RE.fullmatch(str(item.get("ref") or "")) is not None
-                              else item["sha256"])
-                elif _GIT_REF_RE.fullmatch(str(item.get("ref") or "")) is not None:
-                    self._add(check="git", kind=str(item.get("kind") or "git"), ref=item["ref"],
-                              sha256=item["sha256"], size=item.get("size"), source="local",
-                              stage=row["stage"], expectation="event")
-            # 输出引用从扁平 outputs 三元字段（<prefix>.sha256/.size/.ref）派生（C1），核对本机产物。
-            outputs = row["outputs"] if isinstance(row["outputs"], dict) else {}
-            prefixes = sorted({key.rsplit(".", 1)[0] for key in outputs if key.endswith(".sha256")})
-            for prefix in prefixes:
-                recorded = outputs.get(f"{prefix}.sha256")
-                if not isinstance(recorded, str) or _HASH_RE.fullmatch(recorded) is None:
-                    continue
-                ref_value = outputs.get(f"{prefix}.ref")
-                size_value = outputs.get(f"{prefix}.size")
-                digest = ref_value if isinstance(ref_value, str) and _HASH_RE.fullmatch(ref_value) else recorded
-                self._add(check="artifact", kind="artifact",
-                          ref=ref_value if isinstance(ref_value, str) else digest, sha256=recorded,
-                          size=size_value if isinstance(size_value, int) and not isinstance(size_value, bool)
-                          else None,
-                          source="local", stage=row["stage"], expectation="event", event_ts=row["ts"],
-                          artifact=digest)
+            self._collect_input_refs(row)
+            self._collect_output_refs(row)
+
+    def _collect_input_refs(self, row: dict):
+        """local 事件输入引用：artifact 引用与 path@rev 形状的 git 文件引用（须带记录的 sha256）。"""
+        for item in row["inputs"]:
+            if not isinstance(item, dict) or not isinstance(item.get("sha256"), str):
+                continue
+            if item.get("kind") == "artifact":
+                ref_value = item.get("ref")
+                self._add(check="artifact", kind="artifact", ref=ref_value or item["sha256"],
+                          sha256=item["sha256"], size=item.get("size"), source="local",
+                          stage=row["stage"], expectation="event", event_ts=row["ts"],
+                          artifact=ref_value if isinstance(ref_value, str)
+                          and _HASH_RE.fullmatch(ref_value) is not None else item["sha256"])
+            elif _GIT_REF_RE.fullmatch(str(item.get("ref") or "")) is not None:
+                self._add(check="git", kind=str(item.get("kind") or "git"), ref=item["ref"],
+                          sha256=item["sha256"], size=item.get("size"), source="local",
+                          stage=row["stage"], expectation="event")
+
+    def _collect_output_refs(self, row: dict):
+        """输出引用从扁平 outputs 三元字段（<prefix>.sha256/.size/.ref）派生（C1），核对本机产物。"""
+        outputs = row["outputs"] if isinstance(row["outputs"], dict) else {}
+        prefixes = sorted({key.rsplit(".", 1)[0] for key in outputs if key.endswith(".sha256")})
+        for prefix in prefixes:
+            recorded = outputs.get(f"{prefix}.sha256")
+            if not isinstance(recorded, str) or _HASH_RE.fullmatch(recorded) is None:
+                continue
+            ref_value = outputs.get(f"{prefix}.ref")
+            size_value = outputs.get(f"{prefix}.size")
+            artifact = ref_value if isinstance(ref_value, str) and _HASH_RE.fullmatch(ref_value) else recorded
+            self._add(check="artifact", kind="artifact",
+                      ref=ref_value if isinstance(ref_value, str) else artifact, sha256=recorded,
+                      size=size_value if isinstance(size_value, int) and not isinstance(size_value, bool)
+                      else None,
+                      source="local", stage=row["stage"], expectation="event", event_ts=row["ts"],
+                      artifact=artifact)
 
     def _collect_comments(self):
         """PR 评论：评审审计摘要（C6 标记）→ 评审阶段视图与材料核对；锚点评论 → 账本期望。"""
@@ -592,8 +600,44 @@ def _render(report: dict) -> str:
     return "\n".join(lines)
 
 
+def _select_merged(client, repo: str, cutoff: datetime | None,
+                   problems: list[dict]) -> list[tuple[datetime, int]] | None:
+    """分页取全部已关闭 PR，按一次性确定的 UTC 窗口过滤出已合并者；列表失败返回 None。"""
+    pulls = github_events._collect_pages(
+        client, f"repos/{repo}/pulls?state=closed&sort=created&direction=desc", "已关闭 PR 列表", problems)
+    if pulls is None:
+        return None
+    selected: list[tuple[datetime, int]] = []
+    for pull in pulls:
+        if not isinstance(pull, dict) or pull.get("merged") is not True:
+            continue
+        moment = _parse_utc(pull.get("merged_at"))
+        if moment is None or (cutoff is not None and moment < cutoff):
+            continue
+        if isinstance(pull.get("number"), int):
+            selected.append((moment, pull["number"]))
+    selected.sort()
+    return selected
+
+
+def _audit_or_failure(client, repo: str, number: int) -> dict:
+    """批量里单个 PR 的审计；无法审计（合并事实缺失等）转成一条发现，不中断整批。"""
+    try:
+        return inspect_pr(number, gh=client, cwd=ROOT)
+    except AuditError:
+        return {"pr": number, "repository": repo, "trace_id": None, "head_sha": None,
+                "merge_sha": None, "merged_at": None, "stages": [], "references": [],
+                "chains": [], "anchors": [],
+                "findings": [_finding("reference_unavailable", source="github", stage="merge",
+                                      ref=f"{repo}#{number}", reason="PR 无法审计：合并事实缺失")],
+                "coverage": {"events": {name: 0 for name in _SOURCE_CLASSES}, "chains": 0,
+                             "anchors": 0, "references": {"total": 0, **{name: 0 for name in _STATUSES}},
+                             "ledger": "absent"},
+                "ok": False}
+
+
 def _all_merged(args, as_json: bool) -> int:
-    """批量模式：分页取全部已关闭 PR，按一次性确定的 UTC 窗口过滤出已合并者逐个审计。"""
+    """批量模式：分页全部已关闭 PR，按一次性确定的窗口过滤已合并者逐个审计。"""
     client = GhClient()
     try:
         repo = events_io._repo_identity(str(client.repo()))
@@ -606,38 +650,14 @@ def _all_merged(args, as_json: bool) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     problems: list[dict] = []
-    pulls = github_events._collect_pages(
-        client, f"repos/{repo}/pulls?state=closed&sort=created&direction=desc", "已关闭 PR 列表", problems)
-    if pulls is None:
+    selected = _select_merged(client, repo, cutoff, problems)
+    if selected is None:
         for item in problems:
             print(f"audit：{item['detail']}", file=sys.stderr)
         return 2
     until = _parse_utc(events_db._now()) or datetime.now(UTC)
-    selected: list[tuple[datetime, int]] = []
-    for pull in pulls:
-        moment = _parse_utc(pull.get("merged_at")) if isinstance(pull, dict) else None
-        if pull.get("merged") is not True or moment is None:
-            continue
-        if cutoff is not None and moment < cutoff:
-            continue
-        if isinstance(pull.get("number"), int):
-            selected.append((moment, pull["number"]))
-    selected.sort()
-    reports = []
-    for _moment, number in selected:
-        try:
-            report = inspect_pr(number, gh=client, cwd=ROOT)
-        except AuditError:
-            report = {"pr": number, "repository": repo, "trace_id": None, "head_sha": None,
-                      "merge_sha": None, "merged_at": None, "stages": [], "references": [],
-                      "chains": [], "anchors": [],
-                      "findings": [_finding("reference_unavailable", source="github", stage="merge",
-                                            ref=f"{repo}#{number}", reason="PR 无法审计：合并事实缺失")],
-                      "coverage": {"events": {name: 0 for name in _SOURCE_CLASSES}, "chains": 0,
-                                   "anchors": 0, "references": {"total": 0, **{name: 0 for name in _STATUSES}},
-                                   "ledger": "absent"},
-                      "ok": False}
-        reports.append(report)
+    reports = [_audit_or_failure(client, repo, number) for _moment, number in selected]
+    for report in reports:
         if not as_json:
             print("\n".join(f"  {line}" for line in _render(report).splitlines()))
     window = {"since": cutoff.astimezone(UTC).isoformat() if cutoff else None,

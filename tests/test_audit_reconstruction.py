@@ -903,6 +903,39 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertIn("audit", cli.COMMANDS)
         self.assertIn("audit", cli.QUIET_COMMANDS)
 
+    # ---- 步骤 2：失败隔离与范围 —— 事件关闭审计照常、整体 API 故障退 2 不抛栈 ----
+
+    def test_events_disabled_isolation_and_command_scope(self):
+        # 事件关闭（HARNESS_EVENTS=off）时审计照常工作（C0 观察旁路隔离）：
+        # 引用照常核对、无发现、退出 0；观察关闭不剥夺审计结论
+        world, _gh, body = self.build_full_world()
+        _packages, (runs, artifacts, downloads) = self.ci_evidence(world)
+        gh_off = self.platform(world, comments=[self.as_comment(500, body)], runs=runs,
+                               artifacts=artifacts, downloads=downloads)
+        with mock.patch.dict(os.environ, {"HARNESS_EVENTS": "off"}), \
+                self.cli_env(gh=gh_off, root=world.project):
+            code, out, err = self.run_cli("audit", "401", "--json")
+        self.assertEqual(code, 0, err)
+        report = json.loads(out)
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["findings"], [])
+        # 产物与 git 文件引用在不写任何事件的情况下照常核对通过
+        self.assertEqual(self.ref_by_ref(report, world.stored["ref"])["status"], "verified")
+        self.assertEqual(next(item for item in report["references"]
+                              if item["kind"] == "material_task")["status"], "verified")
+
+        # 整体 API 故障（仓库不可达）→ 退出 2、明确诊断、无栈溢出
+        world2, _gh2, _body2 = self.build_full_world()
+        gh_broken = self.platform(world2)
+        with mock.patch.object(gh_broken, "repo", side_effect=RuntimeError("gh 未登录（夹具）")), \
+                self.cli_env(gh=gh_broken, root=world2.project):
+            code, out, err = self.run_cli("audit", "401", "--json")
+        self.assertEqual(code, 2)
+        self.assertIn("audit：", err)
+        self.assertIn("gh 未登录", err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(out, "")
+
 
 if __name__ == "__main__":
     unittest.main()
