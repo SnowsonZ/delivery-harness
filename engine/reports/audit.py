@@ -6,7 +6,9 @@
 复原一个（或 --all-merged 批量分页确定性时间窗口内的全部）已合并 PR 的安全环节视图：按 API 的
 trace/head、C6 合并账本与本机/CI 已导入事件列出各阶段的输入、输出与决定，来源分别标注
 local/ci/github。下载 CI 由 C5/T302 共享的 load_ci 完成，GitHub 事实更新由 T304 共享的 sync 完成，
-本命令不写合并路由、不追加自身事件（cli.py QUIET_COMMANDS；观察事件 audit.summary/finding 属 T404）。
+本命令不写合并路由；cli.py QUIET_COMMANDS 不记 cli.audit 入口事件，每次运行结束由本模块写一条
+ci/audit.summary 与每条 finding 一条 ci/audit.finding 观察事件（T404，C7 供周报，失败隔离见
+_emit_observations）。
 
 逐引用核对四类：git 文件按 path@rev 用 git show 取原始字节（结尾换行原样参与哈希，不去尾、不再
 规范化）；GitHub 评论按不可变正文原字节、可变 PR 字段按评审材料同一渲染规则复取（变动报
@@ -556,8 +558,49 @@ class _Auditor:
                 "anchors": self.anchors, "coverage": coverage, "ok": not self.findings}
 
 
+def _flatten_outputs(prefix: str, value, out: dict) -> None:
+    """嵌套汇总（coverage、规则/severity 计数）摊平成 outputs 扁平键：emit 过滤器只收标量值。"""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            _flatten_outputs(f"{prefix}.{key}" if prefix else str(key), item, out)
+    else:
+        out[prefix] = value
+
+
+def _emit_observations(report: dict) -> None:
+    """audit 观察事件（C1：audit 自己记汇总；C7：写安全 ci/audit.summary 与 audit.finding 供周报）。
+
+    每次运行恰一条 ci/audit.summary（ok/fail 随报告结论），每条 finding 追加一条 ci/audit.finding；
+    stage 固定 ci，不新增阶段枚举。outputs 只放安全字段（pr/head_sha/规则与 severity 计数/coverage/ok，
+    finding 事件另含 rule/severity/source/stage/ref，供周报按同 PR/head 取最新、唯一规则计数去重），
+    reason 原文不入事件；trace 沿用当前分支，不混入被审计 PR 的事件链。emit 永不抛，组装失败同样
+    只丢弃——退出码与 stdout/stderr 不受影响（C0 三态等价）。
+    """
+    try:
+        findings = report.get("findings") or []
+        summary = {"pr": report.get("pr"), "head_sha": report.get("head_sha"), "ok": report.get("ok"),
+                   "severity": dict(Counter(item.get("severity") for item in findings)),
+                   "rule": dict(Counter(item.get("rule") for item in findings)),
+                   "coverage": report.get("coverage")}
+        outputs: dict = {}
+        _flatten_outputs("", summary, outputs)
+        events.emit(stage="ci", step="audit.summary", status="ok" if report.get("ok") else "fail",
+                    outputs=outputs)
+        for item in findings:
+            events.emit(stage="ci", step="audit.finding", status="fail",
+                        outputs={"pr": report.get("pr"), "head_sha": report.get("head_sha"),
+                                 "rule": item.get("rule"), "severity": item.get("severity"),
+                                 "source": item.get("source"), "stage": item.get("stage"),
+                                 "ref": item.get("ref")})
+    except Exception:  # noqa: BLE001  观察旁路（C0）：任何组装失败都不影响审计本身
+        return
+
+
 def inspect_pr(pr: int, *, gh=None, cwd: Path = ROOT) -> dict:
-    """复原并核对一个已合并 PR（C7 基础形状）；PR 无法审计（未合并/整体 API 故障）抛 AuditError。"""
+    """复原并核对一个已合并 PR（C7 基础形状）；PR 无法审计（未合并/整体 API 故障）抛 AuditError。
+
+    报告返回前写本运行的观察事件（T404）；写入失败不影响返回值与调用方。
+    """
     client = GhClient() if gh is None else gh
     try:
         repo = events_io._repo_identity(str(client.repo()))
@@ -573,8 +616,10 @@ def inspect_pr(pr: int, *, gh=None, cwd: Path = ROOT) -> dict:
             and isinstance(merge_sha, str) and _SHA_RE.fullmatch(merge_sha)
             and isinstance(merged_at, str) and _parse_utc(merged_at) is not None):
         raise AuditError(f"PR {pr} 的合并事实缺失（headRefName/head/merge_commit_sha/merged_at）")
-    return _Auditor(client=client, repo=repo, pr=pr, trace=trace, head=head_sha, merge_sha=merge_sha,
-                    merged_at=merged_at, cwd=Path(cwd)).run()
+    report = _Auditor(client=client, repo=repo, pr=pr, trace=trace, head=head_sha, merge_sha=merge_sha,
+                      merged_at=merged_at, cwd=Path(cwd)).run()
+    _emit_observations(report)
+    return report
 
 
 # ---- CLI（cli.py COMMANDS 注册 audit；QUIET_COMMANDS 已含 audit，不追加自身事件）----
@@ -625,15 +670,17 @@ def _audit_or_failure(client, repo: str, number: int) -> dict:
     try:
         return inspect_pr(number, gh=client, cwd=ROOT)
     except AuditError:
-        return {"pr": number, "repository": repo, "trace_id": None, "head_sha": None,
-                "merge_sha": None, "merged_at": None, "stages": [], "references": [],
-                "chains": [], "anchors": [],
-                "findings": [_finding("reference_unavailable", source="github", stage="merge",
-                                      ref=f"{repo}#{number}", reason="PR 无法审计：合并事实缺失")],
-                "coverage": {"events": {name: 0 for name in _SOURCE_CLASSES}, "chains": 0,
-                             "anchors": 0, "references": {"total": 0, **{name: 0 for name in _STATUSES}},
-                             "ledger": "absent"},
-                "ok": False}
+        report = {"pr": number, "repository": repo, "trace_id": None, "head_sha": None,
+                  "merge_sha": None, "merged_at": None, "stages": [], "references": [],
+                  "chains": [], "anchors": [],
+                  "findings": [_finding("reference_unavailable", source="github", stage="merge",
+                                        ref=f"{repo}#{number}", reason="PR 无法审计：合并事实缺失")],
+                  "coverage": {"events": {name: 0 for name in _SOURCE_CLASSES}, "chains": 0,
+                               "anchors": 0, "references": {"total": 0, **{name: 0 for name in _STATUSES}},
+                               "ledger": "absent"},
+                  "ok": False}
+        _emit_observations(report)  # 无法审计的运行同样留一条汇总与发现事件（C7 供周报）
+        return report
 
 
 def _all_merged(args, as_json: bool) -> int:
