@@ -464,8 +464,10 @@ _DECISION_FIELDS = {"by": _none_or(_p_token), "rule": _none_or(_p_token),
 _ACTOR_FIELDS = {"role": _enum_factory(frozenset(events.ACTOR_ROLES)), "host": _p_token, "model": _p_token}
 _STAGE_FIELDS = {
     "stage": _enum_factory(frozenset(events.STAGES)), "step": _p_token,
-    "status": _enum_factory(frozenset(events.STATUSES)), "ts": _p_ts,
+    "status": _enum_factory(frozenset(events.STATUSES) | {"prior"}), "ts": _p_ts,
     "duration_ms": _int_factory(0, none=True), "attempt": _int_factory(1), "round": _int_factory(0),
+    # B77/T125：六键在收敛后的新记录不再写入（留在事件库），但旧记录（C3 十二键形状）仍合法——
+    # 校验器保留、键可选，exact_keys 语义下缺席即通过、在场则按原口径校验。
     "inputs": _p_refs, "outputs": _p_outputs, "decision": _none_or(
         lambda value, location, problems: _scan_struct(value, location, problems, _DECISION_FIELDS,
                                                        exact_keys=True)),
@@ -473,6 +475,7 @@ _STAGE_FIELDS = {
                                                                      _ACTOR_FIELDS)),
     "source": _p_token, "head_hash": _p_sha,
 }
+# status=prior 是更早 attempt 的 push_pr/ci_wait 指针行专用状态（run_timeline._POINTER_STATUS）。
 _ANCHOR_FIELDS = {"source": _p_token, "stage": _enum_factory(frozenset(events.STAGES)),
                   "head_hash": _p_sha, "fixed_in": _enum_factory(_FIXED_IN_VALUES)}
 _MC_FIELDS = {"category": _enum_factory(_MC_CATEGORIES), "summary": _enum_factory(_MC_SUMMARIES),
@@ -489,13 +492,19 @@ _TOP_FIELDS = {
     "gen_ai.usage.input_tokens": _int_factory(0, none=True),
     "gen_ai.usage.output_tokens": _int_factory(0, none=True),
     "cost": _number_factory(none=True), "escalation": _none_or(_enum_factory(_EXIT_WORDS)),
-    "stages": lambda value, location, problems: _scan_list(value, location, problems, _STAGE_FIELDS,
-                                                           exact_keys=True),
+    "stages": lambda value, location, problems: _scan_list(
+        value, location, problems, _STAGE_FIELDS,
+        # B77/T125：必填七键（新形状）；旧六键在场则校验、缺席合法（旧记录不受影响）
+        required=("stage", "step", "status", "ts", "duration_ms", "attempt", "round")),
     "anchors": lambda value, location, problems: _scan_list(value, location, problems, _ANCHOR_FIELDS,
                                                             exact_keys=True),
     "missing_context": lambda value, location, problems: _scan_list(value, location, problems, _MC_FIELDS,
                                                                     required=("category", "summary")),
     "missing_context_status": _enum_factory(_MC_STATUSES),
+    # B77/T125：fit_record 的截断标注（顶层可选，布尔/正整数）
+    "stages_truncated": lambda value, location, problems: problems.append((location, "布尔"))
+        if not (value is True or value is False) else None,
+    "stages_total": _int_factory(1),
 }
 
 

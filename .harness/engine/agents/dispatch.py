@@ -43,13 +43,13 @@ from pathlib import Path
 
 from engine.agents import dispatch_host, run_timeline
 from engine.agents import dispatch_observation as observation
+from engine.agents.github import GitHub
 from engine.checks import acceptance, taskbook
-from engine.core.common import ENGINE_DIR, ROOT, ci_workflows, git, load_rules, setting
+from engine.core import alerts
+from engine.core.common import ENGINE_DIR, ROOT, git, load_rules, setting
 
 PROMPT_TEMPLATE = ENGINE_DIR / "prompts" / "dispatch_prompt.md"
 ESCALATION_FILE = "build/dispatch/escalation.md"
-CI_QUERY_ATTEMPTS = 3  # 等 CI 时对 gh 查询的最多尝试次数
-CI_QUERY_RETRY_SECONDS = 5
 
 
 def agent_identity() -> tuple[str, str]:
@@ -206,6 +206,85 @@ def release_slot(root: Path, index: int) -> None:
     (state_dir(root) / "slots" / f"{index}.json").unlink(missing_ok=True)
 
 
+def _registered_worktrees(root: Path) -> set[str]:
+    """登记在案的工作树绝对路径（porcelain 输出是规范化路径，按 resolve 后比对，免符号路径误差）。"""
+    out = git("worktree", "list", "--porcelain", cwd=root)
+    return {str(Path(line[len("worktree "):]).resolve())
+            for line in out.splitlines() if line.startswith("worktree ")}
+
+
+def _salvage_and_remove(root: Path, slot: Path, push) -> None:
+    """归还一个槽位工作树（B77）：分支有未推提交先推送保全，再 worktree remove。
+
+    不是登记在案的工作树（普通残留目录）不动；推送/取远端状态失败原样抛出，由调用方决定
+    停止派发（回收路径）或提示后继续（结束路径）。
+    """
+    if not slot.exists() or str(slot.resolve()) not in _registered_worktrees(root):
+        return
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=slot, check=False)
+    if branch and branch != "HEAD":
+        # fetch 失败（远端无该分支——认领推送前崩溃/推送静默失败）不拦回收：直接尝试推送保全
+        try:
+            git("fetch", "--quiet", "origin", branch, cwd=slot)
+        except RuntimeError:
+            pass
+        pushed = git("rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}",
+                     cwd=slot, check=False)
+        if not pushed or git("rev-list", f"origin/{branch}..{branch}", cwd=slot).split():
+            push(slot, branch)
+    git("worktree", "remove", "--force", str(slot), cwd=root)
+
+
+def reclaim_stale_slots(root: Path, config: Config, push) -> list[str]:
+    """崩溃路径无法归还时的槽位回收（B77）：锁文件 pid 不存活的槽在下次派发前强制回收。
+
+    槽内分支有未推提交先推送保全再删工作树；推送失败停止派发（保数据优先，不静默丢提交），
+    现场保留待人工处理。返回被回收槽位曾认领的分支名（链路自愈提示用）。
+    """
+    locks = state_dir(root) / "slots"
+    if not locks.is_dir():
+        return []
+    reclaimed: list[str] = []
+    for lock in sorted(locks.glob("*.json"), key=lambda path: int(path.stem) if path.stem.isdigit() else 0):
+        if not lock.stem.isdigit():
+            continue
+        try:
+            data = json.loads(lock.read_text() or "{}")
+        except ValueError:
+            data = {}
+        if _alive(data.get("pid", 0)):
+            continue
+        try:
+            _salvage_and_remove(root, slot_path(root, config, int(lock.stem)), push)
+        except (RuntimeError, subprocess.CalledProcessError) as error:
+            raise Stop(f"槽位 {lock.stem} 回收失败（分支提交保全未完成，工作树保留待人工处理）：{error}") from error
+        reclaimed.append(str(data.get("branch") or ""))
+        lock.unlink(missing_ok=True)
+    return reclaimed
+
+
+def return_slot(root: Path, config: Config, index: int, push) -> None:
+    """派发结束路径统一归还槽位（B77）：worktree remove + 锁清理。
+
+    run 结束时锁已先释放；归还前先重新独占槽位锁——拿不到说明已有下一次派发认领该槽，
+    不删它正准备使用的工作树。删除失败只提示，残留交给下次派发的回收路径。
+    """
+    lock = state_dir(root) / "slots" / f"{index}.json"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return
+    with os.fdopen(fd, "w") as handle:
+        json.dump({"pid": os.getpid(), "task": "return", "started_at": _now()}, handle)
+    try:
+        _salvage_and_remove(root, slot_path(root, config, index), push)
+    except (RuntimeError, subprocess.CalledProcessError) as error:
+        print(f"槽位 {index} 归还未完成（工作树保留，下次派发会回收）：{error}", file=sys.stderr)
+    finally:
+        release_slot(root, index)
+
+
 def prepare_slot(root: Path, slot: Path, branch: str, resume: bool) -> None:
     if not slot.exists():
         git("worktree", "add", "--detach", str(slot), "origin/main", cwd=root)
@@ -312,6 +391,7 @@ class Dispatcher:
             }
         self.identity = identity
         self.used_seconds = 0.0
+        self.acquired: int | None = None  # 已认领的槽位号；归还（return_slot）由派发进程结束路径统一做（B77）
 
     def run_executor(self, task: Task, slot: Path, guard: Path, prompt: str, events: Path) -> dispatch_host.RunResult:
         budget_seconds = task.budget["wall_clock_min"] * 60
@@ -330,12 +410,14 @@ class Dispatcher:
         result = dispatch_host.RunResult(exit_kind, code, seconds, model, usage, denials,
                                          missing_context=context["items"],
                                          missing_context_status=context["status"],
+                                         guard_denied=counts["guard_denied"],
                                          guard_allowed=counts["guard_allowed"])
         observation.executor_round(task.branch, slot, prompt, events, result,
                                    {"name": self.host.name, "version": self.host.version()}, counts)
         return result
 
-    def local_rounds(self, task: Task, slot: Path, guard: Path, feedback: str, trace_dir: Path) -> tuple[Attempt, list[str]]:
+    def local_rounds(self, task: Task, slot: Path, guard: Path, feedback: str, trace_dir: Path,
+                     pr: int | None = None) -> tuple[Attempt, list[str]]:
         """5 与 6：执行方 → verify，失败带摘要重试；返回本次尝试与每轮提示词。"""
         attempt, prompts = Attempt(ok=False, exit="retries"), []
         base = git("rev-parse", "HEAD", cwd=slot)
@@ -345,6 +427,7 @@ class Dispatcher:
             prompt = render_prompt(task, task.budget["wall_clock_min"], feedback)
             prompts.append(prompt)
             result = self.run_executor(task, slot, guard, prompt, trace_dir / f"round-{round_no + 1}.jsonl")
+            alerts.guard_round_alert(task.branch, task.id, result.guard_denied, pr=pr, gh=self.github)
             attempt.executor_seconds += result.seconds
             attempt.model = result.model or attempt.model
             for key, value in result.usage.items():
@@ -391,7 +474,8 @@ class Dispatcher:
                      guard_ref: str, started: str, ci_rounds: int) -> str:
         folder = slot / "docs" / "runs" / task.path.split("/")[-1].removesuffix(".md")
         folder.mkdir(parents=True, exist_ok=True)
-        prompt_text = "\n\n---\n\n".join(prompts)
+        # B77 落盘前自检：prompt 快照的 CI/runner 工作区路径先占位，sha256 按占位后字节计算。
+        prompt_text = run_timeline.placeholder_workspace("\n\n---\n\n".join(prompts))
         (folder / f"{number}.prompt.md").write_text(prompt_text, encoding="utf-8")
         record = {
             "task": task.id,
@@ -422,6 +506,7 @@ class Dispatcher:
         # T201 时间线：落盘前取本机链头，stages/anchors 安全摘要写进记录；记录提交后固定 run_record 锚点。
         timeline, head = run_timeline.record_fields(task.branch)
         record.update(timeline)
+        run_timeline.fit_record(record)  # B77 自检：记录超 512KB 先截断 stages 并标注，不让卫生守卫在提交步杀派发
         (folder / f"{number}.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
         paths = [str(folder / f"{number}.json"), str(folder / f"{number}.prompt.md")]
         git("add", "--", *paths, cwd=slot)
@@ -439,11 +524,15 @@ class Dispatcher:
 
     def run(self, path: str, resume: bool = False) -> int:
         task = admit(path, self.root)
+        reclaimed = reclaim_stale_slots(self.root, self.config, self.github.push)
+        if resume and task.branch in reclaimed:
+            self._chain_hint(task.branch)
         if self.github.remote_branch_exists(task.branch) and not resume:
             observation.claim(task.branch, False)
             raise Stop(f"远端已有 {task.branch}：该任务已被认领（续跑加 --resume）")
         guard, guard_ref = prepare_guard(self.root, task.branch)
         index, slot = acquire_slot(self.root, self.config, task)
+        self.acquired = index
         try:
             prepare_slot(self.root, slot, task.branch, resume)
             observation.slot(task.branch, index, git("rev-parse", "HEAD", cwd=slot),
@@ -455,6 +544,13 @@ class Dispatcher:
         finally:
             release_slot(self.root, index)
 
+    def _chain_hint(self, branch: str) -> None:
+        """等待链自愈提示（B77）：上一轮派发进程异常退出（槽位锁 pid 不存活）、分支 head 已保全到远端时，
+        提示设计方核对 CI 与评审结论；不自动重跑评审，缺链由设计方手动接链。"""
+        print(f"链路自检：上一轮派发异常退出，分支 {branch} 的 head 已在远端；若该 head 没有 CI 结论或"
+              "独立评审结论，请设计方手动接链（重跑 CI 或 bin/dispatch review <PR>），评审不会自动重跑。",
+              file=sys.stderr)
+
     def _loop(self, task: Task, index: int, slot: Path, guard: Path, guard_ref: str) -> int:
         runs = state_dir(self.root) / "runs" / task.id
         folder = task.path.split("/")[-1].removesuffix(".md")
@@ -464,12 +560,18 @@ class Dispatcher:
         while True:
             started = _now()
             update_slot(self.root, index, attempt=number)
-            attempt, prompts = self.local_rounds(task, slot, guard, feedback, runs / str(number))
+            attempt, prompts = self.local_rounds(task, slot, guard, feedback, runs / str(number), pr=pr)
             prompt_sha = self.write_record(task, slot, number, attempt, prompts, guard_ref, started, ci_rounds)
             self.github.push(slot, task.branch)
             if not attempt.ok:
                 self.escalate(task, pr, attempt, f"本地未完成（{EXIT_TEXT.get(attempt.exit, attempt.exit)}）")
                 return 1
+            if pr is None:
+                # B70：开新 PR 前先查该分支是否已有开放 PR（resume 时上一轮已开出），有则复用编号，
+                # 后续 CI 轮次反馈照旧注入既有 PR；查询为空或适配器没有这个查询（既有桩）才走原新建路径。
+                lookup = getattr(self.github, "existing_pr", None)
+                if lookup is not None:
+                    pr = lookup(task.branch)
             if pr is None:
                 body = pr_body(task, attempt, number, prompt_sha, root=self.root)
                 pr = self.github.open_pr(slot, task.branch, _pr_title(self.root, task), body)
@@ -477,6 +579,7 @@ class Dispatcher:
             ci_rounds += 1
             head = git("rev-parse", "HEAD", cwd=slot)
             detail: dict = {}
+            alerts.last_round_alert(task.branch, task.id, ci_rounds, task.budget["ci_rounds"], pr=pr, gh=self.github)
             ok, summary = self.github.wait_ci(task.branch, head, self.config.ci_timeout_seconds, detail)
             observation.ci_wait(task.branch, pr, head, ci_rounds, ok, summary, detail.get("run_ids"))
             if ok:
@@ -490,7 +593,7 @@ class Dispatcher:
             feedback, number = summary, number + 1
 
     def escalate(self, task: Task, pr: int | None, attempt: Attempt, reason: str) -> None:
-        body = escalation_body(task, attempt, reason)
+        body = escalation_body(task, attempt, reason, pr=pr)
         target = "pr" if pr is not None else "issue"
         sent = False
         try:
@@ -558,7 +661,7 @@ def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str, root: Pa
     ]) + "\n"
 
 
-def escalation_body(task: Task, attempt: Attempt, reason: str) -> str:
+def escalation_body(task: Task, attempt: Attempt, reason: str, pr: int | None = None) -> str:
     lines = [
         f"### 升级：{task.id}（{reason}）", "",
         f"- **当前状态与目标差距**：任务书 `{task.path}`，分支 `{task.branch}`；退出方式：{EXIT_TEXT.get(attempt.exit, attempt.exit)}。",
@@ -571,108 +674,13 @@ def escalation_body(task: Task, attempt: Attempt, reason: str) -> str:
         lines += ["#### 执行方的说明（`build/dispatch/escalation.md`）", "", attempt.executor_note, ""]
     else:
         lines += ["- **可选方案与推荐**、**需要决定的问题**：执行方未提供，由设计方判断。", ""]
+    lines += alerts.timeline_lines(task.branch, pr)  # T205：trace、安全阶段摘要与时间线入口
     lines += ["完整事件流在派发机器本地（git 公共目录下 `dispatch/runs/`），不入库。"]
     return "\n".join(lines) + "\n"
 
 
 def _now() -> str:
     return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
-
-
-# ---- GitHub（推送与写操作以 Agent 身份经 bin/as-agent） ----
-
-class GitHub:
-    def __init__(self, root: Path = ROOT):
-        self.root = root
-        self.as_agent = [str(root / "bin" / "as-agent")]
-
-    def _run(self, argv: list[str], cwd: Path | None = None, agent: bool = False, stdin: str | None = None) -> str:
-        result = subprocess.run((self.as_agent if agent else []) + argv, cwd=cwd or self.root, input=stdin,
-                                capture_output=True, text=True, check=False)
-        if result.returncode != 0:
-            raise RuntimeError(f"{' '.join(argv[:3])} 失败：{result.stderr.strip()[-500:]}")
-        return result.stdout.strip()
-
-    def remote_branch_exists(self, branch: str) -> bool:
-        return bool(self._run(["git", "ls-remote", "--heads", "origin", branch]))
-
-    def push(self, slot: Path, branch: str) -> None:
-        self._run(["git", "push", "--quiet", "-u", "origin", branch], cwd=slot, agent=True)
-
-    # 正文一律经 stdin（--body-file -），不进命令行（规范 §2：不在引号里写 Markdown）。
-    def open_pr(self, slot: Path, branch: str, title: str, body: str) -> int:
-        url = self._run(["gh", "pr", "create", "--base", "main", "--head", branch, "--title", title,
-                         "--body-file", "-"], cwd=slot, agent=True, stdin=body)
-        return int(url.rstrip("/").rsplit("/", 1)[-1])
-
-    def comment(self, pr: int, body: str, label: str | None = None) -> str:
-        """评论 PR 并返回评论 URL（供观察事件记录；标签逻辑不变）。"""
-        url = self._run(["gh", "pr", "comment", str(pr), "--body-file", "-"], agent=True, stdin=body)
-        if label:
-            self.add_label(pr, label)
-        return url
-
-    def _ensure_label(self, label: str) -> None:
-        """不存在才创建；不用 --force，已有标签（含登记用标签）不被改写。"""
-        try:
-            self._run(["gh", "label", "create", label, "--color", "d93f0b"], agent=True)
-        except RuntimeError:
-            pass  # 已存在
-
-    def add_label(self, pr: int, label: str) -> None:
-        self._ensure_label(label)
-        self._run(["gh", "pr", "edit", str(pr), "--add-label", label], agent=True)
-
-    def create_issue(self, title: str, body: str, labels: list[str]) -> None:
-        for label in labels:
-            self._ensure_label(label)
-        argv = ["gh", "issue", "create", "--title", title, "--body-file", "-"]
-        for label in labels:
-            argv += ["--label", label]
-        self._run(argv, agent=True, stdin=body)
-
-    def _ci_runs(self, workflow: str, branch: str) -> list[dict]:
-        """查一个工作流在该分支上的运行。gh 瞬时失败（如网络断开）连续 CI_QUERY_ATTEMPTS 次才抛出，避免一次瞬断中止整个派发。"""
-        for attempt in range(1, CI_QUERY_ATTEMPTS + 1):
-            try:
-                return json.loads(self._run(["gh", "run", "list", "--workflow", workflow, "--branch", branch,
-                                             "--json", "headSha,status,conclusion,databaseId,url", "--limit", "10"]))
-            except (RuntimeError, json.JSONDecodeError):
-                if attempt == CI_QUERY_ATTEMPTS:
-                    raise
-                time.sleep(CI_QUERY_RETRY_SECONDS)
-        return []
-
-    def wait_ci(self, branch: str, sha: str, timeout: float, detail: dict | None = None) -> tuple[bool, str]:
-        """等 rules.toml [dispatch] ci_workflows 列出的每个工作流在该提交上跑完；全部成功才算通过。
-
-        detail 非 None 时写入 run_ids（本次结论对应的 Actions 运行 ID），供派发的 ci_wait 观察事件
-        使用；返回值与 gh 调用序列保持不变。
-        """
-        workflows = ci_workflows()
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            found = {}
-            for workflow in workflows:
-                runs = self._ci_runs(workflow, branch)
-                run = next((item for item in runs if item["headSha"] == sha), None)
-                if run and run["status"] == "completed":
-                    found[workflow] = run
-            failed = next((run for run in found.values() if run["conclusion"] != "success"), None)
-            if failed:
-                log = subprocess.run(["gh", "run", "view", str(failed["databaseId"]), "--log-failed"], cwd=self.root,
-                                     capture_output=True, text=True, check=False).stdout
-                if detail is not None:
-                    detail["run_ids"] = [failed["databaseId"]]
-                return False, f"CI 未通过：{failed['url']}\n\n```\n{log[-3000:]}\n```"
-            if len(found) == len(workflows):
-                if detail is not None:
-                    detail["run_ids"] = sorted(run["databaseId"] for run in found.values())
-                return True, ""
-            time.sleep(30)
-        if detail is not None:
-            detail["run_ids"] = []
-        return False, f"等待 CI 超过 {int(timeout / 60)} 分钟"
 
 
 # ---- 状态与停机 ----
@@ -761,11 +769,20 @@ def main(argv: list[str] | None = None) -> int:
     if (state_dir() / "stop").exists():
         print("停机标记存在（bin/dispatch stop），不派发；恢复前删除该标记")
         return 1
+    return _run_dispatch(args)
+
+
+def _run_dispatch(args) -> int:
+    """run 子命令：派发并在结束路径统一归还槽位（B77）——成功、升级、预算耗尽与异常都覆盖。"""
+    runner = Dispatcher(ROOT, Config.load(), GitHub(), dispatch_host.PiHost(args.model))
     try:
-        return Dispatcher(ROOT, Config.load(), GitHub(), dispatch_host.PiHost(args.model)).run(args.taskbook, args.resume)
+        return runner.run(args.taskbook, args.resume)
     except Stop as stop:
         print(f"未派发：{stop}")
         return 2
+    finally:
+        if runner.acquired is not None:
+            return_slot(ROOT, runner.config, runner.acquired, runner.github.push)
 
 
 if __name__ == "__main__":
