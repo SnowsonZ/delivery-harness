@@ -457,7 +457,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         project = self.fresh_project("replay-fail")
         self.install(project)
         template = self.template("harness.yml")
-        self.assertEqual(list(template["jobs"]), ["harness"])  # 状态检查名保持
+        self.assertIn("harness", template["jobs"])  # T305 裁决：钉死单 job 改为存在性——改名仍被下方 jobs["harness"] 断言与 ruleset 检查抓住  # 状态检查名保持
         steps = template["jobs"]["harness"]["steps"]
         names = [step.get("name") or step.get("uses") for step in steps]
         verify = steps[names.index("Verify")]

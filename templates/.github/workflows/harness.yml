@@ -124,3 +124,29 @@ jobs:
             exit 0
           fi
           python .harness/engine/reports/github_events.py --head "$GITHUB_SHA"
+
+  # 合并账本与 PR 锚点（B46 设计 4.1、共用合同 C6）：只对 push 到 main（合并提交）运行。受信任 job：
+  # 引擎来自默认分支的检出（.harness/engine 是 main 上已同步的内置副本），不检出、不执行任何 PR 代码。
+  # 权限最小化：contents:write 只用于 harness-audit 分支的 fast-forward 追加，pull-requests:write 只用于
+  # PR 锚点评论。harness-audit 的 ruleset 模板只禁删除/强推、保护历史，不阻止普通修改旧文件——「同 PR
+  # 幂等、不同字节冲突不覆盖」由 writer 自查保证（engine/reports/ledger.py），不宣称 ruleset 独自保证
+  # 只追加。观察旁路：本 job 失败被 continue-on-error 隔离，不影响 harness job 的判定与结论。
+  audit-ledger:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Publish merge ledger
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python .harness/engine/reports/ledger.py --head "$GITHUB_SHA"
