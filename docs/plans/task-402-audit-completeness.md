@@ -24,13 +24,15 @@ rollback: git revert（仅在用户授权后）
 ## 目标终态
 
 在 C7 报告加完整性/防篡改 findings：R2/R3 必须有独立评审且身份不同，自动合并必须有 main来源 route.result，任务PR须运行记录与阶段锚点；R0/R1 app自动合并批准者App且绑定合并head，none模式明确无App适用，不误报。
+语义口径（2026-10-02 执行方升级时设计方确认）：「main来源 route.result」＝受信任 CI 来源（ci: 前缀链，C5 导入时已核对 origin head）且 outputs.auto_merge=true；任务 PR 判定＝route.facts 声明任务书类别 ∨ 评审摘要列有执行方 ∨ 已有运行记录，三证据任一即任务 PR，设计方 PR 不要求派发记录。
 校验各(source,trace)的原始链、固定运行记录/CI/PR评论锚点与对应前缀链头、账本/运行层一致性；不同阶段的前缀锚点不是最终链头，不把合法后续追加当篡改。尾删即使内部链仍合法也能由固定锚点发现；未知/无法取得链不能当完整。
 可选 checks.toml [audit] require_review_risk=2, require_route_for_auto=true, require_run_record_for_task=true, verify_anchors=true；缺省执行设计规则，非法配置报告 configuration_error/退出2，不静默放宽。配置只能影响 audit 报告，不改变原有 policy/guard/verify 判定；报告有发现退出1。
 CHANGELOG.md「Unreleased」补记 audit 完整性/防篡改 findings 与可选 [audit] 配置段（英文，无 Migration 条目——配置缺省不变；2026-10-01 派发前核对补授权，检查单第3项）。
 
 ## 白名单
 
-- `engine/reports/audit.py`
+- `engine/reports/audit.py`（完整性判定的挂接与报告集成，保持 <800 行棘轮）
+- `engine/reports/audit_completeness.py`（新增，完整性/防篡改判定与 [audit] 配置校验集中模块；2026-10-02 执行方升级后设计方裁决扩入：全部内联将使 audit.py 达 1043 行、触发 files_over_800 棘轮（基线 0），形态 B 草案实测 309+29 行全绿）
 - `templates/.harness/config/checks.toml`
 - `CHANGELOG.md`（Unreleased 记 audit 完整性 findings 与可选 [audit] 配置段；用户可见行为变化）
 - `tests/test_audit_completeness.py`（新增；不存在才可开始）
