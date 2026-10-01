@@ -16,12 +16,12 @@ snapshot_changed，不与固定绑定提交的事实混比）；本机产物按 
 包的规范化哈希核对由 load_ci 导入完成，发现按来源映射进报告。只访问当前仓库受支持的 GitHub 资源
 （评论、PR 字段、Actions 包），引用内容只解析与比对、绝不执行；path 不能逃出仓库。失败区分
 hash_mismatch / reference_unavailable / reference_expired，未核对在 coverage 里如实计数，不冒充通过。
-完整性规则、锚点防篡改与 [audit] 配置是 T402 范围，本命令不判定。
+完整性规则、锚点防篡改与 [audit] 配置由 audit_completeness 在复原核对之后判定（B46 T402）。
 
 inspect_pr(pr, *, gh=None, cwd=ROOT) 返回 C7 基础形状：pr/trace_id/head_sha/stages/references/
 findings/coverage/ok；finding 有 rule/severity/source/stage/ref/reason，reason 不回显私密内容。
-退出码：0 全部适用引用核对通过；1 有发现（哈希不符、引用不可得或到期）；2 参数错误、整体 API
-故障或 PR 无法审计。
+退出码：0 全部适用引用核对通过；1 有发现（哈希不符、引用不可得、到期或完整性/防篡改发现）；
+2 参数错误、整体 API 故障、[audit] 配置错误或 PR 无法审计。
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ from pathlib import Path
 
 from engine.core import events, events_db, events_io
 from engine.core.common import ROOT, clean_git_env
-from engine.reports import github_events, ledger
+from engine.reports import audit_completeness, github_events, ledger
 
 # 批量模式 --since 的相对时长单位（折算为秒）。
 _DURATION_RE = re.compile(r"(\d+)([dhms])\Z")
@@ -172,6 +172,8 @@ class _Auditor:
         self.anchors: list[dict] = []
         self.chains: list[dict] = []
         self.event_rows: list[dict] = []
+        self.ledger_doc = None  # 解析后的账本（T402 账本一致性核对用；None=无账本/不可解析）
+        self.db_error = None  # 事件库不可读标记（T402：坏库如实报告，不当作无事件）
         self.ledger_state = "absent"
         self._expect: dict[tuple, dict] = {}  # (kind, ref) → 账本记录的期望 sha256/size
 
@@ -190,7 +192,13 @@ class _Auditor:
 
     def _collect_events(self):
         """本机/CI/GitHub 已导入事件 → 阶段视图、链头与锚点；local 事件的引用逐条登记核对。"""
-        self.event_rows = sorted(events_io.query(trace_id=self.trace),
+        try:
+            rows = events_io.query(trace_id=self.trace)
+            anchors = events_db.read_anchors(trace_id=self.trace)
+        except Exception:  # noqa: BLE001  坏库：如实交完整性层报告（T402），不崩溃、不当作无事件
+            self.db_error = True
+            rows, anchors = [], []
+        self.event_rows = sorted(rows,
                                  key=lambda row: (row["ts"], row["source"], row["seq"]))
         for row in self.event_rows:
             self.stages.append({"evidence": "event", "source": row["source"],
@@ -205,7 +213,7 @@ class _Auditor:
                 heads[row["source"]] = (row["seq"], row["hash"])
         self.chains = [{"source": source, "trace_id": self.trace, "head_hash": heads[source][1]}
                        for source in sorted(heads)]
-        self.anchors.extend(events_db.read_anchors(trace_id=self.trace))
+        self.anchors.extend(anchors)
         for row in self.event_rows:
             if _source_class(row["source"]) != "local":
                 continue  # CI 事件的产物在 CI 侧（C5 导入不恢复内容），到期由 load_ci 发现报告
@@ -369,6 +377,7 @@ class _Auditor:
             parsed = json.loads(data)
         except ValueError:
             parsed = None
+        self.ledger_doc = parsed if isinstance(parsed, dict) else None
         if not isinstance(parsed, dict):
             entry["status"] = "hash_mismatch"
             entry["reason"] = "账本文件不是 JSON 对象"
@@ -537,6 +546,7 @@ class _Auditor:
             if rule is not None:
                 self.findings.append(_finding(rule, source=entry["source"], stage=entry["stage"],
                                               ref=str(entry["ref"]), reason=entry["reason"]))
+        self.findings.extend(audit_completeness.check(self))  # T402：完整性与防篡改（含 [audit] 配置校验）
         self.findings.sort(key=lambda item: (item["rule"], item["source"], item["stage"], item["ref"]))
         self.refs.sort(key=lambda item: (item["kind"], str(item["ref"])))
         for entry in self.refs:
@@ -556,6 +566,13 @@ class _Auditor:
                 "merge_sha": self.merge_sha, "merged_at": self.merged_at, "stages": self.stages,
                 "references": self.refs, "findings": self.findings, "chains": self.chains,
                 "anchors": self.anchors, "coverage": coverage, "ok": not self.findings}
+
+
+def _exit_code(report: dict) -> int:
+    """0 全部通过；1 有发现；2 配置错误（configuration_error 优先，非法 [audit] 不静默放宽）。"""
+    if any(item.get("rule") == "configuration_error" for item in report["findings"]):
+        return 2
+    return 1 if report["findings"] else 0
 
 
 def _flatten_outputs(prefix: str, value, out: dict) -> None:
@@ -714,7 +731,7 @@ def _all_merged(args, as_json: bool) -> int:
     else:
         print(f"audit --all-merged：窗口 {window['since'] or '全部'} → {window['until']}，"
               f"共 {len(reports)} 个已合并 PR")
-    return 1 if any(report["findings"] for report in reports) else 0
+    return max((_exit_code(report) for report in reports), default=0)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -741,5 +758,5 @@ def main(argv: list[str] | None = None) -> int:
             print(f"audit：{exc}", file=sys.stderr)
             return 2
         print(json.dumps(report, ensure_ascii=False, indent=2) if args.json else _render(report))
-        return 1 if report["findings"] else 0
+        return _exit_code(report)
     return _all_merged(args, args.json)

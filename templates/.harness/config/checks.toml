@@ -58,6 +58,14 @@ order = []
 #                     # 每天首次 emit 顺带清理到期的内容寻址产物文件与索引、终止运行的派发原始流；
 #                     # 事件、引用与锚点永不因保留期删除。
 
+# audit 命令的完整性与防篡改规则（可选）。缺省即下列缺省值（按设计规则执行）；未知键、类型或取值
+# 非法报告 configuration_error 并以退出码 2 结束，不静默放宽。只影响 audit 报告，不进入原判定。
+# [audit]
+# require_review_risk = 2            # 风险 ≥ 该等级（0..3）必须有独立评审且评审者身份不同。
+# require_route_for_auto = true      # 自动合并必须有受信任 CI 来源（ci: 前缀）的 route.result（auto_merge=true）。
+# require_run_record_for_task = true # 任务 PR 必须有运行记录与阶段锚点（设计方 PR 豁免派发记录）。
+# verify_anchors = true              # 核对固定锚点与对应前缀链头（合法追加不误报，删尾/改中可发现）。
+
 # [release]
 # version_file = "src/version.py"
 # short_version_var = "VERSION"
