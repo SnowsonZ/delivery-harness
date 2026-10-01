@@ -390,6 +390,22 @@ class DispatchRobustnessTest(unittest.TestCase):
 
     # ---------- 验收 4：stages 单条仅含标量字段；指针行与窗口条目形状钉死 ----------
 
+
+    def test_run_check_accepts_new_stage_shape(self):
+        """设计方补（评审 #91 阻断项闭环）：run_check 记录校验接受 T125 收敛后的新 stages 形状。
+
+        七键窗口条目 + prior 指针行 + 顶层截断标注零问题；把校验表回退为旧必填（变异）时
+        新形状必报「缺字段」——断链风险被此断言钉住。
+        """
+        from engine.routing import run_check as rc
+        record = {"stages": [
+            {"stage": "dispatch", "step": "admit", "status": "ok", "ts": "2026-09-30T00:00:00Z",
+             "duration_ms": 5, "attempt": 2, "round": 0},
+            {"stage": "dispatch", "step": "push_pr", "status": "prior", "ts": "2026-09-29T00:00:00Z",
+             "duration_ms": None, "attempt": 1, "round": 0},
+        ], "stages_truncated": False, "stages_total": 2}
+        self.assertEqual(rc.scan_record(record), [])
+
     def test_stage_item_shape(self):
         rel = "docs/plans/task-220-e.md"
         header = self.header("T220-E", retries=1, ci_rounds=2)
