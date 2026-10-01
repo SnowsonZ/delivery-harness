@@ -206,6 +206,81 @@ def release_slot(root: Path, index: int) -> None:
     (state_dir(root) / "slots" / f"{index}.json").unlink(missing_ok=True)
 
 
+def _registered_worktrees(root: Path) -> set[str]:
+    """登记在案的工作树绝对路径（porcelain 输出是规范化路径，按 resolve 后比对，免符号路径误差）。"""
+    out = git("worktree", "list", "--porcelain", cwd=root)
+    return {str(Path(line[len("worktree "):]).resolve())
+            for line in out.splitlines() if line.startswith("worktree ")}
+
+
+def _salvage_and_remove(root: Path, slot: Path, push) -> None:
+    """归还一个槽位工作树（B77）：分支有未推提交先推送保全，再 worktree remove。
+
+    不是登记在案的工作树（普通残留目录）不动；推送/取远端状态失败原样抛出，由调用方决定
+    停止派发（回收路径）或提示后继续（结束路径）。
+    """
+    if not slot.exists() or str(slot.resolve()) not in _registered_worktrees(root):
+        return
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=slot, check=False)
+    if branch and branch != "HEAD":
+        git("fetch", "--quiet", "origin", branch, cwd=slot)
+        pushed = git("rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}",
+                     cwd=slot, check=False)
+        if not pushed or git("rev-list", f"origin/{branch}..{branch}", cwd=slot).split():
+            push(slot, branch)
+    git("worktree", "remove", "--force", str(slot), cwd=root)
+
+
+def reclaim_stale_slots(root: Path, config: Config, push) -> list[str]:
+    """崩溃路径无法归还时的槽位回收（B77）：锁文件 pid 不存活的槽在下次派发前强制回收。
+
+    槽内分支有未推提交先推送保全再删工作树；推送失败停止派发（保数据优先，不静默丢提交），
+    现场保留待人工处理。返回被回收槽位曾认领的分支名（链路自愈提示用）。
+    """
+    locks = state_dir(root) / "slots"
+    if not locks.is_dir():
+        return []
+    reclaimed: list[str] = []
+    for lock in sorted(locks.glob("*.json"), key=lambda path: int(path.stem) if path.stem.isdigit() else 0):
+        if not lock.stem.isdigit():
+            continue
+        try:
+            data = json.loads(lock.read_text() or "{}")
+        except ValueError:
+            data = {}
+        if _alive(data.get("pid", 0)):
+            continue
+        try:
+            _salvage_and_remove(root, slot_path(root, config, int(lock.stem)), push)
+        except (RuntimeError, subprocess.CalledProcessError) as error:
+            raise Stop(f"槽位 {lock.stem} 回收失败（分支提交保全未完成，工作树保留待人工处理）：{error}") from error
+        reclaimed.append(str(data.get("branch") or ""))
+        lock.unlink(missing_ok=True)
+    return reclaimed
+
+
+def return_slot(root: Path, config: Config, index: int, push) -> None:
+    """派发结束路径统一归还槽位（B77）：worktree remove + 锁清理。
+
+    run 结束时锁已先释放；归还前先重新独占槽位锁——拿不到说明已有下一次派发认领该槽，
+    不删它正准备使用的工作树。删除失败只提示，残留交给下次派发的回收路径。
+    """
+    lock = state_dir(root) / "slots" / f"{index}.json"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return
+    with os.fdopen(fd, "w") as handle:
+        json.dump({"pid": os.getpid(), "task": "return", "started_at": _now()}, handle)
+    try:
+        _salvage_and_remove(root, slot_path(root, config, index), push)
+    except (RuntimeError, subprocess.CalledProcessError) as error:
+        print(f"槽位 {index} 归还未完成（工作树保留，下次派发会回收）：{error}", file=sys.stderr)
+    finally:
+        release_slot(root, index)
+
+
 def prepare_slot(root: Path, slot: Path, branch: str, resume: bool) -> None:
     if not slot.exists():
         git("worktree", "add", "--detach", str(slot), "origin/main", cwd=root)
@@ -312,6 +387,7 @@ class Dispatcher:
             }
         self.identity = identity
         self.used_seconds = 0.0
+        self.acquired: int | None = None  # 已认领的槽位号；归还（return_slot）由派发进程结束路径统一做（B77）
 
     def run_executor(self, task: Task, slot: Path, guard: Path, prompt: str, events: Path) -> dispatch_host.RunResult:
         budget_seconds = task.budget["wall_clock_min"] * 60
@@ -394,7 +470,8 @@ class Dispatcher:
                      guard_ref: str, started: str, ci_rounds: int) -> str:
         folder = slot / "docs" / "runs" / task.path.split("/")[-1].removesuffix(".md")
         folder.mkdir(parents=True, exist_ok=True)
-        prompt_text = "\n\n---\n\n".join(prompts)
+        # B77 落盘前自检：prompt 快照的 CI/runner 工作区路径先占位，sha256 按占位后字节计算。
+        prompt_text = run_timeline.placeholder_workspace("\n\n---\n\n".join(prompts))
         (folder / f"{number}.prompt.md").write_text(prompt_text, encoding="utf-8")
         record = {
             "task": task.id,
@@ -425,6 +502,7 @@ class Dispatcher:
         # T201 时间线：落盘前取本机链头，stages/anchors 安全摘要写进记录；记录提交后固定 run_record 锚点。
         timeline, head = run_timeline.record_fields(task.branch)
         record.update(timeline)
+        run_timeline.fit_record(record)  # B77 自检：记录超 512KB 先截断 stages 并标注，不让卫生守卫在提交步杀派发
         (folder / f"{number}.json").write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
         paths = [str(folder / f"{number}.json"), str(folder / f"{number}.prompt.md")]
         git("add", "--", *paths, cwd=slot)
@@ -442,11 +520,15 @@ class Dispatcher:
 
     def run(self, path: str, resume: bool = False) -> int:
         task = admit(path, self.root)
+        reclaimed = reclaim_stale_slots(self.root, self.config, self.github.push)
+        if resume and task.branch in reclaimed:
+            self._chain_hint(task.branch)
         if self.github.remote_branch_exists(task.branch) and not resume:
             observation.claim(task.branch, False)
             raise Stop(f"远端已有 {task.branch}：该任务已被认领（续跑加 --resume）")
         guard, guard_ref = prepare_guard(self.root, task.branch)
         index, slot = acquire_slot(self.root, self.config, task)
+        self.acquired = index
         try:
             prepare_slot(self.root, slot, task.branch, resume)
             observation.slot(task.branch, index, git("rev-parse", "HEAD", cwd=slot),
@@ -457,6 +539,13 @@ class Dispatcher:
             return self._loop(task, index, slot, guard, guard_ref)
         finally:
             release_slot(self.root, index)
+
+    def _chain_hint(self, branch: str) -> None:
+        """等待链自愈提示（B77）：上一轮派发进程异常退出（槽位锁 pid 不存活）、分支 head 已保全到远端时，
+        提示设计方核对 CI 与评审结论；不自动重跑评审，缺链由设计方手动接链。"""
+        print(f"链路自检：上一轮派发异常退出，分支 {branch} 的 head 已在远端；若该 head 没有 CI 结论或"
+              "独立评审结论，请设计方手动接链（重跑 CI 或 bin/dispatch review <PR>），评审不会自动重跑。",
+              file=sys.stderr)
 
     def _loop(self, task: Task, index: int, slot: Path, guard: Path, guard_ref: str) -> int:
         runs = state_dir(self.root) / "runs" / task.id
@@ -676,11 +765,20 @@ def main(argv: list[str] | None = None) -> int:
     if (state_dir() / "stop").exists():
         print("停机标记存在（bin/dispatch stop），不派发；恢复前删除该标记")
         return 1
+    return _run_dispatch(args)
+
+
+def _run_dispatch(args) -> int:
+    """run 子命令：派发并在结束路径统一归还槽位（B77）——成功、升级、预算耗尽与异常都覆盖。"""
+    runner = Dispatcher(ROOT, Config.load(), GitHub(), dispatch_host.PiHost(args.model))
     try:
-        return Dispatcher(ROOT, Config.load(), GitHub(), dispatch_host.PiHost(args.model)).run(args.taskbook, args.resume)
+        return runner.run(args.taskbook, args.resume)
     except Stop as stop:
         print(f"未派发：{stop}")
         return 2
+    finally:
+        if runner.acquired is not None:
+            return_slot(ROOT, runner.config, runner.acquired, runner.github.push)
 
 
 if __name__ == "__main__":
