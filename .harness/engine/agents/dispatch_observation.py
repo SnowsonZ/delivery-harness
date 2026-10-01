@@ -288,12 +288,15 @@ def review_materials(workspace: Path, base: str, head: str, taskbook_rel: str | 
     """C6 materials：task/diff/ci/pr/pack 五类，recipe 用固定短 ID 与参数，不存命令正文。
 
     无任务书时 task 材料是现有的「无」哨兵字节，ref 用 none 哨兵；单份材料读取失败只少记这一份。
+    diff 按分片集合读取（T124：build/review/ 下全部 diff*.patch，与 pack 材料清单同一口径）：
+    小 diff 仍是单份材料，分片时每片各记一份、引用同一比较范围。
     """
     folder = workspace / "build" / "review"
+    diffs = sorted(folder.glob("diff*.patch")) if folder.is_dir() else []
     materials = [
         _material("task", folder / "task.md", f"{taskbook_rel}@{head}" if taskbook_rel else "none",
                   {"id": "task_v1"}),
-        _material("diff", folder / "diff.patch", f"{base}...{head}", {"id": "diff_v1"}),
+        *(_material("diff", path, f"{base}...{head}", {"id": "diff_v1"}) for path in diffs),
         _material("ci", folder / "ci.md", f"pull/{pr}/checks", {"id": "ci_v1"}),
         _material("pr", folder / "pr.md", f"pull/{pr}", {"id": "pr_v1"}),
         _material("pack", folder / "pack.md", "", {"id": "pack_v1", "engine_ref": _engine_ref(workspace),
