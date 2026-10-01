@@ -27,6 +27,7 @@ rollback: git revert（仅在用户授权后）
 按下文F3分工：harness仅push main末尾、auto-merge的默认分支workflow_run独立告警job在对应状态结束后if:always()运行；所有pull_request检查保持只读，不沿用judge仅success门槛漏掉失败CI。
 review在已有评论发布后调用C4补标签/更新告警，不第二次运行评审。同trace/reason查远端评论标记幂等，库去重只是缓存，换机重跑也不新增；发布失败不改变原路由/检查/评审退出码。未知事件不自动触发告警，不把旧全部历史拒绝当本轮突增。
 告警承载明确分工（F3）：harness.yml仅push main的默认分支执行可在末尾调用alert；所有pull_request事件的job/step令牌权限保持只读，同仓库PR与forkPR一视同仁，不在PR定义里授write。PR成功或失败均由auto-merge.yml的workflow_run独立告警job承载，其if条件不继承judge的success门槛，默认分支checkout/引擎、只把PR head/artifact当数据，最小issues/pull-requests:write与actions/contents:read。不能仅在harness.yml加一个默认分支checkout来使PR可修改的job定义拥有写权限。
+CHANGELOG.md「Unreleased」补记 alert 子命令与工作流模板告警步骤（英文，含触发家族与 F3 承载分工；无 Migration 条目——模板随 upgrade 同步，消费方无需手动迁移；2026-10-02 派发前核对补授权，检查单第3项，与 T401/T402 同款缺口）。
 
 ## 白名单
 
@@ -35,6 +36,7 @@ review在已有评论发布后调用C4补标签/更新告警，不第二次运�
 - `engine/agents/review.py`
 - `templates/.github/workflows/harness.yml`
 - `templates/.github/workflows/auto-merge.yml`
+- `CHANGELOG.md`（Unreleased 记 alert 子命令与工作流告警步骤；用户可见行为变化）
 - `tests/test_alert_cli.py`（新增；不存在才可开始）
 
 ## 非目标
