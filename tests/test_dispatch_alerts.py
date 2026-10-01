@@ -55,13 +55,43 @@ def stream(*calls: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def executor_script(payload: str) -> str:
-    """假执行方：写流到 stdout、落一个文件并提交（--allow-empty：重试轮没有新改动也能提交）。"""
-    return ("import pathlib, subprocess, sys; "
-            f"sys.stdout.write({payload!r}); "
-            "pathlib.Path('note.txt').write_text('work\\n'); "
-            "subprocess.run(['git', 'add', '-A'], check=True); "
-            "subprocess.run(['git', 'commit', '-q', '-m', 'work', '--allow-empty'], check=True)")
+def executor_script(payload: str, *, exit_code: int = 0, stderr: str = "", git_failures: int = 0) -> str:
+    """假执行方：写流到 stdout、落一个文件并提交（--allow-empty：重试轮没有新改动也能提交）。
+    git 操作（add/commit）对瞬时失败做 3 次退避重试（0.1/0.3/0.9 秒，B73），重试用尽把 git stderr
+    写入流后再退出非零；stderr 非空时先写死因，exit_code 非零即失败退出，git_failures 模拟前 N 次瞬断。"""
+    script = f"""import pathlib, subprocess, sys, time
+seen = 0
+
+
+def git(argv):
+    global seen
+    err = ''
+    for delay in (0.0, 0.1, 0.3, 0.9):
+        if delay:
+            time.sleep(delay)
+        seen += 1
+        if seen <= {git_failures}:
+            err = 'fatal: 模拟 git 瞬断\\n'
+            continue
+        done = subprocess.run(['git', *argv], capture_output=True, text=True)
+        if done.returncode == 0:
+            return
+        err = done.stderr
+    sys.stdout.write('git ' + ' '.join(argv) + ' 重试 3 次后仍失败：\\n' + err)
+    sys.exit(1)
+
+
+sys.stdout.write({payload!r})
+pathlib.Path('note.txt').write_text('work\\n')
+git(['add', '-A'])
+# --allow-empty：重试轮没有新改动时提交仍成功，verify 才能每轮都跑
+git(['commit', '-q', '-m', 'work', '--allow-empty'])
+"""
+    if stderr:
+        script += f"sys.stdout.flush()\nsys.stderr.write({stderr!r})\n"
+    if exit_code:
+        script += f"sys.exit({exit_code})\n"
+    return script
 
 
 class RecordingHost:
@@ -263,14 +293,44 @@ class ObservabilityTaskTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def run_dispatch(self, rel: str, host, github, **kwargs) -> tuple[int, str, str]:
+    def run_dispatch(self, rel: str, host, github, *, expect: int | None = None, label: str = "",
+                     **kwargs) -> tuple[int, str, str]:
         config = dispatch.Config(slots=2, stall_seconds=120, poll_seconds=0.05, ci_timeout_seconds=5,
                                  verify=[sys.executable, "-c", VERIFY_PASS])
         dispatcher = dispatch.Dispatcher(self.repo, config, github, host, identity=dict(GIT_ENV))
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = dispatcher.run(rel)
-        return code, out.getvalue(), err.getvalue()
+        code_out, code_err = out.getvalue(), err.getvalue()
+        if expect is not None:
+            self.assert_dispatch_exit(code, expect, code_out, code_err, label)
+        return code, code_out, code_err
+
+    def executor_stream_tail(self, lines: int = 30) -> str:
+        """最近一份执行方事件流的最后 N 行（B73）：run_monitored 已把子进程 stderr 并进流文件，尾部即死因。"""
+        runs = self.repo / ".git" / "dispatch" / "runs"
+        if not runs.is_dir():
+            return ""
+        streams = sorted(runs.glob("*/*/round-*.jsonl"), key=lambda path: path.stat().st_mtime)
+        if not streams:
+            return ""
+        text = streams[-1].read_text(encoding="utf-8", errors="replace")
+        return "\n".join(text.splitlines()[-lines:])
+
+    def assert_dispatch_exit(self, code: int, expected: int, out: str = "", err: str = "",
+                             label: str = "") -> None:
+        """dispatch 退出码断言统一入口（B73）：失败消息附 dispatch stdout/stderr 与执行方流尾部死因，
+        失败现场不再沉默（沿用 #59 在 dispatch_once 的先例并补流尾部）；只增失败信息，不改判定。"""
+        if code == expected:
+            return
+        detail = f"[{label}] " if label else ""
+        detail += f"dispatch 退出码 {code} != {expected}"
+        if out or err:
+            detail += f"\n--- dispatch stdout ---\n{out}\n--- dispatch stderr ---\n{err}"
+        tail = self.executor_stream_tail()
+        if tail:
+            detail += f"\n--- 执行方流尾部（最后 30 行）---\n{tail}"
+        self.fail(detail)
 
     def all_events(self) -> list[dict]:
         path = events_db.db_path()
@@ -307,8 +367,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.stub_taskbook(rel, self.header("T931A", ci_rounds=3))
         self.with_alerts({})
         gh = FakeGitHub(ci=(False, "CI 未通过：见摘要", [5]))
-        code, _, _ = self.run_dispatch(rel, RecordingHost(executor_script(stream("done"))), gh)
-        self.assertEqual(code, 1)
+        self.run_dispatch(rel, RecordingHost(executor_script(stream("done"))), gh, expect=1)
         calls = gh.calls
         waits = [index for index, call in enumerate(calls) if call[0] == "wait_ci"]
         self.assertEqual(len(waits), 3)
@@ -330,8 +389,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.write_taskbook(rel, self.header("T931B", ci_rounds=1))
         self.stub_taskbook(rel, self.header("T931B", ci_rounds=1))
         gh = FakeGitHub(ci=(False, "CI 未通过：见摘要", [5]))
-        code, _, _ = self.run_dispatch(rel, RecordingHost(executor_script(stream("done"))), gh)
-        self.assertEqual(code, 1)
+        self.run_dispatch(rel, RecordingHost(executor_script(stream("done"))), gh, expect=1)
         calls = gh.calls
         waits = [index for index, call in enumerate(calls) if call[0] == "wait_ci"]
         self.assertEqual(len(waits), 1)
@@ -348,8 +406,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.stub_taskbook(rel, self.header("T931C", ci_rounds=1))
         self.with_alerts(None)
         gh = FakeGitHub(ci=(False, "CI 未通过：见摘要", [5]))
-        code, _, _ = self.run_dispatch(rel, RecordingHost(executor_script(stream("done"))), gh)
-        self.assertEqual(code, 1)
+        self.run_dispatch(rel, RecordingHost(executor_script(stream("done"))), gh, expect=1)
         self.assertEqual(gh.labels, [(14, "budget-exceeded"), (14, "escalation")])  # 与既往一致：判级标签 + 升级标签
         self.assertEqual(len(gh.comments), 1)  # 只有原有升级评论
         self.assertEqual(self.trace_events("task/931-c", "alert"), [])
@@ -367,8 +424,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.with_alerts(section)
         gh = FakeGitHub()
         host = RecordingHost(executor_script(stream(denied(["理由甲", "理由乙"]))))
-        code, _, _ = self.run_dispatch(rel, host, gh)
-        self.assertEqual(code, 0)
+        self.run_dispatch(rel, host, gh, expect=0)
         self.assertEqual(gh.issues, [])
         self.assertEqual(self.alert_comments(gh, "task/932-a", "guard_denials"), [])
 
@@ -378,8 +434,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.stub_taskbook(rel, self.header("T932B"))
         gh = FakeGitHub()
         host = RecordingHost(executor_script(stream(denied(["理由甲"]), denied(["理由乙"]))))
-        code, _, _ = self.run_dispatch(rel, host, gh)
-        self.assertEqual(code, 0)
+        self.run_dispatch(rel, host, gh, expect=0)
         self.assertEqual(len(gh.issues), 1)
         issue = gh.issues[0]
         self.assertEqual(issue["labels"], ["escalation"])
@@ -396,8 +451,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.stub_taskbook(rel, self.header("T932C"))
         gh = FakeGitHub()
         host = RecordingHost(executor_script(stream(denied(["甲"]), denied(["乙"]), denied(["丙"]))))
-        code, _, _ = self.run_dispatch(rel, host, gh)
-        self.assertEqual(code, 0)
+        self.run_dispatch(rel, host, gh, expect=0)
         self.assertEqual(len(gh.issues), 1)
 
         # 非正配置：禁用该预警并提示配置错误，不改执行（仍开 PR 等 CI、退出 0、CI 预警不受影响）
@@ -408,8 +462,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.with_alerts({"guard_denials_threshold": 0})
         gh = FakeGitHub()
         host = RecordingHost(executor_script(stream(denied(["理由甲"]), denied(["理由乙"]))))
-        code, _, err = self.run_dispatch(rel, host, gh)
-        self.assertEqual(code, 0)
+        _, _, err = self.run_dispatch(rel, host, gh, expect=0)
         self.assertEqual(gh.issues, [])
         self.assertIn("配置非法", err)
         self.assertEqual(len(self.alert_comments(gh, "task/932-d", "ci_last_round")), 1)
@@ -421,8 +474,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.with_alerts({"guard_denials_threshold": "two"})
         gh = FakeGitHub()
         host = RecordingHost(executor_script(stream(denied(["理由甲"]), denied(["理由乙"]))))
-        code, _, _ = self.run_dispatch(rel, host, gh)
-        self.assertEqual(code, 0)
+        self.run_dispatch(rel, host, gh, expect=0)
         self.assertEqual(gh.issues, [])
         self.assertEqual(self.alert_comments(gh, "task/932-e", "guard_denials"), [])
 
@@ -484,8 +536,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.write_taskbook(rel, self.header("T934A"))
         self.stub_taskbook(rel, self.header("T934A"))
         gh = FakeGitHub(fail_publish=True)
-        code, out, _ = self.run_dispatch(rel, RecordingHost(executor_script(stream("done"))), gh)
-        self.assertEqual(code, 0)
+        _, out, _ = self.run_dispatch(rel, RecordingHost(executor_script(stream("done"))), gh, expect=0)
         self.assertIn("CI 通过", out)
         self.assertEqual(sum(1 for call in gh.calls if call[0] == "wait_ci"), 1)
         self.assertEqual(gh.labels, [])  # 预算未被触发
@@ -505,6 +556,23 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertIn(("escalate", "fail"), self.steps(rows))  # 原升级照常尝试（失败也留事件）
         self.assertEqual(self.steps(self.trace_events("task/934-b", "alert")),
                          [("ci_last_round", "error")])
+
+    # ---------- 验收（B73）：dispatch 断言失败现场携带死因 ----------
+
+    def test_dispatch_failure_diagnostics_visible(self):
+        """执行方写 stderr 后退出 1：退出码断言的失败消息含流尾部，stderr 死因在最后 30 行内（B73）。"""
+        self.commit_guards()
+        rel = "docs/plans/task-936-a.md"
+        self.write_taskbook(rel, self.header("T936A"))
+        self.stub_taskbook(rel, self.header("T936A"))
+        dying = executor_script(stream("done"), exit_code=1, stderr="fatal: index.lock 已被占用\n")
+        with self.assertRaises(AssertionError) as caught:
+            self.run_dispatch(rel, RecordingHost(dying), FakeGitHub(), expect=0)
+        message = str(caught.exception)
+        self.assertIn("执行方流尾部", message)
+        tail = message.split("最后 30 行）---", 1)[1].strip()
+        self.assertIn("fatal: index.lock 已被占用", tail)  # 死因随流落盘并被断言消息携带
+        self.assertLessEqual(len(tail.splitlines()), 30)
 
 
 if __name__ == "__main__":
