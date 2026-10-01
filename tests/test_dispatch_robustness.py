@@ -61,13 +61,21 @@ POINTER_KEYS = {
 
 
 def executor_script() -> str:
-    """假执行方：写一行会话流并做一次提交（--allow-empty 让无改动的重试轮也能过）。"""
+    """假执行方：写一行会话流并做一次提交（--allow-empty 让无改动的重试轮也能过）。
+    git 操作对瞬时失败做 3 次退避重试（0.1/0.3/0.9 秒，与 test_events_agents 同款，B73：
+    GitHub macOS runner 上偶发 git 瞬断，#105 两连挂实例）。"""
     return (
-        "import json, pathlib, subprocess, sys\n"
+        "import json, pathlib, subprocess, sys, time\n"
+        "def git(argv):\n"
+        "    for delay in (0.0, 0.1, 0.3, 0.9):\n"
+        "        if delay: time.sleep(delay)\n"
+        "        done = subprocess.run(['git', *argv], capture_output=True, text=True)\n"
+        "        if done.returncode == 0: return\n"
+        "    sys.exit('git ' + ' '.join(argv) + ' 重试 3 次后仍失败：\\n' + done.stderr)\n"
         "print(json.dumps({'type': 'session'}), flush=True)\n"
         "pathlib.Path('note.txt').write_text('work\\n')\n"
-        "subprocess.run(['git', 'add', '-A'], check=True)\n"
-        "subprocess.run(['git', 'commit', '-q', '-m', 'work', '--allow-empty'], check=True)\n"
+        "git(['add', '-A'])\n"
+        "git(['commit', '-q', '-m', 'work', '--allow-empty'])\n"
     )
 
 

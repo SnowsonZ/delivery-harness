@@ -279,7 +279,9 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.base = self.head_sha()
         # 守卫规则以 origin/main 为准（trusted_rules）：匿名远端与本地一致。
         origin = self.tmp / "origin.git"
-        self.git("clone", "-q", "--bare", ".", str(origin))
+        # --no-hardlinks：夹具 origin 不需要硬链接提速，绕开 macOS runner 上偶发的
+        # "hardlink different from source"（B73 系，#103 实例）。
+        self.git("clone", "-q", "--bare", "--no-hardlinks", ".", str(origin))
         self.git("remote", "add", "origin", str(origin))
         self.git("fetch", "-q", "origin")
         self.db_path = self.repo / ".git/harness/harness.db"
