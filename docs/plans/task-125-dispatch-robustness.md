@@ -40,6 +40,7 @@ rollback: git revert（仅在用户授权后）
 - `tests/test_run_timeline.py`（仅限既有 stages 断言的字段口径同步：瘦身后的字段集；不删除断言）
 - `engine/routing/run_check.py`（仅限 stages 校验配套：`_STAGE_FIELDS` 改「七键必填 + 旧六键可选」双形状、status 枚举加 `prior`、顶层 `stages_truncated/stages_total` 入白名单——见修订记录 2）
 - `CHANGELOG.md`（Unreleased 补条目）
+- `tests/test_audit_ledger.py`（仅限 stages 收敛的消费方同步：断言从「全部行有 source/head_hash」收窄到 evidence_kind=event 行与 step 覆盖——T305 账本对旧十二键的假设随形状收敛失效，见修订记录 3）
 
 ## 非目标
 
@@ -85,3 +86,9 @@ rollback: git revert（仅在用户授权后）
 - **CHANGELOG**：设计方补 Unreleased 条目（行为变化与消费方兼容性说明）。
 - **人工证据**：G2 556 对照与变异复核已在 PR #91 评论（首轮复核）；真实 resume ×3 核对随合并后 G1 升级执行（G1 前内置副本不含本修复，resume 行为未变——核对无意义；G1 后首次真实 resume 即核对该项）。
 - diff 截断 = B74 内置副本滞后（最后实例；G1 后出包走 T124 分片）。
+
+
+## 修订记录 3（2026-10-01，设计方补记授权：终评闭环）
+
+- **`tests/test_audit_ledger.py` 授权补记**（终评严重项）：该文件 3 行断言收窄（source/head_hash 的全行断言 → event 行断言 + step 覆盖）属 stages 收敛的**必要消费方同步**（检查单第 2 项的漏记实例：T305 与 T125 并行开发时，账本测试对旧十二键形状的假设在收敛后失效）。head_hash 核对在 anchors 侧已有等价覆盖（`refs["run_record"]` 断言），非覆盖收窄。修订记录 2 漏列该文件，本记录补记。
+- 人工证据时点维持修订记录 2 的裁决（resume ×3 于 G1 后；G2/变异在 PR #91 评论）；diff 截断 = B74 末例。
