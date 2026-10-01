@@ -38,6 +38,8 @@ rollback: git revert（仅在用户授权后）
 - `engine/agents/dispatch.py`
 - `tests/test_dispatch_robustness.py`（新增）
 - `tests/test_run_timeline.py`（仅限既有 stages 断言的字段口径同步：瘦身后的字段集；不删除断言）
+- `engine/routing/run_check.py`（仅限 stages 校验配套：`_STAGE_FIELDS` 改「七键必填 + 旧六键可选」双形状、status 枚举加 `prior`、顶层 `stages_truncated/stages_total` 入白名单——见修订记录 2）
+- `CHANGELOG.md`（Unreleased 补条目）
 
 ## 非目标
 
@@ -75,3 +77,11 @@ rollback: git revert（仅在用户授权后）
 ## 交付与升级
 
 完成项目检查 `bin/verify --full`。设计方另做逐行验收与定向变异复核（去掉 attempt 过滤回到全历史、去掉自检、去掉槽位回收，各自必须被对应断言抓住）。设计方做 G2。同一失败连续三轮无新证据时停止该路径；不得自行扩大白名单、改原任务书、实现非目标。
+
+
+## 修订记录 2（2026-10-01，设计方裁决二轮评审）
+
+- **run_check.py 白名单授权补记**：二轮修复（`5301e9a`）涉及的 `run_check.py` 改动属「冻结表配套授权」规则（执行计划 §3.5 规约 1）的适用对象——stages 瘦身改了写入方，记录内容校验的 `_STAGE_FIELDS` 必须配套，否则新记录被「记录内容」判失败断链（评审核实属实，设计方首轮任务书漏列该文件，现补记授权）。改动范围钉死为三处：双形状字段表、prior 枚举、顶层截断标注键。
+- **CHANGELOG**：设计方补 Unreleased 条目（行为变化与消费方兼容性说明）。
+- **人工证据**：G2 556 对照与变异复核已在 PR #91 评论（首轮复核）；真实 resume ×3 核对随合并后 G1 升级执行（G1 前内置副本不含本修复，resume 行为未变——核对无意义；G1 后首次真实 resume 即核对该项）。
+- diff 截断 = B74 内置副本滞后（最后实例；G1 后出包走 T124 分片）。
