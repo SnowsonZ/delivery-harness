@@ -39,10 +39,14 @@ COMMANDS = {
     "dispatch": "engine.agents.dispatch",
     "review": "engine.agents.review",
     "review-pack": "engine.agents.review_pack",
+    "review-plan": "engine.agents.plan_review",
     "identity": "engine.agents.identity",
     # 报告
     "metrics": "engine.reports.metrics",
     "weekly": "engine.reports.weekly",
+    # 可观测性查询（同一模块两入口；不追加自身事件，见 QUIET_COMMANDS）
+    "events": "engine.reports.trace:events_main",
+    "trace": "engine.reports.trace:trace_main",
     # 安装与升级（只能从引擎仓库的检出运行）
     "install": "engine.core.install",
     "upgrade": "engine.core.install:upgrade_main",
@@ -58,6 +62,7 @@ COMMAND_STAGE = {
     "dispatch": "dispatch",
     "review": "review",
     "review-pack": "review",
+    "review-plan": "review",
 }
 # 不记通用入口事件的命令：guard 只记拒绝（T104，放行不逐条记，设计 3.6）；events/trace 查询、
 # audit/alert 发布各自记事件，避免递归（C1）。
