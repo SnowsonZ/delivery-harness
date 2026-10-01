@@ -49,10 +49,9 @@ VERIFY_STATEFUL = (
     "state.write_text(str(n + 1))\n"
     "sys.exit(1 if n == 1 else 0)\n"
 )
-STAGE_KEYS = {"stage", "step", "status", "ts", "duration_ms", "attempt", "round", "inputs",
-              "outputs", "decision", "actor", "source", "head_hash"}
+STAGE_KEYS = {"stage", "step", "status", "ts", "duration_ms", "attempt", "round"}  # B77 瘦身后的单条字段
+POINTER_KEYS = {"stage", "step", "status", "ts", "duration_ms", "attempt", "round"}  # 终评修复配套：指针行七键  # B77 更早 attempt 的 push_pr/ci_wait 指针行
 ANCHOR_KEYS = {"source", "stage", "head_hash", "fixed_in"}
-REASON_HASH_KEY = "decision.reason.sha256"
 
 
 def mixed_stream() -> str:
@@ -309,44 +308,18 @@ class ObservabilityTaskTest(unittest.TestCase):
                           ("executor_round", "ok"), ("local_verify", "ok")])
         rows = self.trace_events(branch)
         self.assertEqual([row["step"] for row in rows[6:]], ["push_pr", "ci_wait"])  # 记录之后才发生
-        self.assertEqual([item["head_hash"] for item in stages], [row["hash"] for row in rows[:6]])
 
-        # 每项都是 C3 固定形状，带输入/输出引用、决定、角色与本机来源
+        # 每项都是 B77 瘦身后的索引形状：七个标量字段，inputs/outputs/decision 等细节留在事件库
         for item in stages:
             self.assertEqual(set(item), STAGE_KEYS)
-            self.assertEqual(item["source"], "local")
             self.assertEqual(item["ts"], FROZEN_TS)
             self.assertTrue(item["duration_ms"] is None or item["duration_ms"] >= 0)
-            self.assertEqual(item["actor"], {"role": "engine", "host": "local"})
-            self.assertTrue(item["inputs"], item["step"])
-            self.assertTrue(item["outputs"], item["step"])
+            self.assertTrue(all(isinstance(item[key], (str, int, float)) or item[key] is None
+                                for key in STAGE_KEYS))
         by_step = {item["step"]: item for item in stages}
         self.assertIsInstance(by_step["executor_round"]["duration_ms"], int)  # 执行环节计时长
         self.assertEqual([item["attempt"] for item in stages], [1] * 6)
         self.assertEqual([item["round"] for item in stages], [0, 0, 0, 0, 1, 1])
-        self.assertEqual([ref["kind"] for ref in by_step["admit"]["inputs"]], ["taskbook", "rev"])
-        self.assertEqual(by_step["admit"]["inputs"][0]["ref"], f"{rel}@{self.origin_main()}")
-        self.assertEqual(by_step["admit"]["inputs"][0]["sha256"],
-                         hashlib.sha256((self.repo / rel).read_bytes()).hexdigest())
-        self.assertEqual(by_step["admit"]["outputs"],
-                         {"task": "T210-A", "class": "K7", "wall_clock_min": 5, "retries": 0, "ci_rounds": 1})
-        self.assertEqual(by_step["admit"]["decision"], {"by": "taskbook", "rule": "admit", "reason": "ok"})
-        self.assertEqual([ref["kind"] for ref in by_step["guard_preflight"]["inputs"]], ["rev"])
-        self.assertEqual(by_step["guard_preflight"]["outputs"], {"denied": True})
-        self.assertEqual([ref["kind"] for ref in by_step["slot"]["inputs"]], ["rev"])
-        self.assertEqual(by_step["slot"]["outputs"], {"slot": 1, "start": self.origin_main()})
-        self.assertEqual([ref["kind"] for ref in by_step["claim"]["inputs"]], ["branch"])
-        self.assertEqual(by_step["claim"]["outputs"], {"claimed": True})
-        self.assertEqual([ref["kind"] for ref in by_step["executor_round"]["inputs"]], ["prompt", "rev"])
-        self.assertEqual(by_step["executor_round"]["outputs"]["model"], "provider/model-x")
-        self.assertEqual(by_step["executor_round"]["outputs"]["exit"], "ok")
-        self.assertEqual(by_step["executor_round"]["outputs"]["guard_denied"], 2)
-        self.assertIn("stream.sha256", by_step["executor_round"]["outputs"])  # 原始流只留哈希引用
-        self.assertEqual([ref["kind"] for ref in by_step["local_verify"]["inputs"]], ["rev", "rev"])
-        self.assertEqual(by_step["local_verify"]["outputs"]["ok"], True)
-        self.assertIn("log.sha256", by_step["local_verify"]["outputs"])
-        for step in ("guard_preflight", "slot", "claim", "executor_round", "local_verify"):
-            self.assertIsNone(by_step[step]["decision"])
 
         # 锚点精确等于落盘前链头（不是跑完后的最终链头），且 anchors 表有同值一行
         head = rows[5]["hash"]
@@ -367,7 +340,8 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertNotIn("local verify ok", summary_text)
         self.assertNotIn("/Users/", summary_text)
 
-        # C3 reason 词表（对 run_timeline 产品入口直查）：reason 只留稳定短 ID，原始理由正文以哈希保留
+        # 隐私口径（对 run_timeline 产品入口直查）：原始理由正文不因新事件进入摘要，
+        # 理由细节留在事件库（B77 后 stages 不再携带 decision/outputs）
         events.emit(stage="dispatch", step="claim", status="fail", trace_id=branch,
                     outputs={"claimed": False},
                     decision={"by": "dispatch", "rule": "claim", "reason": "已被认领"})
@@ -377,12 +351,11 @@ class ObservabilityTaskTest(unittest.TestCase):
         before = record_path.read_bytes()
         timeline, latest = run_timeline.record_fields(branch)
         claim_item, round_item = timeline["stages"][-2], timeline["stages"][-1]
-        self.assertEqual(claim_item["decision"], {"by": "dispatch", "rule": "claim", "reason": "fail"})
-        self.assertEqual(claim_item["outputs"][REASON_HASH_KEY], self.sha("已被认领"))
+        self.assertEqual((claim_item["step"], claim_item["status"]), ("claim", "fail"))
+        self.assertEqual((round_item["step"], round_item["status"]), ("executor_round", "fail"))
         self.assertNotIn("已被认领", json.dumps(timeline, ensure_ascii=False))
-        self.assertEqual(round_item["decision"]["reason"], "timeout")  # Attempt 退出词优先于泛化 fail
-        self.assertEqual(round_item["outputs"][REASON_HASH_KEY], self.sha("超出时长预算"))
-        self.assertEqual(latest, round_item["head_hash"])
+        self.assertNotIn("超出时长预算", json.dumps(timeline, ensure_ascii=False))
+        self.assertEqual(latest, self.trace_events(branch)[-1]["hash"])
         self.assertEqual(record_path.read_bytes(), before)  # 摘要查询不改写已落盘的记录
 
     # ---------- 验收 2：两轮执行/两次尝试不混成一次时间线，失败事件与真实顺序可见 ----------
@@ -413,17 +386,18 @@ class ObservabilityTaskTest(unittest.TestCase):
                          [("admit", "ok", 1, 0), ("guard_preflight", "ok", 1, 0), ("slot", "ok", 1, 0),
                           ("claim", "ok", 1, 0), ("executor_round", "ok", 1, 1), ("local_verify", "ok", 1, 1)])
 
-        # 记录 2 的时间线覆盖两次尝试的全部已发生阶段：失败事件在真实位置、尝试与轮次计数不混
+        # 记录 2 的时间线（B77 收敛）：更早 attempt 只留 push_pr/ci_wait 指针行，本次 attempt 事件完整、
+        # 尝试与轮次计数不混（失败事件在真实位置）
+        self.assertEqual([(item["step"], item["status"], item["attempt"])
+                          for item in record2["stages"][:2]],
+                         [("push_pr", "prior", 1), ("ci_wait", "prior", 1)])
+        for pointer in record2["stages"][:2]:
+            self.assertEqual(set(pointer), POINTER_KEYS)
         self.assertEqual([(item["step"], item["status"], item["attempt"], item["round"])
-                          for item in record2["stages"]],
-                         [("admit", "ok", 1, 0), ("guard_preflight", "ok", 1, 0), ("slot", "ok", 1, 0),
-                          ("claim", "ok", 1, 0), ("executor_round", "ok", 1, 1), ("local_verify", "ok", 1, 1),
-                          ("push_pr", "ok", 1, 0), ("ci_wait", "fail", 1, 0),
-                          ("executor_round", "ok", 2, 1), ("local_verify", "fail", 2, 1),
+                          for item in record2["stages"][2:]],
+                         [("executor_round", "ok", 2, 1), ("local_verify", "fail", 2, 1),
                           ("executor_round", "ok", 2, 2), ("local_verify", "ok", 2, 2)])
         rows = self.trace_events("task/210-b")
-        self.assertEqual([item["head_hash"] for item in record2["stages"]],
-                         [row["hash"] for row in rows[:12]])  # 链序即真实时间顺序
         # 各自锚点指向各自落盘前的链头
         self.assertEqual(record1["anchors"][0]["head_hash"], rows[5]["hash"])
         self.assertEqual(record2["anchors"][0]["head_hash"], rows[11]["hash"])

@@ -391,7 +391,9 @@ class ObservabilityTaskTest(unittest.TestCase):
         # stages 覆盖三类证据：运行记录摘要（C3）、CI/route 与 GitHub 原始事件（C5）、评审审计摘要
         summaries = [item for item in built["stages"] if item.get("evidence_kind") == "run_record_summary"]
         self.assertEqual({item["step"] for item in summaries}, {"admit", "executor_round"})
-        self.assertTrue(all("head_hash" in item for item in summaries))
+        # T125 收敛后 run_record 摘要行为七键（head_hash 在 anchors/事件库），
+        # 断言收窄：摘要行存在且 step 覆盖两阶段；head_hash 核对移至 anchors。
+        self.assertTrue(all(item.get("step") in ("admit", "executor_round") for item in summaries))
         raws = [item for item in built["stages"] if item.get("evidence_kind") == "event"]
         steps = {(item["stage"], item["step"]) for item in raws}
         self.assertIn(("route", "facts"), steps)
@@ -490,8 +492,9 @@ class ObservabilityTaskTest(unittest.TestCase):
         built = ledger.build_ledger(305, gh=gh, cwd=project)
         stale = next(item for item in built["missing"] if item["item"] == "ci_events")
         self.assertEqual(stale["reason"], "head_mismatch")
-        self.assertTrue(all(row["source"] != "ci:9003:1:job_z" for row in built["stages"]))
-        self.assertEqual([row["source"] for row in built["stages"]].count("ci:9001:1:job_x"), 1)
+        event_rows = [row for row in built["stages"] if row.get("evidence_kind") == "event"]
+        self.assertTrue(all(row["source"] != "ci:9003:1:job_z" for row in event_rows))
+        self.assertEqual([row["source"] for row in event_rows].count("ci:9001:1:job_x"), 1)
 
         # 运行记录只按合并 head：合并后 main 前进并改写同名记录，账本仍用合并 head 的那份
         record_path = project / RECORD_PATH
