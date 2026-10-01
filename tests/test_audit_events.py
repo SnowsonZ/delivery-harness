@@ -2,7 +2,8 @@
 （stage 固定 ci、不新增阶段枚举；批量与无法审计的失败报告同样各一条）；事件 outputs 只含安全字段
 （pr/head_sha/规则与 severity 计数/coverage 摊平/ok，finding 事件含 rule/severity/source/stage/ref），
 reason 原文与本机路径不入事件；观察写入失败（T106 同款真实失败点：库目录换成普通文件）时退出码与
-stdout 和禁用观察逐字一致、stderr 只差 T101 固定的一次提示（C0 三态等价）。
+stdout 和禁用观察逐字一致、stderr 只差 T101 固定的一次提示（C0 三态等价）——三态在同一世界内依次
+对比，报告内嵌 head_sha 等世界特定的提交哈希，跨世界本就无从逐字一致。
 
 夹具沿用 tests/test_audit_reconstruction.py 的模式：隔离 events_db.ROOT、递增冻结时钟、假 gh 桩，
 最小可审计世界（合并事实 + 空评论/CI/议题；评论列表故障产生一条 reference_unavailable 发现），
@@ -321,35 +322,33 @@ class ObservabilityTaskTest(unittest.TestCase):
     # ---- 验收 3：观察写入失败时退出码与输出和禁用观察逐字一致（C0） ----
 
     def test_observation_failure_isolated(self):
+        # 三态共用同一世界：报告内嵌 head_sha/merge_sha 等世界特定的提交哈希，跨世界无从逐字一致
+        world = self.build_world()
         # 禁用观察：HARNESS_EVENTS=off，审计照常（退出 1、报告照出），零事件、零写入尝试
-        world_off = self.build_world()
         with mock.patch.dict(os.environ, {"HARNESS_EVENTS": "off"}), \
-                self.cli_env(gh=self.platform(world_off, fail_comments=True),
-                             root=world_off.project):
+                self.cli_env(gh=self.platform(world, fail_comments=True), root=world.project):
             off = self.run_cli("audit", "401", "--json")
         self.assertEqual(off[0], 1, off[2])
         self.assertTrue(json.loads(off[1])["findings"])
         self.assertEqual(self.audit_events("audit.summary") + self.audit_events("audit.finding"), [])
         self.assertNotIn(WARN, off[2])
 
-        # 写入失败：真实失败点（库目录换成普通文件），固定提示恰一次、失败不留半条事件（目录未重建）
-        world_broken = self.build_world()
-        self.sink_break(world_broken.project)
-        with self.cli_env(gh=self.platform(world_broken, fail_comments=True),
-                          root=world_broken.project):
+        # 写入失败：同一世界把库目录换成普通文件，固定提示恰一次、失败不留半条事件（目录未重建）
+        self.sink_break(world.project)
+        with self.cli_env(gh=self.platform(world, fail_comments=True), root=world.project):
             broken = self.run_cli("audit", "401", "--json")
         self.assertEqual(broken[2].count(WARN), 1, broken[2])
-        self.assertTrue((world_broken.project / ".git" / "harness").is_file())
+        self.assertTrue((world.project / ".git" / "harness").is_file())
         # 退出码与 stdout 和禁用观察逐字一致；stderr 只差 T101 固定的一次提示
         self.assertEqual(broken[0], off[0])
         self.assertEqual(broken[1], off[1])
         self.assertEqual([line for line in broken[2].splitlines() if line != WARN],
                          off[2].splitlines())
 
-        # 开启态对照：事件照写（1 条 summary + 1 条 finding），退出码与 findings 与两态一致
-        #（报告数据的差异只来自被同步的事件本身，观察旁路没有改判定）
-        world_on = self.build_world()
-        with self.cli_env(gh=self.platform(world_on, fail_comments=True), root=world_on.project):
+        # 开启态对照：恢复库目录后事件照写（1 条 summary + 1 条 finding），退出码与发现与禁用观察
+        # 一致（报告多出的阶段来自 sync 写入的 GitHub 事实事件，不是观察旁路改了判定）
+        (world.project / ".git" / "harness").unlink()
+        with self.cli_env(gh=self.platform(world, fail_comments=True), root=world.project):
             on = self.run_cli("audit", "401", "--json")
         self.assertEqual(on[0], off[0])
         self.assertEqual(json.loads(on[1])["findings"], json.loads(off[1])["findings"])
