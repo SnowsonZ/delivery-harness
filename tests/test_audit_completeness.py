@@ -94,12 +94,14 @@ class _Clock:
 class FakeGh:
     """audit/ledger/load_ci/sync 共用 gh 桩：只读 API、artifact zip 下载与锚点评论写操作。"""
 
-    def __init__(self, *, repo=REPO, pulls=None, reviews=None, pr_commits=None, commits=None,
-                 comments=None, issues=None, runs=None, artifacts=None, downloads=None, fail=()):
+    def __init__(self, *, repo=REPO, pulls=None, closed=None, reviews=None, pr_commits=None,
+                 commits=None, comments=None, issues=None, runs=None, artifacts=None, downloads=None,
+                 fail=()):
         self.calls: list[tuple] = []
         self.writes: list[tuple] = []
         self._repo = repo
         self.pulls = pulls or {}
+        self.closed = list(closed or [])
         self.reviews = reviews or {}
         self.pr_commits = pr_commits or {}
         self.commits = commits or {}
@@ -135,6 +137,8 @@ class FakeGh:
             if pull is None:
                 raise RuntimeError(f"HTTP 404: Not Found（夹具无 PR {match[1]}）")
             return pull
+        if re.fullmatch(r"repos/[^/]+/[^/]+/pulls", path):
+            return self._page(self.closed, query)
         if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)/reviews", path):
             return self._page(self.reviews.get(int(match[1]), []), query)
         if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)/commits", path):
@@ -383,7 +387,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         if reviews is None:
             reviews = [{"state": "APPROVED", "user": {"login": merger[0], "type": merger[1]},
                         "commit_id": fx.branch_head}] if merger == BOT else []
-        return FakeGh(pulls={402: pull}, reviews={402: reviews},
+        return FakeGh(pulls={402: pull}, closed=[pull], reviews={402: reviews},
                       pr_commits={402: [{"sha": "x1"}]},
                       commits={fx.merge_sha: {"parents": [{"sha": "p1"}, {"sha": "p2"}]}},
                       comments=list(comments), runs=runs, artifacts=artifacts, downloads=downloads)
@@ -717,6 +721,23 @@ class ObservabilityTaskTest(unittest.TestCase):
         finding = self.finding(report, "chain_invalid")
         self.assertIn("无法读取", finding["reason"])
         self.assertFalse(report["ok"])
+
+        # 范围（批量模式）：非法 [audit] 配置让整批退出 2（configuration_error 优先于普通发现）；
+        # 同一世界换合法配置后批量退出码回到 0/1（由发现决定），配置错误不静默淹没批量结果
+        fx, gh = self.world(risk="R2", merger=("alice", "User"), auto_route=False,
+                            config='[audit]\nrequire_review_risk = "2"\n')
+        with self.cli_env(gh=gh, root=fx.project):
+            code, out, _err = self.run_cli("audit", "--all-merged", "--json")
+        self.assertEqual(code, 2)
+        batch = json.loads(out)
+        self.assertEqual([item["pr"] for item in batch["prs"]], [402])
+        self.assertIn("configuration_error", self.rules_of(batch["prs"][0]))
+        fx, gh = self.world(risk="R2", merger=("alice", "User"), auto_route=False,
+                            config="[audit]\nrequire_review_risk = 3\n")
+        with self.cli_env(gh=gh, root=fx.project):
+            code, out, _err = self.run_cli("audit", "--all-merged", "--json")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(json.loads(out)["prs"][0]["ok"])
 
         # 原路由返回不受审计配置影响：无 [audit]/合法 [audit]/非法 [audit] 三种配置下
         # policy.main（路由产品入口）的 stdout 逐字相同、返回 0（[audit] 只属于 audit 报告）
