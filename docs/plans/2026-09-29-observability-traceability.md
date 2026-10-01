@@ -72,7 +72,7 @@
 | D062 | 4.2/audit-rebuild | PR或all-merged/since批量分页，逐引用原字节/规范化快照复取与哈希核对 | [T401](task-401-audit-reconstruction.md) | `python3 -W error::ResourceWarning -m unittest tests.test_audit_reconstruction.ObservabilityTaskTest -v`（任务书命令逐个点名方法，不接受0 tests） | 派发任务 |
 | D063 | 4.2/audit-complete | R2+评审且身份不同、auto有route、task有记录锚点、app低风险批准者/绑定head、none模式 | [T402](task-402-audit-completeness.md) | `python3 -W error::ResourceWarning -m unittest tests.test_audit_completeness.ObservabilityTaskTest -v`（任务书命令逐个点名方法，不接受0 tests） | 派发任务 |
 | D064 | 4.2/audit-tamper | 链/前缀锚点/账本与运行层对head核对；中删改/尾删/引用变动/到期均如实报告 | [T402](task-402-audit-completeness.md)、[T401](task-401-audit-reconstruction.md) | `python3 -W error::ResourceWarning -m unittest tests.test_audit_completeness.ObservabilityTaskTest -v`（任务书命令逐个点名方法，不接受0 tests）；`python3 -W error::ResourceWarning -m unittest tests.test_audit_reconstruction.ObservabilityTaskTest -v`（任务书命令逐个点名方法，不接受0 tests） | 派发任务 |
-| D065 | 4.2、6/P5 | 周报附事件小节：阶段耗时、守卫拒绝、升级原因、审计发现及缺上下文；旧指标不变且对账 | [T501](task-501-weekly-events.md) | `python3 -W error::ResourceWarning -m unittest tests.test_weekly_events.ObservabilityTaskTest -v`（任务书命令逐个点名方法，不接受0 tests） | 派发任务 |
+| D065 | 4.2、6/P5 | 周报附事件小节：阶段耗时、守卫拒绝、升级原因、审计发现及缺上下文；旧指标不变且对账 | [T404](task-404-audit-events-changelog.md)、[T501](task-501-weekly-events.md) | `python3 -W error::ResourceWarning -m unittest tests.test_audit_events.ObservabilityTaskTest -v`（任务书命令逐个点名方法，不接受0 tests）；`python3 -W error::ResourceWarning -m unittest tests.test_weekly_events.ObservabilityTaskTest -v`（任务书命令逐个点名方法，不接受0 tests） | 派发任务 |
 | D066 | 5 | 完整性integrity失败即时告警 | [T403](task-403-alert-cli-workflows.md) | `python3 -W error::ResourceWarning -m unittest tests.test_alert_cli.ObservabilityTaskTest -v`（任务书命令逐个点名方法，不接受0 tests） | 派发任务 |
 | D067 | 5 | 独立评审否决或评审方自身失败，现有评论补标签并调用共用发布 | [T403](task-403-alert-cli-workflows.md) | `python3 -W error::ResourceWarning -m unittest tests.test_alert_cli.ObservabilityTaskTest -v`（任务书命令逐个点名方法，不接受0 tests） | 派发任务 |
 | D068 | 5 | 派发stall/timeout/打转/重试预算升级补trace与阶段链接 | [T205](task-205-dispatch-alerts.md) | `python3 -W error::ResourceWarning -m unittest tests.test_dispatch_alerts.ObservabilityTaskTest -v`（任务书命令逐个点名方法，不接受0 tests） | 派发任务 |
@@ -122,6 +122,7 @@
 | [T304](task-304-github-events.md) | 合并、抽审与逃逸事实同步 | T303 | D018、D044、D045、D046 | 派发任务 | 120 |
 | [T305](task-305-audit-ledger.md) | 合并账本与 PR 锚点 | T304 | D016、D057、D058、D077 | 派发任务 | 180 |
 | [T401](task-401-audit-reconstruction.md) | 审计引用复原与哈希核对 | T305 | D006、D011、D062、D064 | 派发任务 | 150 |
+| [T404](task-404-audit-events-changelog.md) | audit 观察事件与变更记录 | T401 | D065 | 派发任务 | 90 |
 | [T402](task-402-audit-completeness.md) | 审计完整性与锚点防篡改 | T401 | D002、D016、D017、D063、D064 | 派发任务 | 150 |
 | [T403](task-403-alert-cli-workflows.md) | 告警汇总命令与工作流末尾步骤 | T402 | D047、D066、D067、D071、D072、D073、D074 | 派发任务 | 180 |
 | [T501](task-501-weekly-events.md) | 周报事件汇总与原指标对账 | T403 | D065、D079 | 派发任务 | 120 |
@@ -133,7 +134,7 @@
 P1：T109 →（T102、T103、T104 三槽并行，T103/T104 已放宽为依赖 T109）→（T105、T108、T110 并行）→ T106 → T107 → G1/G2。
 P2：T201 →（T202、T203 并行，T203 已放宽为依赖 T201）→（T204、T205 并行，T205 已放宽为依赖 T203）→ G1/G2。
 P3：T301 → T302 → T303 → T304 → T305 → G1/G2/G4。
-P4：T401 → T402 → T403 → G1/G2。
+P4：T401 → T404 → T402 → T403 → G1/G2。
 P5：T501 → G1/G2。P6：T601 → G3 → T602 → G1/G2（如本期引擎未改则G1核对无需重复upgrade）→ G5（发版时）。
 
 最多三个槽位；并行对经设计方 2026-09-29 修订核定（白名单两两不交叉、不落在共用文件链上），其余链仍按依赖串行。每次合并后剩余分支更新main并重新满足ruleset；不为了用满槽位增加合并冲突。
