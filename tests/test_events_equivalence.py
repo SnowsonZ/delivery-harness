@@ -43,9 +43,12 @@ ZERO_SHA = "0" * 40
 SUMMARY_REL = "build/verify/summary.json"
 OFF_ENV = {"HARNESS_EVENTS": "off"}
 GIT_ENV = {
-    "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
-    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
-    "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "t",
+    "GIT_AUTHOR_EMAIL": "t@example.com",
+    "GIT_COMMITTER_NAME": "t",
+    "GIT_COMMITTER_EMAIL": "t@example.com",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_CONFIG_NOSYSTEM": "1",
 }
 # verify 检查结论行的耗时字段（`✓ tools  0.1s` 的 `\d+\.\d+s`），白名单剔除只针对这一处。
 DURATION_LINE = re.compile(r"^([✓✗-] \S+ +)(\d+\.\d+)s", re.MULTILINE)
@@ -198,7 +201,7 @@ SPEC_MD = """\
 |---|---|---|---|
 | U4 | 夹具条目 | 单测 | `test_demo.AppTest.test_ok` |
 """
-REPLAY_EMPTY = 'BASELINE = []\nCASES = []\nGUARDED = {}\nDEFERRED = {}\n'
+REPLAY_EMPTY = "BASELINE = []\nCASES = []\nGUARDED = {}\nDEFERRED = {}\n"
 # 假 gh：labels/escapes/CI 运行按固定形状应答，其余调用显式失败（确定性夹具，不做真实网络读写）。
 GH_ALLOW = """\
 #!/bin/sh
@@ -232,8 +235,15 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="dh-events-equivalence-"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.repo = self.tmp / "app"
-        for rel in (".harness/config", ".harness/state", ".harness/project",
-                    "docs/plans", "docs/specs", "src", "tests"):
+        for rel in (
+            ".harness/config",
+            ".harness/state",
+            ".harness/project",
+            "docs/plans",
+            "docs/specs",
+            "src",
+            "tests",
+        ):
             (self.repo / rel).mkdir(parents=True)
         (self.repo / ".harness/config/rules.toml").write_text(RULES_TOML, encoding="utf-8")
         (self.repo / ".harness/config/checks.toml").write_text(CHECKS_TOML, encoding="utf-8")
@@ -251,23 +261,27 @@ class ObservabilityTaskTest(unittest.TestCase):
         (self.repo / "docs/plans/task-901-legal.md").write_text(taskbook_text("T901"), encoding="utf-8")
         # 安装布局：引擎副本 + 配套锁文件（integrity 的真实核对对象；其余命令自然以夹具为根）。
         engine_dir = self.repo / ".harness/engine"
-        shutil.copytree(ENGINE_REPO / "engine", engine_dir,
-                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        lock = {"engine": "delivery-harness", "version": ENGINE_VERSION, "commit": "fixture",
-                "tree": integrity.tree_hash(engine_dir)}
+        shutil.copytree(ENGINE_REPO / "engine", engine_dir, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        lock = {
+            "engine": "delivery-harness",
+            "version": ENGINE_VERSION,
+            "commit": "fixture",
+            "tree": integrity.tree_hash(engine_dir),
+        }
         (self.repo / ".harness/engine.lock").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
         self.cli = engine_dir / "cli.py"
         self.git("init", "-q", "-b", "main")
         # verify 的 tools 检查要求 git 守卫已安装；夹具只写配置（.githooks 目录不存在时 git 静默跳过钩子）。
         config = self.repo / ".git/config"
-        config.write_text(config.read_text(encoding="utf-8") + "[core]\n\thooksPath = .githooks\n",
-                          encoding="utf-8")
+        config.write_text(config.read_text(encoding="utf-8") + "[core]\n\thooksPath = .githooks\n", encoding="utf-8")
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "init")
         self.base = self.head_sha()
         # 守卫规则以 origin/main 为准（trusted_rules）：匿名远端与本地一致。
         origin = self.tmp / "origin.git"
-        self.git("clone", "-q", "--bare", ".", str(origin))
+        # --no-hardlinks：夹具 origin 不需要硬链接提速，绕开 macOS runner 上偶发的
+        # "hardlink different from source"（B73 系，#103 实例）。
+        self.git("clone", "-q", "--bare", "--no-hardlinks", ".", str(origin))
         self.git("remote", "add", "origin", str(origin))
         self.git("fetch", "-q", "origin")
         self.db_path = self.repo / ".git/harness/harness.db"
@@ -275,10 +289,10 @@ class ObservabilityTaskTest(unittest.TestCase):
     # ---------- 夹具操作 ----------
 
     def git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("GIT_", "HARNESS_"))}
-        proc = subprocess.run(["git", *args], cwd=self.repo, capture_output=True, text=True,
-                              env={**env, **GIT_ENV}, check=False)
+        env = {key: value for key, value in os.environ.items() if not key.startswith(("GIT_", "HARNESS_"))}
+        proc = subprocess.run(
+            ["git", *args], cwd=self.repo, capture_output=True, text=True, env={**env, **GIT_ENV}, check=False
+        )
         if check and proc.returncode:
             self.fail(f"git {' '.join(args)} 失败：{proc.stderr}")
         return proc
@@ -296,22 +310,38 @@ class ObservabilityTaskTest(unittest.TestCase):
         return self.git("rev-parse", "HEAD").stdout.strip()
 
     def child_env(self, **extra: str) -> dict[str, str]:
-        env = {key: value for key, value in os.environ.items()
-               if not key.startswith(("GIT_", "GITHUB_", "HARNESS_")) and key != "CI"}
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("GIT_", "GITHUB_", "HARNESS_")) and key != "CI"
+        }
         env.update(GIT_ENV)
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env.update(extra)
         return env
 
-    def run_cli(self, argv: list[str], *, stdin: str = "", structured: tuple[str, ...] = (),
-                env_extra: dict[str, str] | None = None) -> dict:
+    def run_cli(
+        self,
+        argv: list[str],
+        *,
+        stdin: str = "",
+        structured: tuple[str, ...] = (),
+        env_extra: dict[str, str] | None = None,
+    ) -> dict:
         for rel in structured:
             target = self.repo / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(b"")
-        proc = subprocess.run([sys.executable, str(self.cli), *argv], cwd=self.repo, input=stdin,
-                              capture_output=True, text=True, check=False, timeout=300,
-                              env=self.child_env(**(env_extra or {})))
+        proc = subprocess.run(
+            [sys.executable, str(self.cli), *argv],
+            cwd=self.repo,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=300,
+            env=self.child_env(**(env_extra or {})),
+        )
         result = {"code": proc.returncode, "out": proc.stdout, "err": proc.stderr}
         if structured:
             result["structured"] = {rel: (self.repo / rel).read_bytes() for rel in structured}
@@ -356,6 +386,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         durations: list[float] = []
         out = result["out"]
         if "verify" in spots:
+
             def replace(match: re.Match[str]) -> str:
                 durations.append(float(match.group(2)))
                 return f"{match.group(1)}<耗时>s"
@@ -373,24 +404,35 @@ class ObservabilityTaskTest(unittest.TestCase):
         for value in durations:
             self.assertIsInstance(value, (int, float), f"耗时字段必须是数值：{durations}")
             self.assertGreaterEqual(value, 0.0, f"耗时字段必须非负：{durations}")
-        return {"code": result["code"], "out": out,
-                "err": [line for line in lines if line != WARN], "structured": structured}
+        return {
+            "code": result["code"],
+            "out": out,
+            "err": [line for line in lines if line != WARN],
+            "structured": structured,
+        }
 
-    def assert_equivalent(self, base: dict, *others: dict, spots: tuple[str, ...] = (),
-                          context: str = "") -> None:
+    def assert_equivalent(self, base: dict, *others: dict, spots: tuple[str, ...] = (), context: str = "") -> None:
         self.assertNotIn(WARN, base["err"], f"{context}：事件开启/关闭态不应出现写入失败提示")
         left = self.normalize(base, spots)
         for other in others:
             self.assertEqual(left, self.normalize(other, spots), context)
 
-    def three_states(self, name: str, argv: list[str], expect_steps: tuple[str, ...] = (), *,
-                     stdin: str = "", structured: tuple[str, ...] = (), spots: tuple[str, ...] = (),
-                     emit: bool = True, env_extra: dict[str, str] | None = None) -> dict:
+    def three_states(
+        self,
+        name: str,
+        argv: list[str],
+        expect_steps: tuple[str, ...] = (),
+        *,
+        stdin: str = "",
+        structured: tuple[str, ...] = (),
+        spots: tuple[str, ...] = (),
+        emit: bool = True,
+        env_extra: dict[str, str] | None = None,
+    ) -> dict:
         extra = env_extra or {}
 
         def invoke(env_over: dict[str, str]) -> dict:
-            return self.run_cli(argv, stdin=stdin, structured=structured,
-                                env_extra={**extra, **env_over})
+            return self.run_cli(argv, stdin=stdin, structured=structured, env_extra={**extra, **env_over})
 
         before = self.max_event_id()
         on = invoke({})
@@ -417,8 +459,7 @@ class ObservabilityTaskTest(unittest.TestCase):
             self.assertLessEqual(warn_count, 1, f"{name}：写入失败提示最多一次\n{broken['err']}")
             if emit:
                 self.assertEqual(warn_count, 1, f"{name}：未真实进入失败写入点\n{broken['err']}")
-                self.assertTrue((self.repo / ".git/harness").is_file(),
-                                f"{name}：失败写入点未触发（库目录被重建）")
+                self.assertTrue((self.repo / ".git/harness").is_file(), f"{name}：失败写入点未触发（库目录被重建）")
             else:
                 self.assertEqual(warn_count, 0, f"{name}：无写入就不该有失败提示\n{broken['err']}")
         finally:
@@ -432,8 +473,9 @@ class ObservabilityTaskTest(unittest.TestCase):
 
     def test_verify_and_checks_equivalent_three_states(self):
         def verify_triple(name: str, argv: list[str], expected_code: int) -> dict:
-            result = self.three_states(name, argv, ("cli.verify", "verify.summary"),
-                                       structured=(SUMMARY_REL,), spots=("verify",))
+            result = self.three_states(
+                name, argv, ("cli.verify", "verify.summary"), structured=(SUMMARY_REL,), spots=("verify",)
+            )
             self.assertEqual(result["code"], expected_code, name)
             return result
 
@@ -449,14 +491,14 @@ class ObservabilityTaskTest(unittest.TestCase):
 
         self.three_states("hygiene 通过", ["hygiene", "--tracked"], ("cli.hygiene", "hygiene.summary"))
         self.commit({"notes.md": "记录\nlog /Users/test/data\n", ".DS_Store": "夹具\n"}, "违规夹具")
-        result = self.three_states("hygiene 失败", ["hygiene", "--range", self.base],
-                                   ("cli.hygiene", "hygiene.summary", "hygiene.violation"))
+        result = self.three_states(
+            "hygiene 失败", ["hygiene", "--range", self.base], ("cli.hygiene", "hygiene.summary", "hygiene.violation")
+        )
         self.assertEqual(result["code"], 1)
         self.git("reset", "-q", "--hard", self.base)
 
         self.three_states("taskbook 通过", ["taskbook"], ("cli.taskbook", "taskbook.admit"))
-        self.commit({"docs/plans/task-902-bad.md": taskbook_text("T902", ci_rounds=9, acceptance="ZZ99")},
-                    "坏任务书")
+        self.commit({"docs/plans/task-902-bad.md": taskbook_text("T902", ci_rounds=9, acceptance="ZZ99")}, "坏任务书")
         result = self.three_states("taskbook 失败", ["taskbook"], ("cli.taskbook", "taskbook.admit"))
         self.assertEqual(result["code"], 1)
         self.git("reset", "-q", "--hard", self.base)
@@ -484,77 +526,124 @@ class ObservabilityTaskTest(unittest.TestCase):
         tampered.write_bytes(original_bytes)
 
         head_doc = self.commit({"docs/note.md": "说明\n"}, "文档改动")
-        self.three_states("base-tests 通过", ["base-tests", "--base", self.base, "--head", head_doc],
-                          ("cli.base-tests", "base_tests"))
-        head_fix = self.commit({
-            "app.py": "def flag():\n    return True\n",
-            "tests/test_app.py": TEST_APP_BASE + "\n    def test_flag(self):\n"
-                                 "        self.assertTrue(app.flag())  # T901-X1\n",
-        }, "修复\n\nDefect: T901-X1")
-        result = self.three_states("base-tests 失败", ["base-tests", "--base", self.base, "--head", head_fix],
-                                   ("cli.base-tests", "base_tests"))
+        self.three_states(
+            "base-tests 通过", ["base-tests", "--base", self.base, "--head", head_doc], ("cli.base-tests", "base_tests")
+        )
+        head_fix = self.commit(
+            {
+                "app.py": "def flag():\n    return True\n",
+                "tests/test_app.py": TEST_APP_BASE + "\n    def test_flag(self):\n"
+                "        self.assertTrue(app.flag())  # T901-X1\n",
+            },
+            "修复\n\nDefect: T901-X1",
+        )
+        result = self.three_states(
+            "base-tests 失败", ["base-tests", "--base", self.base, "--head", head_fix], ("cli.base-tests", "base_tests")
+        )
         self.assertEqual(result["code"], 1)
 
         prompt = "为 T901 准备的提示词\n"
         record = {
-            "task": "T901", "class": "K1", "attempt": 1, "branch": "task/901-x",
-            "gen_ai.agent.name": "pi", "host_version": "0.85.1", "gen_ai.request.model": "test/model",
+            "task": "T901",
+            "class": "K1",
+            "attempt": 1,
+            "branch": "task/901-x",
+            "gen_ai.agent.name": "pi",
+            "host_version": "0.85.1",
+            "gen_ai.request.model": "test/model",
             "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
             "prompt_path": "docs/runs/task-901-legal/1.prompt.md",
             "guard_ref": "main@" + self.git("rev-parse", "--short", "main").stdout.strip(),
-            "started_at": "2026-01-02T03:04:05Z", "ended_at": "2026-01-02T03:14:05Z",
-            "exit": "ok", "retries": 0, "failure_signatures": [], "guard_denials": {},
+            "started_at": "2026-01-02T03:04:05Z",
+            "ended_at": "2026-01-02T03:14:05Z",
+            "exit": "ok",
+            "retries": 0,
+            "failure_signatures": [],
+            "guard_denials": {},
         }
-        self.commit({
-            "docs/runs/task-901-legal/1.prompt.md": prompt,
-            "docs/runs/task-901-legal/1.json": json.dumps(record, ensure_ascii=False, indent=2) + "\n",
-        }, "运行记录\n\nTask: T901")
+        self.commit(
+            {
+                "docs/runs/task-901-legal/1.prompt.md": prompt,
+                "docs/runs/task-901-legal/1.json": json.dumps(record, ensure_ascii=False, indent=2) + "\n",
+            },
+            "运行记录\n\nTask: T901",
+        )
         replay_cases = self.repo / ".harness/project/replay_cases.py"
-        replay_cases.write_text('from engine.core.cases import Case\n'
-                                'BASELINE = ["T901-X1"]\nCASES: list[Case] = []\n'
-                                'GUARDED = {"T901-X1": ("test_app.AppTest.test_flag",)}\n'
-                                'DEFERRED = {}\n', encoding="utf-8")
-        result = self.three_states("evidence 完整", ["evidence", "--base", self.base, "--head", head_fix],
-                                   ("cli.evidence", "evidence"))
+        replay_cases.write_text(
+            "from engine.core.cases import Case\n"
+            'BASELINE = ["T901-X1"]\nCASES: list[Case] = []\n'
+            'GUARDED = {"T901-X1": ("test_app.AppTest.test_flag",)}\n'
+            "DEFERRED = {}\n",
+            encoding="utf-8",
+        )
+        result = self.three_states(
+            "evidence 完整", ["evidence", "--base", self.base, "--head", head_fix], ("cli.evidence", "evidence")
+        )
         self.assertEqual(result["code"], 0)
-        result = self.three_states("evidence 缺失",
-                                   ["evidence", "--base", self.base, "--head", head_fix,
-                                    "--ids", "T901-Z9", "--no-run"],
-                                   ("cli.evidence", "evidence"))
+        result = self.three_states(
+            "evidence 缺失",
+            ["evidence", "--base", self.base, "--head", head_fix, "--ids", "T901-Z9", "--no-run"],
+            ("cli.evidence", "evidence"),
+        )
         self.assertEqual(result["code"], 1)
 
         replay_original = replay_cases.read_bytes()
         result = self.three_states("replay 通过", ["replay"], ("cli.replay",))
         self.assertEqual(result["code"], 0)
-        replay_cases.write_text('from engine.core.cases import Case\n'
-                                'BASELINE = []\n'
-                                'CASES = [Case("T901-L1", "无测试守护的注入", "README.md", '
-                                '"# app", "# app 变体", ("test_calc.CalcTest",))]\n'
-                                'GUARDED = {"T901-X1": ("test_app.AppTest.test_flag",)}\n'
-                                'DEFERRED = {}\n', encoding="utf-8")
+        replay_cases.write_text(
+            "from engine.core.cases import Case\n"
+            "BASELINE = []\n"
+            'CASES = [Case("T901-L1", "无测试守护的注入", "README.md", '
+            '"# app", "# app 变体", ("test_calc.CalcTest",))]\n'
+            'GUARDED = {"T901-X1": ("test_app.AppTest.test_flag",)}\n'
+            "DEFERRED = {}\n",
+            encoding="utf-8",
+        )
         result = self.three_states("replay 失败（漏过）", ["replay"], ("cli.replay",))
         self.assertEqual(result["code"], 1)
         replay_cases.write_bytes(replay_original)
 
         baseline = self.repo / ".harness/state/mutation-baseline.json"
         baseline.write_text(json.dumps({"sign": 1.0}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        result = self.three_states("mutate 通过", ["mutate", "--check", "--only", "sign"],
-                                   ("cli.mutate", "mutation"))
+        result = self.three_states("mutate 通过", ["mutate", "--check", "--only", "sign"], ("cli.mutate", "mutation"))
         self.assertEqual(result["code"], 0)
-        result = self.three_states("mutate 失败", ["mutate", "--check", "--only", "broken"],
-                                   ("cli.mutate", "mutation"))
+        result = self.three_states("mutate 失败", ["mutate", "--check", "--only", "broken"], ("cli.mutate", "mutation"))
         self.assertEqual(result["code"], 1)
 
         quality_baseline = self.repo / ".harness/state/quality-baseline.json"
-        quality_baseline.write_text(json.dumps(
-            {"complex_functions": 0, "files_over_800": 0, "largest_file_lines": 2,
-             "swift_files_over_500": 0, "swift_long_functions": 0, "swift_deep_functions": 0},
-            indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        quality_baseline.write_text(
+            json.dumps(
+                {
+                    "complex_functions": 0,
+                    "files_over_800": 0,
+                    "largest_file_lines": 2,
+                    "swift_files_over_500": 0,
+                    "swift_long_functions": 0,
+                    "swift_deep_functions": 0,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         self.three_states("quality 通过", ["quality"], ("cli.quality", "quality"))
-        quality_baseline.write_text(json.dumps(
-            {"complex_functions": 0, "files_over_800": 0, "largest_file_lines": 0,
-             "swift_files_over_500": 0, "swift_long_functions": 0, "swift_deep_functions": 0},
-            indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        quality_baseline.write_text(
+            json.dumps(
+                {
+                    "complex_functions": 0,
+                    "files_over_800": 0,
+                    "largest_file_lines": 0,
+                    "swift_files_over_500": 0,
+                    "swift_long_functions": 0,
+                    "swift_deep_functions": 0,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         self.commit({"src/big.py": "x = 1\n" * 801}, "体量夹具")
         result = self.three_states("quality 失败", ["quality"], ("cli.quality", "quality"))
         self.assertEqual(result["code"], 1)
@@ -562,8 +651,7 @@ class ObservabilityTaskTest(unittest.TestCase):
 
         self.git("tag", "v1.2.3")
         self.three_states("release-check 通过", ["release-check", "--tag", "v1.2.3"], ("cli.release-check",))
-        result = self.three_states("release-check 失败", ["release-check", "--tag", "v9.9.9"],
-                                   ("cli.release-check",))
+        result = self.three_states("release-check 失败", ["release-check", "--tag", "v9.9.9"], ("cli.release-check",))
         self.assertEqual(result["code"], 1)
 
         result = self.three_states("r1 异常", ["r1", "--base", self.base, "--head", self.base], ("cli.r1",))
@@ -575,19 +663,28 @@ class ObservabilityTaskTest(unittest.TestCase):
     def test_risk_policy_and_run_check_equivalent(self):
         head_r0 = self.commit({"docs/note.md": "说明\n"}, "文档改动")
         github_files = ("build/github/risk-output.txt", "build/github/risk-summary.md")
-        github_env = {"GITHUB_OUTPUT": str(self.repo / github_files[0]),
-                      "GITHUB_STEP_SUMMARY": str(self.repo / github_files[1])}
-        result = self.three_states("risk R0", ["risk", "--base", self.base, "--head", head_r0, "--github"],
-                                   ("cli.risk", "risk.file", "risk.summary"),
-                                   structured=github_files, env_extra=github_env)
+        github_env = {
+            "GITHUB_OUTPUT": str(self.repo / github_files[0]),
+            "GITHUB_STEP_SUMMARY": str(self.repo / github_files[1]),
+        }
+        result = self.three_states(
+            "risk R0",
+            ["risk", "--base", self.base, "--head", head_r0, "--github"],
+            ("cli.risk", "risk.file", "risk.summary"),
+            structured=github_files,
+            env_extra=github_env,
+        )
         self.assertEqual(result["code"], 0)
         self.assertIn(b"risk=R0", result["structured"][github_files[0]])
 
         head_r3 = self.commit({"critical/guard.py": "VALUE = 1\n"}, "碰护栏\n\nRisk: R1")
-        result = self.three_states("risk R3（声明 R1 被降级）",
-                                   ["risk", "--base", head_r0, "--head", head_r3, "--github"],
-                                   ("cli.risk", "risk.file", "risk.summary"),
-                                   structured=github_files, env_extra=github_env)
+        result = self.three_states(
+            "risk R3（声明 R1 被降级）",
+            ["risk", "--base", head_r0, "--head", head_r3, "--github"],
+            ("cli.risk", "risk.file", "risk.summary"),
+            structured=github_files,
+            env_extra=github_env,
+        )
         self.assertIn(b"risk=R3", result["structured"][github_files[0]])
         self.assertIn("维持原等级", result["out"])
 
@@ -600,80 +697,137 @@ class ObservabilityTaskTest(unittest.TestCase):
         (gh_down / "gh").write_text(GH_DOWN, encoding="utf-8")
         (gh_down / "gh").chmod(0o755)
         policy_files = ("build/github/policy-output.txt", "build/github/policy-summary.md")
-        policy_argv = ["policy", "--base", self.base, "--head", head_r0, "--pr", "9",
-                       "--branch", "task/routed", "--github"]
-        allow_env = {**github_env,
-                     "GITHUB_OUTPUT": str(self.repo / policy_files[0]),
-                     "GITHUB_STEP_SUMMARY": str(self.repo / policy_files[1]),
-                     "PATH": str(gh_bin) + os.pathsep + self.child_env()["PATH"]}
+        policy_argv = [
+            "policy",
+            "--base",
+            self.base,
+            "--head",
+            head_r0,
+            "--pr",
+            "9",
+            "--branch",
+            "task/routed",
+            "--github",
+        ]
+        allow_env = {
+            **github_env,
+            "GITHUB_OUTPUT": str(self.repo / policy_files[0]),
+            "GITHUB_STEP_SUMMARY": str(self.repo / policy_files[1]),
+            "PATH": str(gh_bin) + os.pathsep + self.child_env()["PATH"],
+        }
         deny_env = {**allow_env, "PATH": str(gh_down) + os.pathsep + self.child_env()["PATH"]}
-        result = self.three_states("policy 自动合并", policy_argv, ("cli.policy", "facts", "result"),
-                                   structured=policy_files, env_extra=allow_env)
+        result = self.three_states(
+            "policy 自动合并",
+            policy_argv,
+            ("cli.policy", "facts", "result"),
+            structured=policy_files,
+            env_extra=allow_env,
+        )
         self.assertIn(b"auto_merge=true", result["structured"][policy_files[0]])
-        result = self.three_states("policy 转用户评审", policy_argv, ("cli.policy", "facts", "result"),
-                                   structured=policy_files, env_extra=deny_env)
+        result = self.three_states(
+            "policy 转用户评审",
+            policy_argv,
+            ("cli.policy", "facts", "result"),
+            structured=policy_files,
+            env_extra=deny_env,
+        )
         self.assertIn(b"auto_merge=false", result["structured"][policy_files[0]])
 
         taskbook_base = self.commit({"docs/plans/task-910-fixture.md": taskbook_text("T910")}, "任务书 910")
         self.git("checkout", "-q", "-b", "task/910-run")
         prompt = "为 T910 准备的提示词\n"
         record = {
-            "task": "T910", "class": "K1", "attempt": 1, "branch": "task/910-run",
-            "gen_ai.agent.name": "pi", "host_version": "0.85.1", "gen_ai.request.model": "test/model",
+            "task": "T910",
+            "class": "K1",
+            "attempt": 1,
+            "branch": "task/910-run",
+            "gen_ai.agent.name": "pi",
+            "host_version": "0.85.1",
+            "gen_ai.request.model": "test/model",
             "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
             "prompt_path": "docs/runs/task-910-fixture/1.prompt.md",
             "guard_ref": f"main@{self.git('rev-parse', '--short', 'main').stdout.strip()}",
-            "started_at": "2026-01-02T03:04:05Z", "ended_at": "2026-01-02T03:14:05Z",
-            "exit": "ok", "retries": 0, "failure_signatures": [], "guard_denials": {},
+            "started_at": "2026-01-02T03:04:05Z",
+            "ended_at": "2026-01-02T03:14:05Z",
+            "exit": "ok",
+            "retries": 0,
+            "failure_signatures": [],
+            "guard_denials": {},
         }
-        head_run = self.commit({
-            "docs/runs/task-910-fixture/1.prompt.md": prompt,
-            "docs/runs/task-910-fixture/1.json": json.dumps(record, ensure_ascii=False, indent=2) + "\n",
-        }, "实现\n\nTask: T910")
+        head_run = self.commit(
+            {
+                "docs/runs/task-910-fixture/1.prompt.md": prompt,
+                "docs/runs/task-910-fixture/1.json": json.dumps(record, ensure_ascii=False, indent=2) + "\n",
+            },
+            "实现\n\nTask: T910",
+        )
         runcheck_files = ("build/github/runcheck-summary.md",)
         runcheck_env = {"GITHUB_STEP_SUMMARY": str(self.repo / runcheck_files[0])}
-        result = self.three_states("run-check 合格",
-                                   ["run-check", "--base", taskbook_base, "--head", head_run,
-                                    "--branch", "task/910-run", "--github"],
-                                   ("cli.run-check", "run_check", "run_check.finding"),
-                                   structured=runcheck_files, env_extra=runcheck_env)
+        result = self.three_states(
+            "run-check 合格",
+            ["run-check", "--base", taskbook_base, "--head", head_run, "--branch", "task/910-run", "--github"],
+            ("cli.run-check", "run_check", "run_check.finding"),
+            structured=runcheck_files,
+            env_extra=runcheck_env,
+        )
         self.assertEqual(result["code"], 0)
         self.assertIn("✅", result["out"])
         self.git("checkout", "-q", "main")
         head_miss = self.commit({"docs/plain.md": "普通\n"}, "无关提交")
-        result = self.three_states("run-check 缺记录",
-                                   ["run-check", "--base", taskbook_base, "--head", head_miss,
-                                    "--branch", "task/910-fixture"],
-                                   ("cli.run-check", "run_check", "run_check.finding"),
-                                   structured=runcheck_files, env_extra=runcheck_env)
+        result = self.three_states(
+            "run-check 缺记录",
+            ["run-check", "--base", taskbook_base, "--head", head_miss, "--branch", "task/910-fixture"],
+            ("cli.run-check", "run_check", "run_check.finding"),
+            structured=runcheck_files,
+            env_extra=runcheck_env,
+        )
         self.assertEqual(result["code"], 0)
         self.assertIn("缺运行记录", result["out"])
-        result = self.three_states("run-check 不适用",
-                                   ["run-check", "--base", taskbook_base, "--head", head_miss,
-                                    "--branch", "feature/plain"],
-                                   ("cli.run-check", "run_check"),
-                                   structured=runcheck_files, env_extra=runcheck_env)
+        result = self.three_states(
+            "run-check 不适用",
+            ["run-check", "--base", taskbook_base, "--head", head_miss, "--branch", "feature/plain"],
+            ("cli.run-check", "run_check"),
+            structured=runcheck_files,
+            env_extra=runcheck_env,
+        )
         self.assertIn("不适用", result["out"])
 
     # ---------- 验收 3：JSON 与文本命令拒绝及三个 git 钩子三态比对 ----------
 
     def test_guard_command_and_git_hooks_equivalent(self):
         force = json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push --force origin feature-x"}})
-        result = self.three_states("guard-command claude 拒绝",
-                                   ["guard-command", "--format", "claude", "--role", "implementer"],
-                                   ("command",), stdin=force)
+        result = self.three_states(
+            "guard-command claude 拒绝",
+            ["guard-command", "--format", "claude", "--role", "implementer"],
+            ("command",),
+            stdin=force,
+        )
         self.assertEqual(result["code"], 2)
-        result = self.three_states("guard-command json 拒绝", ["guard-command", "--format", "json"],
-                                   ("command",), stdin=json.dumps({"command": "gh pr merge 5 --squash"}))
+        result = self.three_states(
+            "guard-command json 拒绝",
+            ["guard-command", "--format", "json"],
+            ("command",),
+            stdin=json.dumps({"command": "gh pr merge 5 --squash"}),
+        )
         self.assertEqual(result["code"], 2)
-        result = self.three_states("guard-command plain 拒绝", ["guard-command", "--format", "plain"],
-                                   ("command",), stdin="git push origin main")
+        result = self.three_states(
+            "guard-command plain 拒绝",
+            ["guard-command", "--format", "plain"],
+            ("command",),
+            stdin="git push origin main",
+        )
         self.assertEqual(result["code"], 2)
-        result = self.three_states("guard-command 坏 JSON 拒绝", ["guard-command", "--format", "json"],
-                                   (), stdin="{不是 JSON", emit=False)
+        result = self.three_states(
+            "guard-command 坏 JSON 拒绝", ["guard-command", "--format", "json"], (), stdin="{不是 JSON", emit=False
+        )
         self.assertEqual(result["code"], 2)
-        result = self.three_states("guard-command 放行", ["guard-command", "--format", "json"],
-                                   (), stdin=json.dumps({"command": "git status --short"}), emit=False)
+        result = self.three_states(
+            "guard-command 放行",
+            ["guard-command", "--format", "json"],
+            (),
+            stdin=json.dumps({"command": "git status --short"}),
+            emit=False,
+        )
         self.assertEqual(result["code"], 0)
 
         result = self.three_states("pre-commit 拒绝（保护分支）", ["guard-git", "pre-commit"], ("git",))
@@ -681,30 +835,49 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.git("checkout", "-q", "-b", "task/x")
         self.commit({"docs/note.md": "note\n"}, "note")
         # 安装布局下放行的 pre-commit 会真实运行 verify --quick（含子进程与耗时字段，按 verify 白名单归一）
-        result = self.three_states("pre-commit 放行（含 verify --quick）", ["guard-git", "pre-commit"],
-                                   ("cli.verify", "verify.summary"),
-                                   spots=("verify",), structured=(SUMMARY_REL,))
+        result = self.three_states(
+            "pre-commit 放行（含 verify --quick）",
+            ["guard-git", "pre-commit"],
+            ("cli.verify", "verify.summary"),
+            spots=("verify",),
+            structured=(SUMMARY_REL,),
+        )
         self.assertEqual(result["code"], 0)
         local = self.head_sha()
         remote_main = self.git("rev-parse", "main").stdout.strip()
-        result = self.three_states("pre-push 拒绝（保护分支）", ["guard-git", "pre-push"], ("git",),
-                                   stdin=f"refs/heads/task/x {local} refs/heads/main {remote_main}\n")
+        result = self.three_states(
+            "pre-push 拒绝（保护分支）",
+            ["guard-git", "pre-push"],
+            ("git",),
+            stdin=f"refs/heads/task/x {local} refs/heads/main {remote_main}\n",
+        )
         self.assertEqual(result["code"], 1)
-        result = self.three_states("pre-push 放行（新建分支，含 verify 默认档）", ["guard-git", "pre-push"],
-                                   ("cli.verify", "verify.summary"),
-                                   stdin=f"refs/heads/task/x {local} refs/heads/task/x {ZERO_SHA}\n",
-                                   spots=("verify",), structured=(SUMMARY_REL,))
+        result = self.three_states(
+            "pre-push 放行（新建分支，含 verify 默认档）",
+            ["guard-git", "pre-push"],
+            ("cli.verify", "verify.summary"),
+            stdin=f"refs/heads/task/x {local} refs/heads/task/x {ZERO_SHA}\n",
+            spots=("verify",),
+            structured=(SUMMARY_REL,),
+        )
         self.assertEqual(result["code"], 0)
         self.git("checkout", "-q", "main")
         self.git("tag", "v1")
         tag_sha = self.git("rev-parse", "v1").stdout.strip()
-        result = self.three_states("reference-transaction 拒绝（删 tag）",
-                                   ["guard-git", "reference-transaction", "prepared"], ("git",),
-                                   stdin=f"{tag_sha} {ZERO_SHA} refs/tags/v1\n")
+        result = self.three_states(
+            "reference-transaction 拒绝（删 tag）",
+            ["guard-git", "reference-transaction", "prepared"],
+            ("git",),
+            stdin=f"{tag_sha} {ZERO_SHA} refs/tags/v1\n",
+        )
         self.assertEqual(result["code"], 1)
-        result = self.three_states("reference-transaction 放行（建分支）",
-                                   ["guard-git", "reference-transaction", "prepared"], (),
-                                   stdin=f"{ZERO_SHA} {local} refs/heads/task/x\n", emit=False)
+        result = self.three_states(
+            "reference-transaction 放行（建分支）",
+            ["guard-git", "reference-transaction", "prepared"],
+            (),
+            stdin=f"{ZERO_SHA} {local} refs/heads/task/x\n",
+            emit=False,
+        )
         self.assertEqual(result["code"], 0)
 
     # ---------- 验收 4：比较器边界——注入差异必须被检出，白名单之外不吃任何差异 ----------
@@ -742,20 +915,28 @@ class ObservabilityTaskTest(unittest.TestCase):
         later = DURATION_LINE.sub(lambda match: f"{match.group(1)}9.9s", verify["out"], count=1)
         doc = json.loads(verify["structured"][SUMMARY_REL])
         doc["results"][0]["seconds"] = 9.9
-        must_not_change = {"code": verify["code"], "out": later, "err": verify["err"],
-                           "structured": {SUMMARY_REL: json.dumps(doc, ensure_ascii=False).encode()}}
+        must_not_change = {
+            "code": verify["code"],
+            "out": later,
+            "err": verify["err"],
+            "structured": {SUMMARY_REL: json.dumps(doc, ensure_ascii=False).encode()},
+        }
         self.assert_equivalent(verify, must_not_change, spots=("verify",), context="耗时白名单")
         # 白名单边界：耗时不合法（负数）或结论行状态被改，都必须检出
         bad = json.loads(verify["structured"][SUMMARY_REL])
         bad["results"][0]["seconds"] = -1
-        must_detect("负耗时", verify, {**verify, "structured": {SUMMARY_REL: json.dumps(bad).encode()}},
-                    spots=("verify",))
-        must_detect("检查结论被改", verify,
-                    {**verify, "out": verify["out"].replace("✓ tools", "✗ tools", 1)},
-                    spots=("verify",))
-        must_detect("耗时行以外的结论差异", verify,
-                    {**verify, "out": verify["out"].replace("verify 通过", "verify 失败", 1)},
-                    spots=("verify",))
+        must_detect(
+            "负耗时", verify, {**verify, "structured": {SUMMARY_REL: json.dumps(bad).encode()}}, spots=("verify",)
+        )
+        must_detect(
+            "检查结论被改", verify, {**verify, "out": verify["out"].replace("✓ tools", "✗ tools", 1)}, spots=("verify",)
+        )
+        must_detect(
+            "耗时行以外的结论差异",
+            verify,
+            {**verify, "out": verify["out"].replace("verify 通过", "verify 失败", 1)},
+            spots=("verify",),
+        )
 
 
 if __name__ == "__main__":
