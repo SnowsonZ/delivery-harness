@@ -50,7 +50,7 @@ VERIFY_STATEFUL = (
     "sys.exit(1 if n == 1 else 0)\n"
 )
 STAGE_KEYS = {"stage", "step", "status", "ts", "duration_ms", "attempt", "round"}  # B77 瘦身后的单条字段
-POINTER_KEYS = {"stage", "step", "status", "attempt"}  # B77 更早 attempt 的 push_pr/ci_wait 指针行
+POINTER_KEYS = {"stage", "step", "status", "ts", "duration_ms", "attempt", "round"}  # 终评修复配套：指针行七键  # B77 更早 attempt 的 push_pr/ci_wait 指针行
 ANCHOR_KEYS = {"source", "stage", "head_hash", "fixed_in"}
 
 

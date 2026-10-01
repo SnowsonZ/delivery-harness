@@ -46,7 +46,7 @@ VERIFY_PATH_THEN_PASS = (
     "    sys.exit(1)\n"
 )
 STAGE_KEYS = {"stage", "step", "status", "ts", "duration_ms", "attempt", "round"}
-POINTER_KEYS = {"stage", "step", "status", "attempt"}
+POINTER_KEYS = {"stage", "step", "status", "ts", "duration_ms", "attempt", "round"}  # 终评修复：指针行七键与窗口行同形（run_check 单一口径）
 
 
 def executor_script() -> str:
@@ -417,7 +417,7 @@ class DispatchRobustnessTest(unittest.TestCase):
         _path1, record1 = self.record("task-220-e", 1)
         _path2, record2 = self.record("task-220-e", 2)
 
-        scalars = (str, int, float, bool)
+        scalars = (str, int, float, bool, type(None))  # duration_ms 可为 None
         for item in record1["stages"]:  # 首轮：全部是窗口条目，七个标量字段
             self.assertEqual(set(item), STAGE_KEYS)
             self.assertTrue(all(isinstance(item[key], scalars) or item[key] is None

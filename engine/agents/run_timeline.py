@@ -145,8 +145,9 @@ def _read_stages(trace_id: str) -> tuple[list[dict], str | None]:
             items.append({"stage": row["stage"], "step": row["step"], "status": row["status"],
                           "ts": row["ts"], "duration_ms": row["duration_ms"], "attempt": no, "round": rnd})
         elif row["step"] in _POINTER_STEPS:
-            items.append({"stage": row["stage"], "step": row["step"],
-                          "status": _POINTER_STATUS, "attempt": no})
+            items.append({"stage": row["stage"], "step": row["step"], "status": _POINTER_STATUS,
+                          "ts": row["ts"], "duration_ms": row["duration_ms"],
+                          "attempt": no, "round": rnd})
     return items, rows[-1]["hash"]
 
 

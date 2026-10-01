@@ -223,7 +223,11 @@ def _salvage_and_remove(root: Path, slot: Path, push) -> None:
         return
     branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=slot, check=False)
     if branch and branch != "HEAD":
-        git("fetch", "--quiet", "origin", branch, cwd=slot)
+        # fetch 失败（远端无该分支——认领推送前崩溃/推送静默失败）不拦回收：直接尝试推送保全
+        try:
+            git("fetch", "--quiet", "origin", branch, cwd=slot)
+        except RuntimeError:
+            pass
         pushed = git("rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}",
                      cwd=slot, check=False)
         if not pushed or git("rev-list", f"origin/{branch}..{branch}", cwd=slot).split():
