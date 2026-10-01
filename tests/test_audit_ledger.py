@@ -468,8 +468,9 @@ class ObservabilityTaskTest(unittest.TestCase):
 
         # 关闭未合并：build 明确失败（B52 不在范围），远端 harness-audit 分支从未被创建
         closed = self.platform_gh(head=builder_head, merge_sha=merge_sha, merged=False)
-        with self.assertRaises(ledger.LedgerError):
+        with self.assertRaises(ledger.LedgerError) as caught:
             ledger.build_ledger(305, gh=closed, cwd=project)
+        self.assertIn("未合并", str(caught.exception))  # 原因如实：是 B52 边界，不是合并事实缺失
         self.assertEqual(self.git("ls-remote", str(origin), "refs/heads/harness-audit",
                                   cwd=project, check=False), "")
 
@@ -509,6 +510,16 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(refs["run_record"]["sha256"], digest(record_raw))
         self.assertTrue(all(item.get("step") != "escalate" for item in built["stages"]
                             if item.get("evidence_kind") == "run_record_summary"))
+
+        # 记录在 main 上被删除也不影响：枚举与内容都必须按合并 head（在最新 head 枚举会漏掉它）
+        self.git("rm", "-q", RECORD_PATH, cwd=project)
+        self.git("commit", "-q", "-m", "删除样本：main 上没有运行记录", cwd=project)
+        self.clear_db(project)
+        built = ledger.build_ledger(305, gh=gh, cwd=project)
+        refs = {item["kind"]: item for item in built["references"]}
+        self.assertIn("run_record", refs)
+        self.assertEqual(refs["run_record"]["sha256"], digest(record_raw))
+        self.assertFalse([item for item in built["missing"] if item["item"] == "run_record"])
 
         # 缺材料：没有评审评论、CI artifact 过期 → 各报 missing，账本照常复原其余环节
         runs, artifacts, downloads = self.ci_platform(
