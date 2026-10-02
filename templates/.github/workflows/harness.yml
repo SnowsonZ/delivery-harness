@@ -149,7 +149,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: python .harness/engine/reports/ledger.py --head "$GITHUB_SHA"
+          # ledger.py 在临时克隆里 commit-tree/push：仓库级 git config 与 checkout 的凭据
+          # 都穿不过去（G1 首跑实测 Author identity unknown；身份修好后 push 是下一个静默
+          # 失败）。身份走环境变量（clean_git_env 不剥离）；凭据由 gh auth setup-git 把
+          # GH_TOKEN 配成全局 git 助手，临时克隆的 push 由此取凭据。
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          gh auth setup-git
+          python .harness/engine/reports/ledger.py --head "$GITHUB_SHA"
 
   # 告警（B46 设计 5、共用合同 C4/F3）：仅 push 到 main 的默认分支执行在末尾调用；harness 失败也运行
   # （!cancelled()，不继承成功门槛）。引擎与数据都来自本次推送的 main 检出（受信任代码），不检出、
