@@ -8,7 +8,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 \"${ZCODE_PROJECT_DIR}/.harness/engine/cli.py\" guard-command --format claude --role implementer",
+              "command": "python3 \"${ZCODE_PROJECT_DIR}/.harness/engine/cli.py\" guard-command --format claude --role designer",
               "timeout": 30,
               "statusMessage": "harness 守卫"
             }

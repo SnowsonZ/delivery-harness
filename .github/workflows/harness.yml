@@ -19,6 +19,8 @@ jobs:
     permissions:
       contents: read
       actions: read  # 交付度量读取本分支的运行记录（CI 轮次）
+      pull-requests: read  # 合并后事实同步读取 PR、评审与标签（设计 3.5）
+      issues: read  # 合并后事实同步读取 audit 与 escape 议题
     steps:
       - uses: actions/checkout@v7
         with:
@@ -79,3 +81,105 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python .harness/engine/cli.py metrics --base "${{ steps.base.outputs.sha }}" --github --markdown "$GITHUB_STEP_SUMMARY"
+
+      # 事件导出与 summary 是观察旁路（设计 2.5、4）：判定失败也要执行并上传，供事后 trace --ci 导入；
+      # 观察自身失败不改变 job 结果（continue-on-error），也不替换上面各步骤自己写入的 summary 内容。
+      # 临时事件库在 git 公共目录（.git/harness/），上传的只有导出的 JSON 包与 manifest 内的安全内容产物。
+      - name: Export harness events
+        if: ${{ always() }}
+        continue-on-error: true
+        run: python .harness/engine/reports/ci_events.py export --target "$RUNNER_TEMP/harness-events"
+
+      # 逻辑名 harness-events；物理名带 run/attempt/job 唯一后缀（下载侧 load_ci 按它核对），保留 90 天。
+      - name: Upload harness events
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-events-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: ${{ runner.temp }}/harness-events
+          retention-days: 90
+
+      - name: Harness event summary
+        if: ${{ always() }}
+        continue-on-error: true
+        run: >-
+          python .harness/engine/reports/ci_events.py summary
+          --bundle "$RUNNER_TEMP/harness-events/harness-events.json" >> "$GITHUB_STEP_SUMMARY"
+
+      # 合并后 GitHub 事实同步（观察旁路，设计 3.5）：push 到 main 的合并提交（手工与 App 合并都经此
+      # 路径，不靠 auto-merge job 独占触发）后，从 API 取回批准者/合并者/方式/标签、抽审与 escape 事实
+      # 写成事件，归属 PR 的 headRefName。只读查询：不做任何合并/批准/推送动作；缺批准记 none，无法
+      # 确定的合并方式记 unknown；API 失败明确报告事实缺失也不伪造。自身失败被 continue-on-error 隔离。
+      # 非 push 事件（PR 分支）尚未合并、无事实可同步：脚本内显式跳过，本步骤仍执行且成功。
+      - name: Sync GitHub facts
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "not a push (no merge commit), nothing to sync"
+            exit 0
+          fi
+          python .harness/engine/reports/github_events.py --head "$GITHUB_SHA"
+
+  # 合并账本与 PR 锚点（B46 设计 4.1、共用合同 C6）：只对 push 到 main（合并提交）运行。受信任 job：
+  # 引擎来自默认分支的检出（.harness/engine 是 main 上已同步的内置副本），不检出、不执行任何 PR 代码。
+  # 权限最小化：contents:write 只用于 harness-audit 分支的 fast-forward 追加，pull-requests:write 只用于
+  # PR 锚点评论。harness-audit 的 ruleset 模板只禁删除/强推、保护历史，不阻止普通修改旧文件——「同 PR
+  # 幂等、不同字节冲突不覆盖」由 writer 自查保证（engine/reports/ledger.py），不宣称 ruleset 独自保证
+  # 只追加。观察旁路：本 job 失败被 continue-on-error 隔离，不影响 harness job 的判定与结论。
+  audit-ledger:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Publish merge ledger
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python .harness/engine/reports/ledger.py --head "$GITHUB_SHA"
+
+  # 告警（B46 设计 5、共用合同 C4/F3）：仅 push 到 main 的默认分支执行在末尾调用；harness 失败也运行
+  # （!cancelled()，不继承成功门槛）。引擎与数据都来自本次推送的 main 检出（受信任代码），不检出、
+  # 不执行任何 PR 内容。pull_request 触发时本 job 不运行，所有 PR 检查的令牌保持只读。最小写权限：
+  # issues:write 只用于无 PR 时的升级议题。观察旁路：本 job 失败不影响 harness job 的结论。
+  alert:
+    needs: harness
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # 检出即合并后的 main：内置引擎副本在此复核完整性（harness job 的 verify 已含，这里只为告警
+      # 取证重跑，亚秒级哈希比对）；通过则下一条不发布。
+      - name: Verify engine integrity of the merged copy
+        id: integrity
+        continue-on-error: true
+        run: python .harness/engine/cli.py integrity
+
+      - name: Alert integrity failure
+        if: ${{ always() && steps.integrity.outcome == 'failure' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python .harness/engine/cli.py alert integrity_failure --trace "main@${GITHUB_SHA::7}" --json
