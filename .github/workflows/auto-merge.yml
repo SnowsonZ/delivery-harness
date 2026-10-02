@@ -67,6 +67,29 @@ jobs:
           BASE_BRANCH: ${{ github.event.repository.default_branch }}
         run: python .harness/engine/cli.py policy --base "origin/$BASE_BRANCH" --head "$HEAD_SHA" ${PR:+--pr "$PR"} --branch "$HEAD_BRANCH" --github
 
+      # 事件导出与 summary 与 harness 工作流同款（观察旁路：判定失败也执行，自身失败不改变 job 结果）。
+      # 判定在默认分支检出的引擎上运行，head 只是被 fetch 的数据；导出的只有本 job 链的事件 JSON。
+      - name: Export harness events
+        if: ${{ always() }}
+        continue-on-error: true
+        run: python .harness/engine/reports/ci_events.py export --target "$RUNNER_TEMP/harness-events"
+
+      - name: Upload harness events
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-events-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          path: ${{ runner.temp }}/harness-events
+          retention-days: 90
+
+      - name: Harness event summary
+        if: ${{ always() }}
+        continue-on-error: true
+        run: >-
+          python .harness/engine/reports/ci_events.py summary
+          --bundle "$RUNNER_TEMP/harness-events/harness-events.json" >> "$GITHUB_STEP_SUMMARY"
+
   # 不自动合并的：打类别标签并请仓库所有者评审，PR 出现在其待评审列表里。只「请求评审」，不批准。
   # 所有者自己开的 PR（单账号）不能请自己评审，GitHub 拒绝时只记日志、不算失败：这类 PR 由所有者直接合并。
   request-review:
@@ -184,3 +207,64 @@ jobs:
               --title "Audit: PR #$PR ($CLASS)" \
               --body "PR #$PR was sampled by the audit rule in .harness/config/autonomy.toml ($RISK $CLASS, $HEAD_SHA). Review it against the task brief, diff and evidence; open a separate issue labelled escape and class:$CLASS naming PR #$PR if you find a problem."
           fi
+
+  # 告警（B46 设计 5、共用合同 C4/F3）：PR 成功或失败都由此独立告警 job 承载；if: always() 不继承
+  # judge 的 success 门槛，失败/被跳过的 CI 也接通（judge 未跑时 outputs 为空，按无证据不告警）。
+  # 引擎来自默认分支检出（受信任代码）；PR head 与事件包只当数据下载核对，不检出、不执行 PR 代码。
+  # 事件包里出现对应触发证据才发布（verify/integrity 失败、route 预算拒绝），未知失败不自动告警。
+  # 最小写权限：PR 告警评论与升级议题；actions:read 只用于下载触发运行的事件包。
+  alert:
+    needs: judge
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # 数据（不是代码）：触发运行的 harness 事件包（完整性失败证据）与本 run 的 judge 事件包（路由
+      # 预算拒绝证据）。下载失败不阻断告警（continue-on-error）：缺包按无证据跳过。
+      - name: Download triggering run events (data only)
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: harness-events-*
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/trigger-events
+          merge-multiple: true
+
+      - name: Download judge events of this run
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: harness-events-*
+          path: ${{ runner.temp }}/judge-events
+          merge-multiple: true
+
+      - name: Alert route budget rejection and integrity failure of the evaluated head
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          if [ -z "$PR" ] || [ -z "$HEAD_BRANCH" ]; then
+            echo "no associated PR, skipping"
+            exit 0
+          fi
+          python .harness/engine/cli.py alert budget_exhausted --pr "$PR" --trace "$HEAD_BRANCH" --bundle "$RUNNER_TEMP/judge-events" --json || true
+          python .harness/engine/cli.py alert integrity_failure --pr "$PR" --trace "$HEAD_BRANCH" --bundle "$RUNNER_TEMP/trigger-events" --json || true
