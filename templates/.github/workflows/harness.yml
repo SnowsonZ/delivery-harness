@@ -144,6 +144,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      # ledger.py 用 git commit-tree 造账本提交；托管 runner 无全局 git 身份（G1 首跑实测：
+      # Author identity unknown），用 GitHub Actions 惯例身份配置仓库级 identity。
+      - name: Configure git identity for ledger
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Publish merge ledger
         continue-on-error: true
         env:
