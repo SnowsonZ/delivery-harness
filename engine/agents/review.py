@@ -40,6 +40,7 @@ from typing import ClassVar
 
 from engine.agents import dispatch, dispatch_host, review_pack_io
 from engine.agents import dispatch_observation as observation
+from engine.core import alerts
 from engine.core.common import ENGINE_DIR, ROOT, changed_files, commit_field, git, load_rules
 from engine.routing import run_check
 
@@ -411,6 +412,7 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
                            designer=designer, model=verdict.audit_model, model_basis=verdict.model_basis,
                            parsed=verdict.parsed, independent=independent, same_host=name in executors,
                            failure=verdict.failure, error_kind=verdict.error_kind)
+        alerts.publish(trace, "review_error", pr=number, gh=github)  # 评审方自身失败也复用发布（D067）
         print(f"PR #{number}：评审方失败（{verdict.failure}），没有评论，保留待评审标签")
         return 1
     same_host = name in executors
@@ -433,6 +435,8 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
         github._run(["gh", "pr", "edit", str(number), "--remove-label", LABEL], agent=True)
     except RuntimeError:
         pass  # 没有该标签
+    if verdict.verdict == "不通过":  # D067：评审否决在已有评论发布后补标签/告警，不重跑评审
+        alerts.publish(trace, "review_rejected", pr=number, gh=github)
     print(f"PR #{number}：{verdict.verdict}（{name}），已评论")
     return 0
 
