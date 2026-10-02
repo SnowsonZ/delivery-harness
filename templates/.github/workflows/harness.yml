@@ -150,3 +150,36 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: python .harness/engine/reports/ledger.py --head "$GITHUB_SHA"
+
+  # 告警（B46 设计 5、共用合同 C4/F3）：仅 push 到 main 的默认分支执行在末尾调用；harness 失败也运行
+  # （!cancelled()，不继承成功门槛）。引擎与数据都来自本次推送的 main 检出（受信任代码），不检出、
+  # 不执行任何 PR 内容。pull_request 触发时本 job 不运行，所有 PR 检查的令牌保持只读。最小写权限：
+  # issues:write 只用于无 PR 时的升级议题。观察旁路：本 job 失败不影响 harness job 的结论。
+  alert:
+    needs: harness
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # 检出即合并后的 main：内置引擎副本在此复核完整性（harness job 的 verify 已含，这里只为告警
+      # 取证重跑，亚秒级哈希比对）；通过则下一条不发布。
+      - name: Verify engine integrity of the merged copy
+        id: integrity
+        continue-on-error: true
+        run: python .harness/engine/cli.py integrity
+
+      - name: Alert integrity failure
+        if: ${{ always() && steps.integrity.outcome == 'failure' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python .harness/engine/cli.py alert integrity_failure --trace "main@${GITHUB_SHA::7}" --json

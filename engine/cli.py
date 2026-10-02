@@ -49,6 +49,8 @@ COMMANDS = {
     "trace": "engine.reports.trace:trace_main",
     # 审计引用复原与哈希核对（不追加自身事件；观察事件属 T404）
     "audit": "engine.reports.audit",
+    # 告警发布（B46 设计 5；不追加通用入口事件，见 QUIET_COMMANDS）
+    "alert": "engine.core.alerts",
     # 安装与升级（只能从引擎仓库的检出运行）
     "install": "engine.core.install",
     "upgrade": "engine.core.install:upgrade_main",
