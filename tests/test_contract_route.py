@@ -467,6 +467,25 @@ class ContractRouteTest(unittest.TestCase):
         self.assertEqual([name for name, _, _ in quiet["rules"]],
                          ["风险", "类别", "预算", "规模", "运行记录"])
 
+        # 任务书随本 PR 修改（in_pr）→ 「合同已批」不成立：即使白名单放行了任务书路径也不入候选
+        in_pr_head = self.commit(
+            {"docs/plans/task-901-contract.md": TASKBOOK + "## 追记\n\n随 PR 修改。\n"},
+            "改任务书\n\nTask: T901")
+        wide = {**AUTONOMY, "contract_route": {"allowed": [*ALLOWED, "docs/plans/**"]}}
+        in_pr = self.run_policy(in_pr_head, fake_gh(comments=[
+            review_comment(in_pr_head, audit={"model": "gpt-6.1-sol", "model_basis": "reported"}),
+            signoff_comment(in_pr_head),
+        ]), autonomy=wide)
+        self.assertEqual(in_pr["outputs"]["auto_merge"], "false")
+        self.assertEqual(in_pr["outputs"]["pending"], "")
+        self.assertNotIn("合同制路径", in_pr["risk_reason"])
+
+        # 类别不是 L4（K5 降为 L3）→ 不是候选：不读评论（桩遇 comments 调用即抛错），转用户评审
+        l3 = {**AUTONOMY, "classes": {"K5": {**AUTONOMY["classes"]["K5"], "level": "L3"}}}
+        l3_result = self.run_policy(r2_head, fake_gh(comments=None), autonomy=l3)
+        self.assertEqual(l3_result["outputs"]["auto_merge"], "false")
+        self.assertEqual(l3_result["outputs"]["pending"], "")
+
         # R3 PR：即使带齐两个标记也必须转用户评审，理由文字与现状相同
         head = self.commit({".github/workflows/x.yml": "name: x\n"}, "护栏\n\nTask: T901")
         comments = [
