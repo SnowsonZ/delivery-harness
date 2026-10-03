@@ -211,6 +211,8 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
         positional = [arg for arg in args if not arg.startswith("-")]
         if positional and positional[0] in IMPLEMENTER_DISPATCH_ACTIONS:
             return reasons + [REVIEW_SIGNAL], False
+    if program in ("harness", "cli.py") and role == "implementer" and _review_entrypoint(args):
+        return reasons + [REVIEW_SIGNAL], False
     if program in DECLARERS:
         return reasons + _check_assignments([arg for arg in args if not arg.startswith("-")]), False
     if program == "eval":
@@ -224,6 +226,12 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
         code = _option_value(args, "c") if program.startswith("python") else _option_value(args, "e")
         if code is not None:
             return reasons + text_rules(code), False
+        if program.startswith("python") and role == "implementer":
+            for index, arg in enumerate(args):
+                if not arg.startswith("-"):  # 第一个非选项参数是脚本文件，之后的参数属于脚本（cli.py 同 harness 入口）
+                    if os.path.basename(arg) == "cli.py" and _review_entrypoint(args[index + 1:]):
+                        reasons.append(REVIEW_SIGNAL)
+                    break
         return reasons, _reads_stdin(args)
     if program == "git":
         return reasons + _git(args), False
@@ -236,6 +244,19 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
     if program == "curl":
         return reasons + _curl(args), False
     return reasons, False
+
+
+def _review_entrypoint(args: list[str]) -> str | None:
+    """harness / cli.py 的评审与复核入口（自治试验设计 6，T706）：dispatch 的 review|review-calibrate|signoff
+    子命令，或顶层 review 命令。review-pack、review-plan 只写本地文件，不是入口。"""
+    positional = [arg for arg in args if not arg.startswith("-")]
+    if not positional:
+        return None
+    if positional[0] == "review" or (
+        positional[0] == "dispatch" and len(positional) > 1 and positional[1] in IMPLEMENTER_DISPATCH_ACTIONS
+    ):
+        return REVIEW_SIGNAL
+    return None
 
 
 def _option_value(args: list[str], letter: str) -> str | None:
@@ -414,7 +435,28 @@ def _gh_issue_and_label(sub: str, action: str, positional: list[str], args: list
     return reasons
 
 
+# gh 的带值全局选项（T706）：分开写（-R o/r、--repo o/r）与连写（--repo=o/r、-Ro/r）都要连值一起先消费，
+# 否则选项的值会被当成子命令，带这些选项的写法绕过全部子命令规则。
+GH_VALUE_OPTIONS = ("-R", "--repo", "--hostname")
+
+
+def _gh_value_options_consumed(args: list[str]) -> list[str]:
+    rest: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in GH_VALUE_OPTIONS:
+            index += 2  # 选项与其值
+        elif arg.startswith(("--repo=", "--hostname=")) or re.fullmatch(r"-R\S+", arg):
+            index += 1
+        else:
+            rest.append(arg)
+            index += 1
+    return rest
+
+
 def _gh(args: list[str], role: str = "designer") -> list[str]:
+    args = _gh_value_options_consumed(args)
     positional = [arg for arg in args if not arg.startswith("-")]
     sub = positional[0] if positional else ""
     action = positional[1] if len(positional) > 1 else ""
