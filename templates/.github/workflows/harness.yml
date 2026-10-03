@@ -139,6 +139,10 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          # T705：账本按「内容相同」比对评审 head 与合并 head 的完整 diff，浅克隆拿不到祖先，
+          # 必须检出全部历史。
+          fetch-depth: 0
 
       - uses: actions/setup-python@v7
         with:

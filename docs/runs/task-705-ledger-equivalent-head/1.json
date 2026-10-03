@@ -1,0 +1,4753 @@
+{
+  "task": "T705",
+  "class": "K7",
+  "attempt": 1,
+  "branch": "task/705-ledger-equivalent-head",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3",
+  "prompt_sha256": "9095d875550f472820295cc85946677f3148a557dab45252f46e29a13da7a1c6",
+  "prompt_path": "docs/runs/task-705-ledger-equivalent-head/1.prompt.md",
+  "guard_ref": "d92334c8080776bbc34910fe1fda0b82d37dde02",
+  "started_at": "2026-10-03T04:36:45+00:00",
+  "ended_at": "2026-10-03T04:57:21+00:00",
+  "executor_seconds": 915.1,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 2458461,
+  "gen_ai.usage.output_tokens": 32827,
+  "cost": 0.878155,
+  "escalation": null,
+  "trace_id": "task/705-ledger-equivalent-head",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:53.278Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:54.341Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:56.827Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tools",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:58.376Z",
+      "duration_ms": 45,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:58.453Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:58.472Z",
+      "duration_ms": 59,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:58.504Z",
+      "duration_ms": 100,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "hygiene.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:58.848Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.hygiene",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:58.864Z",
+      "duration_ms": 325,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.hygiene",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:58.894Z",
+      "duration_ms": 363,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.004Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.020Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.037Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.054Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.070Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.085Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.100Z",
+      "duration_ms": 174,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.130Z",
+      "duration_ms": 211,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.docs",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.217Z",
+      "duration_ms": 53,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.docs",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.247Z",
+      "duration_ms": 91,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.acceptance",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.305Z",
+      "duration_ms": 25,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.acceptance",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.336Z",
+      "duration_ms": 62,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.415Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.435Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.454Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.470Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.486Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.502Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.518Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.534Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.549Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.564Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.580Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.595Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.611Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.626Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.642Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.658Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.674Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.690Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.705Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.720Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.736Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.752Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.767Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.783Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.798Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.814Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.830Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.846Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.863Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.879Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.895Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.910Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.926Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.942Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.958Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.973Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:32:59.989Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.005Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.022Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.037Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.053Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.069Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.084Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.100Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.116Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.132Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.148Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.164Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.180Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.196Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.taskbook",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.211Z",
+      "duration_ms": 842,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.taskbook",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.242Z",
+      "duration_ms": 879,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.lint",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.303Z",
+      "duration_ms": 34,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:00.754Z",
+      "duration_ms": 56,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:01.255Z",
+      "duration_ms": 58,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:02.014Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:02.396Z",
+      "duration_ms": 58,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:04.229Z",
+      "duration_ms": 56,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:04.733Z",
+      "duration_ms": 57,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:05.672Z",
+      "duration_ms": 56,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:06.210Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:47.425Z",
+      "duration_ms": 57,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:47.751Z",
+      "duration_ms": 57,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:48.992Z",
+      "duration_ms": 57,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:49.928Z",
+      "duration_ms": 59,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:33:50.620Z",
+      "duration_ms": 61,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:05.424Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:10.566Z",
+      "duration_ms": 59,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:10.701Z",
+      "duration_ms": 57,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:11.762Z",
+      "duration_ms": 57,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.upgrade",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:12.315Z",
+      "duration_ms": 56,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:12.571Z",
+      "duration_ms": 57,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:13.704Z",
+      "duration_ms": 58,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:14.503Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:15.393Z",
+      "duration_ms": 59,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:15.980Z",
+      "duration_ms": 58,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:17.605Z",
+      "duration_ms": 58,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:17.704Z",
+      "duration_ms": 56,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:17.845Z",
+      "duration_ms": 59,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:23.992Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.013Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.029Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.047Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.063Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.079Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.096Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.113Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.129Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.145Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.163Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.182Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.198Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.215Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.232Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.248Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.264Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.281Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.299Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.316Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.339Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.358Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.375Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.392Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.409Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.427Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.444Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.464Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.484Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.501Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.519Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.535Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.552Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.568Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.584Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.602Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.618Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.636Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.654Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.670Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.689Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.705Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.724Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.741Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.758Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:24.904Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:25.697Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:25.714Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:25.752Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tests",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:43.703Z",
+      "duration_ms": 223371,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:43.722Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:43.737Z",
+      "duration_ms": 225456,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "claim",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:45.045Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:51.042Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.taskbook",
+      "status": "ok",
+      "ts": "2026-10-03T04:36:51.068Z",
+      "duration_ms": 89,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tools",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:39.487Z",
+      "duration_ms": 27,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:39.556Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:39.573Z",
+      "duration_ms": 52,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:39.603Z",
+      "duration_ms": 89,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "hygiene.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:39.943Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.hygiene",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:39.959Z",
+      "duration_ms": 322,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.hygiene",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:39.990Z",
+      "duration_ms": 360,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.acceptance",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.050Z",
+      "duration_ms": 25,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.acceptance",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.082Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.157Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.174Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.189Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.205Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.222Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.237Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.254Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.271Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.286Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.304Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.319Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.337Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.353Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.371Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.387Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.403Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.419Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.435Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.454Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.473Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.492Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.511Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.527Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.543Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.560Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.577Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.593Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.609Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.625Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.641Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.657Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.673Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.688Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.703Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.719Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.736Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.753Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.770Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.787Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.803Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.819Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.835Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.850Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.865Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.882Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.898Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.914Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.929Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.945Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.962Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.taskbook",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:40.979Z",
+      "duration_ms": 864,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.taskbook",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:41.009Z",
+      "duration_ms": 902,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.lint",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:41.060Z",
+      "duration_ms": 24,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:41.076Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:41.091Z",
+      "duration_ms": 1684,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tools",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:46.799Z",
+      "duration_ms": 28,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:46.877Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:46.903Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:46.948Z",
+      "duration_ms": 107,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "hygiene.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.293Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.hygiene",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.320Z",
+      "duration_ms": 331,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.hygiene",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.369Z",
+      "duration_ms": 376,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.478Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.504Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.529Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.554Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.578Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.602Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.627Z",
+      "duration_ms": 217,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.672Z",
+      "duration_ms": 262,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.docs",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.771Z",
+      "duration_ms": 56,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.docs",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.817Z",
+      "duration_ms": 103,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.acceptance",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.883Z",
+      "duration_ms": 23,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.acceptance",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:47.935Z",
+      "duration_ms": 72,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.025Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.053Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.077Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.102Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.126Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.151Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.175Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.199Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.224Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.248Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.274Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.299Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.327Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.354Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.382Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.408Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.437Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.464Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.489Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.514Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.539Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.564Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.589Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.616Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.641Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.665Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.689Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.714Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.740Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.766Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.790Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.815Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.840Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.865Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.890Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.915Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.942Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.970Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:48.998Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.026Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.051Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.076Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.100Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.125Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.150Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.175Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.199Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.224Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.249Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.274Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.taskbook",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.299Z",
+      "duration_ms": 1321,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.taskbook",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.350Z",
+      "duration_ms": 1366,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.lint",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.426Z",
+      "duration_ms": 26,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:49.895Z",
+      "duration_ms": 57,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:50.549Z",
+      "duration_ms": 58,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:51.511Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:52.001Z",
+      "duration_ms": 58,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:54.493Z",
+      "duration_ms": 61,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:55.069Z",
+      "duration_ms": 58,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:56.314Z",
+      "duration_ms": 58,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:45:56.908Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:46:57.813Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:46:58.234Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:46:59.651Z",
+      "duration_ms": 58,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:47:00.645Z",
+      "duration_ms": 59,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:47:01.409Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:09.509Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:16.966Z",
+      "duration_ms": 62,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:17.139Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:19.123Z",
+      "duration_ms": 62,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.upgrade",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:19.762Z",
+      "duration_ms": 62,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:20.070Z",
+      "duration_ms": 62,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:21.613Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:22.212Z",
+      "duration_ms": 62,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:23.350Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:23.962Z",
+      "duration_ms": 64,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:25.325Z",
+      "duration_ms": 62,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:25.446Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:25.612Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:35.948Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:35.978Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.008Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.041Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.073Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.106Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.137Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.166Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.198Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.226Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.255Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.284Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.315Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.350Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.383Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.416Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.450Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.483Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.515Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.549Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.581Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.610Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.643Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.672Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.707Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.744Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.780Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.818Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.859Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.895Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.927Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.958Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:36.990Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.022Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.055Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.084Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.116Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.146Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.175Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.203Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.233Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.265Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.296Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.328Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.366Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:37.546Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:38.556Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:38.589Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:50:38.653Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tests",
+      "status": "ok",
+      "ts": "2026-10-03T04:51:05.944Z",
+      "duration_ms": 316470,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.replay",
+      "status": "ok",
+      "ts": "2026-10-03T04:51:06.146Z",
+      "duration_ms": 156,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.replay",
+      "status": "ok",
+      "ts": "2026-10-03T04:51:06.202Z",
+      "duration_ms": 208,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:51:06.232Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "ok",
+      "ts": "2026-10-03T04:51:06.262Z",
+      "duration_ms": 319561,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:00.728Z",
+      "duration_ms": 915079,
+      "attempt": 1,
+      "round": 1
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tools",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:00.902Z",
+      "duration_ms": 29,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:00.984Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.011Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.integrity",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.059Z",
+      "duration_ms": 113,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "hygiene.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.425Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.hygiene",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.458Z",
+      "duration_ms": 351,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.hygiene",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.514Z",
+      "duration_ms": 406,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.624Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.651Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.678Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.708Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.742Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.770Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.797Z",
+      "duration_ms": 238,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.quality",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.847Z",
+      "duration_ms": 285,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.docs",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:01.955Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.docs",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.004Z",
+      "duration_ms": 113,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.acceptance",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.074Z",
+      "duration_ms": 25,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.acceptance",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.124Z",
+      "duration_ms": 75,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.217Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.246Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.274Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.303Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.333Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.360Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.388Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.418Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.448Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.477Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.507Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.535Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.563Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.594Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.624Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.652Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.682Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.712Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.741Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.770Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.797Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.825Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.852Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.881Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.910Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.937Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.964Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:02.990Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.018Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.046Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.073Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.100Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.129Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.155Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.181Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.208Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.236Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.265Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.293Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.320Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.349Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.377Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.407Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.436Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.469Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.497Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.526Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.554Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.582Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "taskbook.admit",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.611Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.taskbook",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.639Z",
+      "duration_ms": 1470,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.taskbook",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.689Z",
+      "duration_ms": 1520,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.lint",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:03.761Z",
+      "duration_ms": 27,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:04.248Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:04.968Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:06.075Z",
+      "duration_ms": 61,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:06.634Z",
+      "duration_ms": 62,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:09.381Z",
+      "duration_ms": 64,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:10.033Z",
+      "duration_ms": 62,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:11.431Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:52:11.997Z",
+      "duration_ms": 64,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:53:18.051Z",
+      "duration_ms": 61,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:53:18.495Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:53:19.952Z",
+      "duration_ms": 62,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:53:21.009Z",
+      "duration_ms": 61,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:53:21.838Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:24.561Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:31.747Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:31.922Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:32.930Z",
+      "duration_ms": 64,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.upgrade",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:33.556Z",
+      "duration_ms": 60,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:33.881Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:35.486Z",
+      "duration_ms": 67,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:36.103Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:37.259Z",
+      "duration_ms": 64,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:37.905Z",
+      "duration_ms": 67,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:39.294Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:39.411Z",
+      "duration_ms": 63,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.install",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:39.580Z",
+      "duration_ms": 66,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.320Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.354Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.386Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.419Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.453Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.486Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.519Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.551Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.585Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.625Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.660Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.691Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.721Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.751Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.781Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.812Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.842Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.872Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.901Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.932Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.962Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:50.993Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.027Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.060Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.089Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.121Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.152Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.180Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.210Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.241Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.270Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.300Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.332Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.364Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.396Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.428Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.462Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.498Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.532Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.565Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.598Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.631Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.664Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.697Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.730Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:51.905Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:52.926Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.file",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:52.960Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "route",
+      "step": "risk.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:56:53.020Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tests",
+      "status": "ok",
+      "ts": "2026-10-03T04:57:20.878Z",
+      "duration_ms": 317066,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "ok",
+      "ts": "2026-10-03T04:57:20.906Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "ok",
+      "ts": "2026-10-03T04:57:20.933Z",
+      "duration_ms": 320127,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-03T04:57:20.991Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 1
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "51b62b8e4c167986d3e511500b34ff4701d768b4290068c63903c2204b63f22b",
+      "fixed_in": "run_record"
+    }
+  ]
+}

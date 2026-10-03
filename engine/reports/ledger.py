@@ -33,6 +33,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 # 直接脚本运行时 sys.path[0] 是 reports 目录，先把包根插进去才能导入 engine 包；
@@ -44,6 +45,7 @@ if _PACKAGE_ROOT not in sys.path:
 from engine.core import events, events_db, events_io  # 导入须在上面的 sys.path 准备之后
 from engine.core.common import ROOT, clean_git_env, git
 from engine.reports import github_events
+from engine.routing import signals
 
 LEDGER_SCHEMA_VERSION = 1
 AUDIT_BRANCH = "harness-audit"  # 账本专用分支（设计 4.1 方案 A，用户已审定）
@@ -155,10 +157,13 @@ def _chain_view(prefix: str, trace: str) -> tuple[list[dict], list[dict], list[d
     return stages, chains, anchors, sources
 
 
-def _parse_review_audit(body: str, head_sha: str) -> tuple[dict | None, dict | None]:
+def _parse_review_audit(body: str, head_sha: str,
+                        same: Callable[[str], bool] | None = None) -> tuple[dict | None, dict | None]:
     """只按 C6 固定标记与 schema v1 解析评审审计摘要：返回（摘要, None）或（None, missing 条目）。
 
     未知版本、字段不完整、材料项缺字段、head 与合并 head 不一致都明确报 missing，不猜旧评论正文。
+    head 不一致时可给 same(reviewed)：内容相同（合同制路径评审后只同步 main，T701/T705）时按有效
+    证据返回，原 JSON 不改写，head 字段仍是评审时的 head；same 为 None 或 head 非字符串时行为不变。
     """
     match = _REVIEW_RE.search(body)
     if match is None:
@@ -180,12 +185,17 @@ def _parse_review_audit(body: str, head_sha: str) -> tuple[dict | None, dict | N
     if bad:
         return None, _missing("review", "field_incomplete", "materials 项缺固定字段")
     if audit.get("head") != head_sha:
-        return None, _missing("review", "head_mismatch", "评审 head 与合并 head 不一致（不用作本 head 的评审）")
+        reviewed = audit.get("head")
+        if same is None or not isinstance(reviewed, str) or not same(reviewed):
+            return None, _missing("review", "head_mismatch", "评审 head 与合并 head 不一致（不用作本 head 的评审）")
     return audit, None
 
 
-def _review_entries(client, repo: str, pr: int, head_sha: str, missing: list[dict]) -> list[tuple[dict, dict]]:
+def _review_entries(client, repo: str, pr: int, head_sha: str, missing: list[dict],
+                    same: Callable[[str], bool] | None = None) -> list[tuple[dict, dict]]:
     """读取 PR 评论里的评审审计摘要：返回（摘要, 评论）列表；缺标记/坏样本逐条列 missing。
+
+    same 原样转传给 _parse_review_audit（缺省 None 时逐字保持旧行为）。
 
     只有旧 independent-review 标记的评论说明生产方过旧，同样报 marker_missing；完全没有评审评论报
     not_found。API 失败经 github_events._collect_pages 记入 findings 后转 missing。
@@ -203,7 +213,7 @@ def _review_entries(client, repo: str, pr: int, head_sha: str, missing: list[dic
             saw_legacy = saw_legacy or _LEGACY_REVIEW_MARK in body
             continue
         saw_marker = True
-        audit, problem = _parse_review_audit(body, head_sha)
+        audit, problem = _parse_review_audit(body, head_sha, same)
         if audit is None:
             missing.append(problem)
             continue
@@ -317,7 +327,11 @@ def build_ledger(pr: int, *, gh=None, cwd: Path = ROOT) -> dict:
                    for item in record.get("stages") or [] if isinstance(item, dict)]
         ledger["anchors"] += [dict(item, trace_id=trace) for item in record.get("anchors") or []
                               if isinstance(item, dict)]
-    for audit, comment in _review_entries(client, repo, pr, head_sha, missing):
+    # 评审证据按「内容相同」沿用（T705，与合同制路由同一判定）：base 是合并提交的第一个父提交，
+    # 即合并前的 main；git 出错时 same_content 返回假，退回严格比对。
+    for audit, comment in _review_entries(
+            client, repo, pr, head_sha, missing,
+            same=lambda reviewed: signals.same_content(reviewed, head_sha, f"{merge_sha}^1", cwd)):
         body = str(comment.get("body")).encode("utf-8")
         stages.append({"stage": "review", "evidence_kind": "review_comment_summary",
                        "ts": comment.get("created_at"), "trace_id": audit.get("trace_id"),

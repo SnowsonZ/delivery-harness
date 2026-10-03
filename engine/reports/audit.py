@@ -41,6 +41,7 @@ from pathlib import Path
 from engine.core import events, events_db, events_io
 from engine.core.common import ROOT, clean_git_env
 from engine.reports import audit_completeness, github_events, ledger
+from engine.routing import signals
 
 # 批量模式 --since 的相对时长单位（折算为秒）。
 _DURATION_RE = re.compile(r"(\d+)([dhms])\Z")
@@ -278,7 +279,12 @@ class _Auditor:
                     anchor = {"path": file_match["path"], "commit": file_match["commit"],
                               "sha256": sha_match["sha256"], "comment_id": comment.get("id")}
                 continue
-            parsed, _problem = ledger._parse_review_audit(body, self.head)
+            # 内容相同（T705，与账本同一判定与同一 base：合并提交的第一个父提交）：同步 main 后的
+            # 评审证据仍收录；same_content 出错返回假，退回严格比对。
+            parsed, _problem = ledger._parse_review_audit(
+                body, self.head,
+                same=lambda reviewed: signals.same_content(reviewed, self.head, f"{self.merge_sha}^1",
+                                                           self.cwd))
             if parsed is None:
                 continue  # 解析失败或非本 head 的评审摘要不作为证据（缺评审的完整性判断属 T402）
             self.stages.append({
