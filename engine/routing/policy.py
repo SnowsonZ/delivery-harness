@@ -131,24 +131,27 @@ def audit_sampled(pr: int, every: int) -> bool:
     return every > 0 and int(hashlib.sha256(str(pr).encode()).hexdigest(), 16) % every == 0
 
 
-def decide(facts: Facts, autonomy: dict) -> list[Rule]:
-    rules = []
+def risk_rule(facts: Facts) -> Rule:
+    """「风险」规则：R0/R1 照旧；R3 与 R2 非候选照旧；R2 合同制候选看评审与复核标记（设计第 4 节）。"""
     level = facts.risk.level
     if level <= 1 or not facts.contract:
-        rules.append(Rule("风险", level <= 1, f"{facts.risk.label}：" + risk.POLICY[level]))
-    else:  # R2 合同制路径（设计第 4 节）：评审与复核都 ok 才通过
-        ok = facts.review[0] == "ok" and facts.signoff[0] == "ok"
-        reason = f"R2：合同制路径——独立评审 {facts.review[0]}，设计方复核 {facts.signoff[0]}"
-        causes = []
-        if facts.review[0] != "ok":
-            causes.append(f"独立评审 {facts.review[0]}（{facts.review[1]}）")
-        if facts.signoff[0] != "ok":
-            causes.append(f"设计方复核 {facts.signoff[0]}（{facts.signoff[1]}）")
-        if causes:
-            reason += "：" + "；".join(causes)
-        if facts.degraded:
-            reason += "；同家评审（降级）"
-        rules.append(Rule("风险", ok, reason))
+        return Rule("风险", level <= 1, f"{facts.risk.label}：" + risk.POLICY[level])
+    ok = facts.review[0] == "ok" and facts.signoff[0] == "ok"
+    reason = f"R2：合同制路径——独立评审 {facts.review[0]}，设计方复核 {facts.signoff[0]}"
+    causes = []
+    if facts.review[0] != "ok":
+        causes.append(f"独立评审 {facts.review[0]}（{facts.review[1]}）")
+    if facts.signoff[0] != "ok":
+        causes.append(f"设计方复核 {facts.signoff[0]}（{facts.signoff[1]}）")
+    if causes:
+        reason += "：" + "；".join(causes)
+    if facts.degraded:
+        reason += "；同家评审（降级）"
+    return Rule("风险", ok, reason)
+
+
+def decide(facts: Facts, autonomy: dict) -> list[Rule]:
+    rules = [risk_rule(facts)]
 
     klass = facts.machine_class
     config = autonomy.get("classes", {}).get(klass, {})
