@@ -144,6 +144,34 @@ class GuardReviewEntrypointsTest(unittest.TestCase):
             with self.subTest(command=command, role="designer"):
                 self.assertNotIn(REVIEW_SIGNAL, command_guard.check_command(command), command)
 
+    def test_python_options_with_values_do_not_hide_script(self):
+        """解释器带值选项（-W ignore、-X dev）的值不是脚本，-m engine.cli 同 cli.py 入口（T706 二轮评审严重项 1）。"""
+        denied = (
+            "python3 -W ignore .harness/engine/cli.py review pr 12",
+            "python3 -X dev .harness/engine/cli.py dispatch review 12",
+            "python3 -u -W ignore .harness/engine/cli.py dispatch signoff 3",
+            "python3 -Wignore .harness/engine/cli.py review pr 12",
+            "python3 -m engine.cli review pr 12",
+        )
+        for command in denied:
+            with self.subTest(command=command):
+                self.assertIn(REVIEW_SIGNAL, structured(command), command)
+                self.assertNotIn(REVIEW_SIGNAL, command_guard.check_command(command), command)  # 设计方放行
+        for command in ("python3 -W ignore .harness/engine/cli.py verify", "python3 -m unittest tests.test_x"):
+            with self.subTest(command=command):
+                self.assertEqual(structured(command), [], command)
+
+    def test_gh_option_stripping_never_loosens(self):
+        """剥离 -R 只为识别被挤偏的子命令，不能放宽原解析已拒绝的写法：--description 的值恰好是 -R 时，
+        后面的登记标签仍是被编辑的目标（T706 二轮评审严重项 2）。真实的 -R o/r 照常识别。"""
+        label = "esc" + "ape"
+        for command in (f"gh label edit --description -R {label} --name renamed",
+                        f"gh label edit {label} -R o/r --name renamed"):
+            with self.subTest(command=command):
+                self.assertIn(shell_structure.LABEL_ERASE, command_guard.check_command(command), command)
+        self.assertIn(shell_structure.MERGE, command_guard.check_command("gh pr -R o/r merge 3"))
+        self.assertEqual(structured("gh pr -R o/r view 3"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

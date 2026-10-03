@@ -227,11 +227,9 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
         if code is not None:
             return reasons + text_rules(code), False
         if program.startswith("python") and role == "implementer":
-            for index, arg in enumerate(args):
-                if not arg.startswith("-"):  # 第一个非选项参数是脚本文件，之后的参数属于脚本（cli.py 同 harness 入口）
-                    if os.path.basename(arg) == "cli.py" and _review_entrypoint(args[index + 1:]):
-                        reasons.append(REVIEW_SIGNAL)
-                    break
+            target, rest = _python_target(args)  # cli.py 脚本或 -m engine.cli 模块，同 harness 入口
+            if target in ("cli.py", "engine.cli") and _review_entrypoint(rest):
+                reasons.append(REVIEW_SIGNAL)
         return reasons, _reads_stdin(args)
     if program == "git":
         return reasons + _git(args), False
@@ -244,6 +242,27 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
     if program == "curl":
         return reasons + _curl(args), False
     return reasons, False
+
+
+# Python 解释器带值的选项：分开写（-W ignore、-X dev）时下一个参数是值，不是脚本；-c 由调用方先处理。
+PYTHON_VALUE_OPTIONS = ("-W", "-X")
+
+
+def _python_target(args: list[str]) -> tuple[str | None, list[str]]:
+    """(脚本文件名或 -m 的模块名, 之后属于脚本的参数)：按 Python 的参数语法先消费解释器选项及其值。"""
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "-m" or (arg.startswith("-m") and not arg.startswith("--")):
+            module = arg[2:] or (args[index + 1] if index + 1 < len(args) else "")
+            return module, args[index + (1 if arg[2:] else 2):]
+        if arg in PYTHON_VALUE_OPTIONS:
+            index += 2
+        elif arg.startswith("-"):
+            index += 1  # 无值开关，或连写的 -Wignore、-Xdev
+        else:
+            return os.path.basename(arg), args[index + 1:]
+    return None, []
 
 
 def _review_entrypoint(args: list[str]) -> str | None:
@@ -456,7 +475,16 @@ def _gh_value_options_consumed(args: list[str]) -> list[str]:
 
 
 def _gh(args: list[str], role: str = "designer") -> list[str]:
-    args = _gh_value_options_consumed(args)
+    """按原参数与剥掉 -R/--repo/--hostname 后的参数各判一次，取拒绝理由的并集：剥离只为识别被选项值
+    挤偏的子命令，不能放宽原解析已拒绝的写法（如 --description -R 中的 -R 是描述内容，T706 二轮评审）。"""
+    reasons = _gh_rules(args, role)
+    consumed = _gh_value_options_consumed(args)
+    if consumed != args:
+        reasons += [reason for reason in _gh_rules(consumed, role) if reason not in reasons]
+    return reasons
+
+
+def _gh_rules(args: list[str], role: str = "designer") -> list[str]:
     positional = [arg for arg in args if not arg.startswith("-")]
     sub = positional[0] if positional else ""
     action = positional[1] if len(positional) > 1 else ""
