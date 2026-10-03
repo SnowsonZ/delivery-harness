@@ -43,8 +43,27 @@ from pathlib import Path
 
 from engine.agents import dispatch_host, run_timeline
 from engine.agents import dispatch_observation as observation
+
+# T707 拆分：槽位管理与 PR/升级文本移出到子模块，这里重新导出，engine.agents.dispatch.X 的既有用法不变。
+from engine.agents.dispatch_slots import (  # noqa: F401  重新导出（T707）
+    _registered_worktrees,
+    _salvage_and_remove,
+    acquire_slot,
+    prepare_slot,
+    reclaim_stale_slots,
+    release_slot,
+    return_slot,
+    update_slot,
+)
+from engine.agents.dispatch_text import (  # noqa: F401  重新导出（T707）
+    _manual_section,
+    _pr_title,
+    _title,
+    escalation_body,
+    pr_body,
+)
 from engine.agents.github import GitHub
-from engine.checks import acceptance, taskbook
+from engine.checks import taskbook
 from engine.core import alerts
 from engine.core.common import ENGINE_DIR, ROOT, git, load_rules, setting
 
@@ -171,133 +190,6 @@ def _alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
-
-
-def acquire_slot(root: Path, config: Config, task: Task) -> tuple[int, Path]:
-    locks = state_dir(root) / "slots"
-    locks.mkdir(parents=True, exist_ok=True)
-    for index in range(1, config.slots + 1):
-        lock = locks / f"{index}.json"
-        if lock.exists():
-            held = json.loads(lock.read_text() or "{}")
-            if _alive(held.get("pid", 0)):
-                continue
-            lock.unlink()  # 持有者已退出：回收
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            continue
-        with os.fdopen(fd, "w") as handle:
-            json.dump({"pid": os.getpid(), "task": task.id, "branch": task.branch,
-                       "started_at": _now()}, handle)
-        return index, slot_path(root, config, index)
-    observation.slot(task.branch, None, problem=f"{config.slots} 个槽位都在使用中")
-    raise Stop(f"{config.slots} 个槽位都在使用中：稍后再派发，或用 bin/dispatch status 查看")
-
-
-def update_slot(root: Path, index: int, **fields) -> None:
-    lock = state_dir(root) / "slots" / f"{index}.json"
-    data = json.loads(lock.read_text() or "{}")
-    data.update(fields)
-    lock.write_text(json.dumps(data))
-
-
-def release_slot(root: Path, index: int) -> None:
-    (state_dir(root) / "slots" / f"{index}.json").unlink(missing_ok=True)
-
-
-def _registered_worktrees(root: Path) -> set[str]:
-    """登记在案的工作树绝对路径（porcelain 输出是规范化路径，按 resolve 后比对，免符号路径误差）。"""
-    out = git("worktree", "list", "--porcelain", cwd=root)
-    return {str(Path(line[len("worktree "):]).resolve())
-            for line in out.splitlines() if line.startswith("worktree ")}
-
-
-def _salvage_and_remove(root: Path, slot: Path, push) -> None:
-    """归还一个槽位工作树（B77）：分支有未推提交先推送保全，再 worktree remove。
-
-    不是登记在案的工作树（普通残留目录）不动；推送/取远端状态失败原样抛出，由调用方决定
-    停止派发（回收路径）或提示后继续（结束路径）。
-    """
-    if not slot.exists() or str(slot.resolve()) not in _registered_worktrees(root):
-        return
-    branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=slot, check=False)
-    if branch and branch != "HEAD":
-        # fetch 失败（远端无该分支——认领推送前崩溃/推送静默失败）不拦回收：直接尝试推送保全
-        try:
-            git("fetch", "--quiet", "origin", branch, cwd=slot)
-        except RuntimeError:
-            pass
-        pushed = git("rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}",
-                     cwd=slot, check=False)
-        if not pushed or git("rev-list", f"origin/{branch}..{branch}", cwd=slot).split():
-            push(slot, branch)
-    git("worktree", "remove", "--force", str(slot), cwd=root)
-
-
-def reclaim_stale_slots(root: Path, config: Config, push) -> list[str]:
-    """崩溃路径无法归还时的槽位回收（B77）：锁文件 pid 不存活的槽在下次派发前强制回收。
-
-    槽内分支有未推提交先推送保全再删工作树；推送失败停止派发（保数据优先，不静默丢提交），
-    现场保留待人工处理。返回被回收槽位曾认领的分支名（链路自愈提示用）。
-    """
-    locks = state_dir(root) / "slots"
-    if not locks.is_dir():
-        return []
-    reclaimed: list[str] = []
-    for lock in sorted(locks.glob("*.json"), key=lambda path: int(path.stem) if path.stem.isdigit() else 0):
-        if not lock.stem.isdigit():
-            continue
-        try:
-            data = json.loads(lock.read_text() or "{}")
-        except ValueError:
-            data = {}
-        if _alive(data.get("pid", 0)):
-            continue
-        try:
-            _salvage_and_remove(root, slot_path(root, config, int(lock.stem)), push)
-        except (RuntimeError, subprocess.CalledProcessError) as error:
-            raise Stop(f"槽位 {lock.stem} 回收失败（分支提交保全未完成，工作树保留待人工处理）：{error}") from error
-        reclaimed.append(str(data.get("branch") or ""))
-        lock.unlink(missing_ok=True)
-    return reclaimed
-
-
-def return_slot(root: Path, config: Config, index: int, push) -> None:
-    """派发结束路径统一归还槽位（B77）：worktree remove + 锁清理。
-
-    run 结束时锁已先释放；归还前先重新独占槽位锁——拿不到说明已有下一次派发认领该槽，
-    不删它正准备使用的工作树。删除失败只提示，残留交给下次派发的回收路径。
-    """
-    lock = state_dir(root) / "slots" / f"{index}.json"
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        return
-    with os.fdopen(fd, "w") as handle:
-        json.dump({"pid": os.getpid(), "task": "return", "started_at": _now()}, handle)
-    try:
-        _salvage_and_remove(root, slot_path(root, config, index), push)
-    except (RuntimeError, subprocess.CalledProcessError) as error:
-        print(f"槽位 {index} 归还未完成（工作树保留，下次派发会回收）：{error}", file=sys.stderr)
-    finally:
-        release_slot(root, index)
-
-
-def prepare_slot(root: Path, slot: Path, branch: str, resume: bool) -> None:
-    if not slot.exists():
-        git("worktree", "add", "--detach", str(slot), "origin/main", cwd=root)
-    git("fetch", "--quiet", "origin", cwd=slot)
-    start = f"origin/{branch}" if resume else "origin/main"
-    git("checkout", "--quiet", "--force", "-B", branch, start, cwd=slot)
-    keep = preserved_paths()
-    git("clean", "-ffdxq", *[arg for path in keep for arg in ("-e", path)], cwd=slot)
-    for path in keep:
-        source = root / path
-        if source.exists() and not (slot / path).exists():
-            (slot / path).parent.mkdir(parents=True, exist_ok=True)
-            (slot / path).symlink_to(source)
 
 
 # ---- 4 守卫 ----
@@ -612,71 +504,6 @@ EXIT_TEXT = {
     "error": "执行方异常退出", "loop": "打转：连续两轮同一失败", "retries": "重试次数用尽",
     "clarify": "执行方请求澄清",
 }
-
-
-def _title(root: Path, task: Task) -> str:
-    first = (root / task.path).read_text(encoding="utf-8").split("\n# ", 1)
-    return first[1].splitlines()[0].removeprefix("任务：").strip() if len(first) > 1 else task.path
-
-
-def _pr_title(root: Path, task: Task) -> str:
-    """PR 标题：任务书标题已带「TXXX：」前缀时不再重复拼接（B65）。"""
-    title = _title(root, task)
-    return title if title.startswith(f"{task.id}：") else f"{task.id}：{title}"
-
-
-def _manual_section(root: Path, task: Task) -> str:
-    """人工验收一节正文：验收表存在「人工」类证据行时给指引，否则写「无」（B57）。
-
-    判定与 `bin/harness acceptance --manual` 同源（acceptance.Item.manual）。
-    """
-    items = acceptance.parse_spec(root / task.path, root)
-    if any(item.manual for item in items):
-        return "见任务书验收表中的人工条目（`bin/harness acceptance --manual`）。"
-    return "无"
-
-
-def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str, root: Path = ROOT) -> str:
-    usage = attempt.usage
-    return "\n".join([
-        "## 任务", "",
-        f"- 任务书：`{task.path}`（{task.id}，类别 {task.klass}，预期风险 {task.risk}）",
-        f"- 对应验收编号：{'、'.join(task.spec_refs) or '不挂规格（见任务书）'}",
-        "- 派发：`bin/dispatch`，执行方与模型见下表", "",
-        "## 运行记录摘要", "",
-        "| 项 | 值 |", "|---|---|",
-        f"| 记录 | `docs/runs/{task.path.split('/')[-1].removesuffix('.md')}/{number}.json` |",
-        f"| 模型 | {attempt.model or '未报告'} |",
-        f"| 执行时长 | {round(attempt.executor_seconds / 60, 1)} 分钟，本地重试 {attempt.retries} 次 |",
-        f"| token | 输入 {usage.get('input_tokens', '—')}，输出 {usage.get('output_tokens', '—')} |",
-        f"| 守卫拒绝 | {sum(attempt.guard_denials.values())} 次 |",
-        f"| 提示词 sha256 | `{prompt_sha[:16]}` |", "",
-        "本地 `bin/verify` 由派发脚本在执行方进程之外运行并通过；以本 PR 的 CI 为准。", "",
-        "## 证据", "",
-        "- CI 运行（当前 head）：见本 PR checks",
-        "- 风险等级与修复证据：见 harness job summary（机器生成）", "",
-        "## 需要人工验收的部分", "",
-        _manual_section(root, task), "",
-        "🤖 Dispatched by bin/dispatch",
-    ]) + "\n"
-
-
-def escalation_body(task: Task, attempt: Attempt, reason: str, pr: int | None = None) -> str:
-    lines = [
-        f"### 升级：{task.id}（{reason}）", "",
-        f"- **当前状态与目标差距**：任务书 `{task.path}`，分支 `{task.branch}`；退出方式：{EXIT_TEXT.get(attempt.exit, attempt.exit)}。",
-        f"- **已尝试的方案与结果**：执行方运行 {attempt.retries + 1} 轮，失败签名："
-        + ("、".join(f"`{sig}`" for sig in attempt.signatures) or "无"),
-        "- **证据**：", "",
-        attempt.verify_summary or "（无 verify 输出）", "",
-    ]
-    if attempt.executor_note:
-        lines += ["#### 执行方的说明（`build/dispatch/escalation.md`）", "", attempt.executor_note, ""]
-    else:
-        lines += ["- **可选方案与推荐**、**需要决定的问题**：执行方未提供，由设计方判断。", ""]
-    lines += alerts.timeline_lines(task.branch, pr)  # T205：trace、安全阶段摘要与时间线入口
-    lines += ["完整事件流在派发机器本地（git 公共目录下 `dispatch/runs/`），不入库。"]
-    return "\n".join(lines) + "\n"
 
 
 def _now() -> str:
