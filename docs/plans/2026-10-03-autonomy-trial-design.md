@@ -155,6 +155,7 @@ R3 始终不走这条路径。R0/R1 的判定不变。
 | 第 5 节第 2 步：CI 通过后自动接上评审（「已评审」只认可信标记）；第 3.1 节评审方按 `[review] chain` 依次尝试 | T703 | `tests.test_review_after_ci` | `engine/agents/dispatch.py`、`tests/test_review_after_ci.py`（新） | T701 |
 | 第 6 节：执行方禁止评论、评审、复核；运行记录接受新的拒绝理由 | T704 | `tests.test_guard_review_signals` | `engine/guards/command_guard.py`、`engine/core/shell_structure.py`、`engine/routing/run_check.py`（只改可信理由清单）、`tests/test_guard_review_signals.py`（新） | — |
 | 第 5 节第 3–5 步：signoff 命令、重跑触发（只选 pull_request 那次运行）、落后时更新分支；评审文本转义；watch 只认可信标记 | T702 | `tests.test_signoff` | `engine/agents/signoff.py`（新）、`engine/agents/review.py`、`engine/agents/dispatch.py`（只加子命令）、`templates/.github/workflows/auto-merge.yml`（merge-app 任务）、`tests/test_signoff.py`（新） | T701（标记格式）、T703（dispatch.py 串行） |
+| 为 T703、T702 腾出体量余量：行为不变地拆分 `dispatch.py`、`review.py`（T703 首次派发因质量棘轮 800 行上限停下） | T707 | `tests.test_split_modules` | `engine/agents/{dispatch,dispatch_text,dispatch_slots,review,review_calibration}.py`、`tests/test_split_modules.py`（新） | — |
 | 第 4 节「内容相同」在账本与审计中同样成立；账本检出完整历史 | T705 | `tests.test_ledger_equivalent_head` | `engine/reports/ledger.py`、`engine/reports/audit.py`、`templates/.github/workflows/harness.yml`（只改 audit-ledger 的 checkout）、`tests/test_ledger_equivalent_head.py`（新） | T701 |
 | 自举升级、本仓库 `.github/` 同步、第 8 节配置；升级摘要中单独列出护栏性质路径的改动；整批 CHANGELOG（Unreleased + Migration：`docs/specs/**` 进 contracts、`review_after_ci`、App 需 Contents 写权限）与 README「Platform setup」 | 设计方 D1 | 升级 PR 中逐项核对：① `bin/harness risk` 对 `engine/x.py`、`docs/backlog.md`、`docs/plans/2026-x.md`、`CHANGELOG.md` 的判级分别是 R2、R0、R2、R0；② `bin/harness taskbook` 对一份声明 K5、步骤含 `engine/**` 的样例任务书判定合格；③ autonomy 各类别的等级、窗口、抽审参数与第 7 节逐行一致（PR 描述里贴对照表）；④ `review_after_ci = true`；⑤ `[contract_route] allowed` 与第 8 节逐字一致，且 `bin/harness policy` 在夹具 PR（改 `engine/x.py` 加 `AGENTS.md`）上的候选判断为否；⑥ 现装 `rules.toml [risk] contracts` 含 `docs/specs/**`，且只改 `docs/specs/x.md` 的夹具 PR 机器判类为 K0；⑦ `bin/verify --full` 与 integrity 通过 | `.harness/**`、`.github/workflows/{auto-merge,harness}.yml`、`CHANGELOG.md`、`README*.md` | T701–T705 合并 |
 | 批准 App、变量、密钥、environment | 用户（设计方准备操作步骤，并在完成后核对） | 名为 `harness-auto-merge` 的 environment 存在，且只允许默认分支部署；仓库变量 `HARNESS_APP_CLIENT_ID` 存在；该 environment 下有密钥 `HARNESS_APP_PRIVATE_KEY`；App 安装在本仓库，具有 Pull requests 与 Contents 两项写权限（安装页截图或 `gh api` 输出贴进 D1） | 平台 | D1 合并前 |
@@ -165,8 +166,8 @@ R3 始终不走这条路径。R0/R1 的判定不变。
 
 派发分三波：
 - **第一波**：T701 ∥ T704。
-- **第二波**：T703 ∥ T705，都依赖 T701 的 `signals` 模块。
-- **第三波**：T702，依赖 T701 和 T703。
+- **第二波**：T703 ∥ T705 ∥ T706，T703、T705 依赖 T701 的 `signals` 模块，T706 依赖 T704；另加 T707（拆分），T703 要等 T707 合并后变基续跑。
+- **第三波**：T702，依赖 T701、T703、T706、T707。
 
 同一文件的改动全部串行：
 - `auto-merge.yml`：T701 只改 `judge` 输出和 `request-review`，T702 只改 `merge-app`；
