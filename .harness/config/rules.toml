@@ -114,8 +114,8 @@ ci_timeout_minutes = 60
 reviewer = "opencode"
 opencode_model = "zai-coding-plan/glm-5.3"
 pi_model = "zai-coding-cn/glm-5.3"
-codex_model = "gpt-6-sol"
-codex_reasoning_effort = "max"
+codex_model = "gpt-6.1-sol"
+codex_reasoning_effort = "high"
 timeout_minutes = 30
 
 [guard]
