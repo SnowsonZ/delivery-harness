@@ -76,7 +76,7 @@ def signoff_status(comments: list[dict], login: str, head: str, base: str, cwd: 
     if data.get("verdict") != "通过":
         return "fail", f"复核结论为「{data.get('verdict')}」"
     mutations, caught = data.get("mutations"), data.get("caught")
-    if not isinstance(mutations, int) or not isinstance(caught, int):
+    if not _is_count(mutations) or not _is_count(caught):
         return "fail", "mutations/caught 缺失或不是整数"
     if mutations < 1:
         return "fail", f"mutations={mutations}（没有做定向变异）"
@@ -88,24 +88,27 @@ def signoff_status(comments: list[dict], login: str, head: str, base: str, cwd: 
 def audit_model(comments: list[dict], login: str, head: str, base: str, cwd: Path) -> str | None:
     """最后一条有效评审标记所在评论里 harness-review-audit 的 model（同家评审降级用它，不用展示串）。
 
-    缺审计标记、model 为 null 或 model_basis 为 unknown 时为 None（按模型未知处理）。
+    只认评审标记**之后**、与它绑定的唯一一条审计标记：正文里的模型输出可能在前面夹带伪造的审计
+    标记。缺失、重复、无法解析、model 为 null 或 model_basis 为 unknown 时为 None（按模型未知处理）。
     """
     pair = _last_matched(comments, REVIEW_MARK, login, head, base, cwd)
     body = pair[0].get("body") if pair else None
     if not isinstance(body, str):
         return None
-    for line in body.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith(AUDIT_MARK) or not stripped.endswith("-->"):
-            continue
-        try:
-            data = json.loads(stripped.removeprefix(AUDIT_MARK).removesuffix("-->").strip())
-        except json.JSONDecodeError:
-            return None
-        if not isinstance(data, dict) or data.get("model") is None or data.get("model_basis") == "unknown":
-            return None
-        return str(data["model"])
-    return None
+    lines = [line.strip() for line in body.splitlines()]
+    start = next((index for index, line in enumerate(lines) if line.startswith(REVIEW_MARK)), None)
+    if start is None:
+        return None
+    audits = [line for line in lines[start + 1:] if line.startswith(AUDIT_MARK)]
+    if len(audits) != 1 or not audits[0].endswith("-->"):
+        return None
+    try:
+        data = json.loads(audits[0].removeprefix(AUDIT_MARK).removesuffix("-->").strip())
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict) or data.get("model") is None or data.get("model_basis") == "unknown":
+        return None
+    return str(data["model"])
 
 
 def model_family(model: str | None) -> str | None:
@@ -115,6 +118,11 @@ def model_family(model: str | None) -> str | None:
         return None
     family = model.rsplit("/", 1)[-1].split("-", 1)[0].lower()
     return family or None
+
+
+def _is_count(value) -> bool:
+    """计数必须是真正的整数：JSON 的 true/false 在 Python 里是 int 的子类，要排除。"""
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _accepted(comments: list[dict] | None, mark: str, login: str) -> list[tuple[dict, dict]]:

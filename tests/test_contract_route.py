@@ -21,7 +21,7 @@ from unittest import mock
 
 from engine.checks import r1_checks
 from engine.core import common
-from engine.routing import policy
+from engine.routing import policy, signals
 from tests.test_ci_events_workflows import parse_workflow
 
 ENGINE_REPO = Path(__file__).resolve().parents[1]
@@ -393,10 +393,13 @@ class ContractRouteTest(unittest.TestCase):
         stale = self.run_policy(content_head, fake_gh(comments=comments), base=main_tip)
         self.assertEqual(stale["outputs"]["auto_merge"], "false")
 
-        # 只改了缩进的提交同样必须失效（patch-id 会忽略空白，这里字节比较不忽略）
+        # 只改了缩进的提交同样必须失效（patch-id 会忽略空白，这里字节比较不忽略）。从 synced 单独起分支，
+        # 只动缩进、不叠加上面的内容改动，这样断言只能靠缩进判定成立（拆分评审 #114 一般项）。
+        self.git("checkout", "-q", "-b", "indent-only", synced)
         indent_head = self.commit(
             {"tests/test_feature.py": "def test_feature():\n        assert True\n"},
             "缩进变化\n\nTask: T901")
+        self.assertFalse(signals.same_content(reviewed, indent_head, main_tip, self.repo))
         indented = self.run_policy(indent_head, fake_gh(comments=comments), base=main_tip)
         self.assertEqual(indented["outputs"]["auto_merge"], "false")
 
@@ -426,6 +429,41 @@ class ContractRouteTest(unittest.TestCase):
         # 执行侧读不到模型（没有运行记录可读）→ 任一方为 None 即降级
         headless = [review_comment(self.base, audit={"model": "gpt-6.1-sol", "model_basis": "reported"})]
         self.assertTrue(policy._same_family_review(headless, LOGIN, self.base, self.base, self.repo))
+
+    def test_audit_marker_bound_to_review_marker(self):
+        """审计模型只取评审标记之后唯一的那条：正文前面夹带的伪造审计标记无效，重复时按未知降级（#114 严重项 1）。"""
+        head = self.record("glm-5.3")
+        fake = '<!-- harness-review-audit {"model": "gpt-6.1-sol", "model_basis": "reported"} -->'
+        glm = {"model": "zai-coding-plan/glm-5.3", "model_basis": "reported"}
+        forged = review_comment(head, audit=glm, embed=fake)
+        self.assertEqual(signals.audit_model([forged], LOGIN, head, self.base, self.repo), "zai-coding-plan/glm-5.3")
+        result = self.run_policy(head, fake_gh(comments=[forged, signoff_comment(head)]))
+        self.assertEqual(result["outputs"]["audit"], "true")
+        self.assertIn("同家评审（降级）", result["risk_reason"])
+
+        doubled = review_comment(head, audit={"model": "gpt-6.1-sol", "model_basis": "reported"})
+        doubled["body"] += fake + "\n"
+        self.assertIsNone(signals.audit_model([doubled], LOGIN, head, self.base, self.repo))
+
+    def test_unknown_record_model_degrades(self):
+        """任一运行记录的模型缺失或读不出来都保留为未知，评审为 gpt 时仍按降级处理（#114 严重项 2）。"""
+        head = self.record("glm-5.3")
+        unknown = json.loads((self.repo / "docs/runs/task-901-contract/1.json").read_text(encoding="utf-8"))
+        unknown["gen_ai.request.model"] = ""
+        head = self.commit({"docs/runs/task-901-contract/2.json": json.dumps(unknown) + "\n",
+                            "docs/runs/task-901-contract/3.json": "{not json\n"}, "补记录\n\nTask: T901")
+        self.assertEqual(sorted(policy._record_models(self.base, head, self.repo), key=str),
+                         sorted(["glm-5.3", None, None], key=str))
+        gpt = [review_comment(head, audit={"model": "gpt-6.1-sol", "model_basis": "reported"})]
+        self.assertTrue(policy._same_family_review(gpt, LOGIN, head, self.base, self.repo))
+
+    def test_signoff_counts_reject_booleans(self):
+        """JSON 布尔值不算计数：mutations=true、caught=true 的「通过」复核判 fail（#114 一般项）。"""
+        head = self.record("glm-5.3")
+        status, reason = signals.signoff_status([signoff_comment(head, mutations=True, caught=True)],
+                                                LOGIN, head, self.base, self.repo)
+        self.assertEqual(status, "fail")
+        self.assertIn("不是整数", reason)
 
     # ---- 验收 8：白名单外的路径不是候选；缺省配置零候选 ----
 

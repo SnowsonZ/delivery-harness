@@ -315,18 +315,22 @@ def _contract_signals(base: str, head: str, pr: int, cwd: Path, gh) -> tuple[tup
     return review, signoff, degraded
 
 
-def _record_models(base: str, head: str, cwd: Path) -> list[str]:
-    """本 PR 新增或修改的运行记录（docs/runs/<任务>/<序号>.json）里全部 gen_ai.request.model。"""
-    models = []
+def _record_models(base: str, head: str, cwd: Path) -> list[str | None]:
+    """本 PR 新增或修改的运行记录（docs/runs/<任务>/<序号>.json）里的 gen_ai.request.model，每条记录一项。
+
+    模型缺失、为空或记录读不出来时记为 None（保留「未知」，由调用方按降级处理），不丢弃。
+    """
+    models: list[str | None] = []
     for status, path in changed_files(base, head, cwd):
         if status == "D" or not run_check.RECORD_PATH.match(path):
             continue
         try:
             record = json.loads(git("show", f"{head}:{path}", cwd=cwd))
         except (json.JSONDecodeError, RuntimeError):
+            models.append(None)
             continue
-        if isinstance(record, dict) and record.get("gen_ai.request.model"):
-            models.append(str(record["gen_ai.request.model"]))
+        model = record.get("gen_ai.request.model") if isinstance(record, dict) else None
+        models.append(str(model) if model else None)
     return models
 
 
