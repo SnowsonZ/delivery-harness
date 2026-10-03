@@ -3,7 +3,8 @@
 在 auto-merge 工作流的判定步骤里运行（main 上的定义与代码），只把 PR 当数据读：diff、提交说明、
 标签、议题。按顺序判定，任一条不满足即转用户评审：
 
-  1. 风险     risk.py 判为 R0 或 R1（R1 含 r1_checks.py 的加强判定）
+  1. 风险     risk.py 判为 R0 或 R1（R1 含 r1_checks.py 的加强判定）；R2 的合同制路径例外：候选 PR
+              独立评审与设计方复核标记都通过时放行（signals.py，设计 2026-10-03 第 4 节）
   2. 类别     机器按路径与 trailer 判定的类别在 autonomy.toml 中为 L4；提交带 `Task: T<编号>` 时，
               main 上该任务书声明的类别须与机器判定一致，否则按「未分类」处理
   3. 预算     该类最近 window 次合并中的 escape 议题不超过 max_escapes；PR 不带 budget-exceeded 标签
@@ -31,10 +32,28 @@ from pathlib import Path
 
 from engine.checks import r1_checks, taskbook
 from engine.core import events
-from engine.core.common import ROOT, RULES_PATH, ConfigError, ci_workflows, commit_field, git, path_matches, setting
-from engine.routing import risk, run_check
+from engine.core.common import (
+    ROOT,
+    RULES_PATH,
+    ConfigError,
+    changed_files,
+    ci_workflows,
+    commit_field,
+    git,
+    path_matches,
+    setting,
+)
+from engine.routing import risk, run_check, signals
 
-CONTRACT_PATTERNS = ["docs/plans/task-*.md", "docs/templates/**", "docs/plans/backlog.md", "docs/specs/**"]
+
+def contract_patterns() -> list[str]:
+    """合同路径（rules.toml [risk]）：taskbooks 与 contracts 的并集，两者同时决定 K0（合同）类别。"""
+    return taskbook_patterns() + list(setting("risk", "contracts", [], source="rules"))
+
+
+def taskbook_patterns() -> list[str]:
+    """任务书路径（rules.toml [risk] taskbooks）。"""
+    return list(setting("risk", "taskbooks", [], source="rules"))
 
 
 def ui_patterns() -> list[str]:
@@ -74,6 +93,10 @@ class Facts:
     escapes: int | None = 0  # 该类窗口内的逃逸数；None = 读取失败
     window: int = 0  # 窗口内实际找到的合并数
     run_findings: list | None = None  # run_check 的结果；None = 不是在实现任务书
+    contract: bool = False  # R2 合同制路径候选（设计第 4 节）
+    review: tuple[str, str] = ("", "")  # 独立评审 (ok|fail|missing, 理由)
+    signoff: tuple[str, str] = ("", "")  # 设计方复核 (ok|fail|missing, 理由)
+    degraded: bool = False  # 同家评审降级（设计 3.1）：自动合并后强制开 audit 议题
 
 
 @dataclass
@@ -91,14 +114,14 @@ def machine_class(report: risk.RiskReport, defects: bool) -> str:
     if report.level == 1:
         return "K3"
     if report.level == 2:
-        if paths and all(path_matches(path, CONTRACT_PATTERNS) for path in paths):
+        if paths and all(path_matches(path, contract_patterns()) for path in paths):
             return "K0"
         if defects:
             return "K4"
         return "K6" if any(path_matches(path, ui_patterns()) for path in paths) else "K5"
     if any(path_matches(path, ["tests/**"]) for path in paths):
         return "K2"
-    if any(path_matches(path, ["docs/plans/task-*.md"]) for path in paths):
+    if any(path_matches(path, taskbook_patterns()) for path in paths):
         return "K0"
     return "K1"
 
@@ -111,7 +134,21 @@ def audit_sampled(pr: int, every: int) -> bool:
 def decide(facts: Facts, autonomy: dict) -> list[Rule]:
     rules = []
     level = facts.risk.level
-    rules.append(Rule("风险", level <= 1, f"{facts.risk.label}：" + risk.POLICY[level]))
+    if level <= 1 or not facts.contract:
+        rules.append(Rule("风险", level <= 1, f"{facts.risk.label}：" + risk.POLICY[level]))
+    else:  # R2 合同制路径（设计第 4 节）：评审与复核都 ok 才通过
+        ok = facts.review[0] == "ok" and facts.signoff[0] == "ok"
+        reason = f"R2：合同制路径——独立评审 {facts.review[0]}，设计方复核 {facts.signoff[0]}"
+        causes = []
+        if facts.review[0] != "ok":
+            causes.append(f"独立评审 {facts.review[0]}（{facts.review[1]}）")
+        if facts.signoff[0] != "ok":
+            causes.append(f"设计方复核 {facts.signoff[0]}（{facts.signoff[1]}）")
+        if causes:
+            reason += "：" + "；".join(causes)
+        if facts.degraded:
+            reason += "；同家评审（降级）"
+        rules.append(Rule("风险", ok, reason))
 
     klass = facts.machine_class
     config = autonomy.get("classes", {}).get(klass, {})
@@ -152,6 +189,23 @@ def decide(facts: Facts, autonomy: dict) -> list[Rule]:
     return rules
 
 
+def pending_marker(rules: list[Rule], facts: Facts) -> str:
+    """等待标记：其余四条规则全部通过，且「风险」不通过的惟一原因是缺标记时，输出 review/signoff。
+    只要有任何一条 fail 或其他规则不通过就为空，照常请求所有者评审——例外由人决定，不能被「等待中」遮住。"""
+    if not facts.contract:
+        return ""
+    risk_rule = next((rule for rule in rules if rule.name == "风险"), None)
+    if risk_rule is None or risk_rule.ok or any(not rule.ok for rule in rules if rule.name != "风险"):
+        return ""
+    if facts.review[0] == "fail" or facts.signoff[0] == "fail":
+        return ""
+    if facts.review[0] == "missing":
+        return "review"
+    if facts.signoff[0] == "missing":
+        return "signoff"
+    return ""
+
+
 def render(rules: list[Rule], facts: Facts, audit: bool) -> str:
     auto = all(rule.ok for rule in rules)
     lines = [
@@ -165,6 +219,9 @@ def render(rules: list[Rule], facts: Facts, audit: bool) -> str:
         lines += ["", "R1 加强判定未通过："] + [f"- {reason}" for reason in facts.risk.r1_violations]
     if audit:
         lines += ["", f"本 PR 被抽中审计（{facts.machine_class}），合并后开 audit 议题。"]
+    pending = pending_marker(rules, facts)
+    if pending:
+        lines += ["", f"等待：{'独立评审' if pending == 'review' else '设计方复核'}"]
     lines += ["", "停机：Actions → auto-merge → Disable workflow。"]
     return "\n".join(lines) + "\n"
 
@@ -220,6 +277,64 @@ def branch_rounds(branch: str, gh=_gh) -> int | None:
     return run_check.ci_rounds([run for run in runs if run.get("event") == "pull_request"])
 
 
+def _contract_candidate(facts: Facts, target: run_check.Scope | None, pr: int | None, autonomy: dict) -> bool:
+    """R2 合同制路径候选（设计第 4 节）：风险 R2、任务 PR（任务书已在 main 上，不随本 PR 修改）、
+    本 PR 全部改动路径都在 [contract_route] allowed 白名单内（键缺失或为空时没有任何候选，安全缺省）、
+    机器判定类别在 autonomy 里为 L4、有 PR 编号。白名单只列实现路径：任务书、规格、AGENTS.md、护栏
+    等任何未列出的路径都会让 PR 转人审。"""
+    if facts.risk.level != 2 or pr is None or target is None or target.in_pr:
+        return False
+    allowed = autonomy.get("contract_route", {}).get("allowed", [])
+    paths = [item.path for item in facts.risk.files]
+    if not isinstance(allowed, list) or not allowed or not paths:
+        return False
+    if not all(path_matches(path, allowed) for path in paths):
+        return False
+    config = autonomy.get("classes", {}).get(facts.machine_class, {})
+    return config.get("level", "L3") == "L4"
+
+
+def _contract_signals(base: str, head: str, pr: int, cwd: Path, gh) -> tuple[tuple[str, str], tuple[str, str], bool]:
+    """读候选 PR 的评论并判评审、复核与同家降级（设计第 4 节第 4–5 条、3.1 节）。
+
+    只对候选 PR 调用一次 gh pr view --json comments；读取失败按 fail 处理，不抛异常。
+    """
+    login = setting("identity", "agent_login")
+    if not login:
+        return ("fail", "未配置 agent_login"), ("fail", "未配置 agent_login"), False
+    try:
+        comments = json.loads(gh("pr", "view", str(pr), "--json", "comments"))["comments"]
+    except (RuntimeError, json.JSONDecodeError, KeyError, OSError):
+        return ("fail", "读不到评论"), ("fail", "读不到评论"), False
+    review = signals.review_status(comments, login, head, base, cwd)
+    signoff = signals.signoff_status(comments, login, head, base, cwd)
+    degraded = review[0] == "ok" and _same_family_review(comments, login, head, base, cwd)
+    return review, signoff, degraded
+
+
+def _record_models(base: str, head: str, cwd: Path) -> list[str]:
+    """本 PR 新增或修改的运行记录（docs/runs/<任务>/<序号>.json）里全部 gen_ai.request.model。"""
+    models = []
+    for status, path in changed_files(base, head, cwd):
+        if status == "D" or not run_check.RECORD_PATH.match(path):
+            continue
+        try:
+            record = json.loads(git("show", f"{head}:{path}", cwd=cwd))
+        except (json.JSONDecodeError, RuntimeError):
+            continue
+        if isinstance(record, dict) and record.get("gen_ai.request.model"):
+            models.append(str(record["gen_ai.request.model"]))
+    return models
+
+
+def _same_family_review(comments: list[dict], login: str, head: str, base: str, cwd: Path) -> bool:
+    """同家评审（设计 3.1）：评审模型取审计标记的 model（缺标记/为 null/model_basis 为 unknown 时按 None），
+    与本 PR 运行记录里全部模型的家族比较；相同，或任一方为 None，就判为降级。"""
+    family = signals.model_family(signals.audit_model(comments, login, head, base, cwd))
+    families = {signals.model_family(model) for model in _record_models(base, head, cwd)}
+    return family is None or not families or None in families or family in families
+
+
 def gather(base: str, head: str, pr: int | None, cwd: Path = ROOT, autonomy: dict | None = None, gh=_gh,
            branch: str = "", trace: str | None = None) -> Facts:
     autonomy = autonomy or r1_checks.load_autonomy()
@@ -238,8 +353,12 @@ def gather(base: str, head: str, pr: int | None, cwd: Path = ROOT, autonomy: dic
             facts.escapes, facts.window = escapes_in_window(facts.machine_class, config.get("window", 20), gh)
     except (RuntimeError, json.JSONDecodeError, KeyError, OSError):
         facts.labels, facts.escapes = None, None
-    if run_check.scope(base, head, branch, cwd) is not None:
+    target = run_check.scope(base, head, branch, cwd)
+    if target is not None:
         facts.run_findings = run_check.check(base, head, branch, cwd, rounds=branch_rounds(branch, gh))
+    facts.contract = _contract_candidate(facts, target, pr, autonomy)
+    if facts.contract:
+        facts.review, facts.signoff, facts.degraded = _contract_signals(base, head, pr, cwd, gh)
     return facts
 
 
@@ -322,7 +441,8 @@ def main(argv: list[str] | None = None) -> int:
     rules = decide(facts, autonomy)
     auto = all(rule.ok for rule in rules)
     every = autonomy.get("classes", {}).get(facts.machine_class, {}).get("audit_every", 0)
-    audit = auto and args.pr is not None and audit_sampled(args.pr, every)
+    audit = auto and args.pr is not None and (audit_sampled(args.pr, every) or facts.degraded)
+    pending = pending_marker(rules, facts)
     _emit_route(trace, facts, rules, auto, audit)
     text = render(rules, facts, audit)
     print(text)
@@ -336,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
                 handle.write(
                     f"risk={facts.risk.label}\nclass={facts.machine_class}\n"
                     f"auto_merge={'true' if auto else 'false'}\naudit={'true' if audit else 'false'}\n"
+                    f"pending={pending}\n"
                 )
                 handle.writelines(f"{key}={value}\n" for key, value in platform_outputs().items())
     return 0
