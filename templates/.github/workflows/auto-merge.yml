@@ -37,6 +37,7 @@ jobs:
       risk: ${{ steps.policy.outputs.risk }}
       class: ${{ steps.policy.outputs.class }}
       audit: ${{ steps.policy.outputs.audit }}
+      pending: ${{ steps.policy.outputs.pending }}
       approval: ${{ steps.policy.outputs.approval }}
       app_client_id_var: ${{ steps.policy.outputs.app_client_id_var }}
       app_private_key_secret: ${{ steps.policy.outputs.app_private_key_secret }}
@@ -92,6 +93,8 @@ jobs:
 
   # 不自动合并的：打类别标签并请仓库所有者评审，PR 出现在其待评审列表里。只「请求评审」，不批准。
   # 所有者自己开的 PR（单账号）不能请自己评审，GitHub 拒绝时只记日志、不算失败：这类 PR 由所有者直接合并。
+  # 合同制路径只差评审或复核标记时（pending 非空）仍打标签，但不请求所有者评审，免得每个 PR 都通知；
+  # 有任何其他失败时 pending 为空，照常请求。
   request-review:
     needs: judge
     if: needs.judge.outputs.auto_merge == 'false'
@@ -107,6 +110,7 @@ jobs:
           PR: ${{ github.event.workflow_run.pull_requests[0].number }}
           RISK: ${{ needs.judge.outputs.risk }}
           CLASS: ${{ needs.judge.outputs.class }}
+          PENDING: ${{ needs.judge.outputs.pending }}
         run: |
           if [ -z "$PR" ]; then
             echo "no associated PR, skipping"
@@ -123,8 +127,12 @@ jobs:
               --description "Awaiting independent review" >/dev/null 2>&1 || true
             gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label needs-independent-review
           fi
-          gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-reviewer "$OWNER" \
-            || echo "could not request review from $OWNER ($RISK); probably their own PR"
+          if [ -z "$PENDING" ]; then
+            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-reviewer "$OWNER" \
+              || echo "could not request review from $OWNER ($RISK); probably their own PR"
+          else
+            echo "pending: $PENDING; owner review not requested yet"
+          fi
 
   # approval = app：只有判定为自动合并才进入 environment；其余不产生部署记录，也碰不到 App 凭据。
   merge-app:

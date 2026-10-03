@@ -22,6 +22,7 @@ from unittest import mock
 from engine.checks import r1_checks
 from engine.core import common
 from engine.routing import policy
+from tests.test_ci_events_workflows import parse_workflow
 
 ENGINE_REPO = Path(__file__).resolve().parents[1]
 GIT_ENV = {
@@ -489,6 +490,20 @@ class ContractRouteTest(unittest.TestCase):
         without = self.run_policy(head, fake_gh(), branch="chore/backlog",
                                   rules=".harness/config/rules-no-contracts.toml")
         self.assertEqual(without["outputs"]["class"], "K5")
+
+    # ---- 验收 11：模板 request-review 在 pending 期间不请求所有者评审 ----
+
+    def test_workflow_skips_owner_request_while_pending(self):
+        workflow = parse_workflow((ENGINE_REPO / "templates/.github/workflows/auto-merge.yml")
+                                  .read_text(encoding="utf-8"))
+        judge = workflow["jobs"]["judge"]
+        self.assertEqual(judge["outputs"]["pending"], "${{ steps.policy.outputs.pending }}")
+        review = workflow["jobs"]["request-review"]
+        self.assertEqual(review["steps"][-1]["env"]["PENDING"], "${{ needs.judge.outputs.pending }}")
+        script = review["steps"][-1]["run"]
+        # 打标签不受 pending 影响；请求所有者评审只在 pending 为空时执行
+        self.assertLess(script.index('--add-label "class:$CLASS"'), script.index('if [ -z "$PENDING" ]'))
+        self.assertLess(script.index('if [ -z "$PENDING" ]'), script.index('--add-reviewer "$OWNER"'))
 
 
 if __name__ == "__main__":
