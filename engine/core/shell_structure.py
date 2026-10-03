@@ -211,6 +211,8 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
         positional = [arg for arg in args if not arg.startswith("-")]
         if positional and positional[0] in IMPLEMENTER_DISPATCH_ACTIONS:
             return reasons + [REVIEW_SIGNAL], False
+    if program in ("harness", "cli.py") and role == "implementer" and _review_entrypoint(args):
+        return reasons + [REVIEW_SIGNAL], False
     if program in DECLARERS:
         return reasons + _check_assignments([arg for arg in args if not arg.startswith("-")]), False
     if program == "eval":
@@ -224,6 +226,10 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
         code = _option_value(args, "c") if program.startswith("python") else _option_value(args, "e")
         if code is not None:
             return reasons + text_rules(code), False
+        if program.startswith("python") and role == "implementer":
+            target, rest = _python_target(args)  # cli.py 脚本或 -m engine.cli 模块，同 harness 入口
+            if target in ("cli.py", "engine.cli") and _review_entrypoint(rest):
+                reasons.append(REVIEW_SIGNAL)
         return reasons, _reads_stdin(args)
     if program == "git":
         return reasons + _git(args), False
@@ -236,6 +242,40 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
     if program == "curl":
         return reasons + _curl(args), False
     return reasons, False
+
+
+# Python 解释器带值的选项：分开写（-W ignore、-X dev）时下一个参数是值，不是脚本；-c 由调用方先处理。
+PYTHON_VALUE_OPTIONS = ("-W", "-X")
+
+
+def _python_target(args: list[str]) -> tuple[str | None, list[str]]:
+    """(脚本文件名或 -m 的模块名, 之后属于脚本的参数)：按 Python 的参数语法先消费解释器选项及其值。"""
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "-m" or (arg.startswith("-m") and not arg.startswith("--")):
+            module = arg[2:] or (args[index + 1] if index + 1 < len(args) else "")
+            return module, args[index + (1 if arg[2:] else 2):]
+        if arg in PYTHON_VALUE_OPTIONS:
+            index += 2
+        elif arg.startswith("-"):
+            index += 1  # 无值开关，或连写的 -Wignore、-Xdev
+        else:
+            return os.path.basename(arg), args[index + 1:]
+    return None, []
+
+
+def _review_entrypoint(args: list[str]) -> str | None:
+    """harness / cli.py 的评审与复核入口（自治试验设计 6，T706）：dispatch 的 review|review-calibrate|signoff
+    子命令，或顶层 review 命令。review-pack、review-plan 只写本地文件，不是入口。"""
+    positional = [arg for arg in args if not arg.startswith("-")]
+    if not positional:
+        return None
+    if positional[0] == "review" or (
+        positional[0] == "dispatch" and len(positional) > 1 and positional[1] in IMPLEMENTER_DISPATCH_ACTIONS
+    ):
+        return REVIEW_SIGNAL
+    return None
 
 
 def _option_value(args: list[str], letter: str) -> str | None:
@@ -414,7 +454,37 @@ def _gh_issue_and_label(sub: str, action: str, positional: list[str], args: list
     return reasons
 
 
+# gh 的带值全局选项（T706）：分开写（-R o/r、--repo o/r）与连写（--repo=o/r、-Ro/r）都要连值一起先消费，
+# 否则选项的值会被当成子命令，带这些选项的写法绕过全部子命令规则。
+GH_VALUE_OPTIONS = ("-R", "--repo", "--hostname")
+
+
+def _gh_value_options_consumed(args: list[str]) -> list[str]:
+    rest: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in GH_VALUE_OPTIONS:
+            index += 2  # 选项与其值
+        elif arg.startswith(("--repo=", "--hostname=")) or re.fullmatch(r"-R\S+", arg):
+            index += 1
+        else:
+            rest.append(arg)
+            index += 1
+    return rest
+
+
 def _gh(args: list[str], role: str = "designer") -> list[str]:
+    """按原参数与剥掉 -R/--repo/--hostname 后的参数各判一次，取拒绝理由的并集：剥离只为识别被选项值
+    挤偏的子命令，不能放宽原解析已拒绝的写法（如 --description -R 中的 -R 是描述内容，T706 二轮评审）。"""
+    reasons = _gh_rules(args, role)
+    consumed = _gh_value_options_consumed(args)
+    if consumed != args:
+        reasons += [reason for reason in _gh_rules(consumed, role) if reason not in reasons]
+    return reasons
+
+
+def _gh_rules(args: list[str], role: str = "designer") -> list[str]:
     positional = [arg for arg in args if not arg.startswith("-")]
     sub = positional[0] if positional else ""
     action = positional[1] if len(positional) > 1 else ""

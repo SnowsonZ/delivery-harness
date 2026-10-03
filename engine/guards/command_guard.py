@@ -124,7 +124,16 @@ IMPLEMENTER_COMMAND_RULES: list[tuple[str, str, str]] = [
     # 结构化解析失败时的兑底：可解析命令由 shell_structure 的结构化规则拦（gh 的 comment/review 与 dispatch 子命令）。
     (r"\bgh\s+(pr|issue)\s+comment\b", "review_signal", REVIEW_SIGNAL_REASON),
     (r"\bgh\s+pr\s+review\b", "review_signal", REVIEW_SIGNAL_REASON),
-    (r"(^|[;&|(]|&&)\s*(\S*/)?dispatch\s+(review|review-calibrate|signoff)\b", "review_signal", REVIEW_SIGNAL_REASON),
+    # 去锚定（T706）：命令名前只要求不是字母、数字或下划线，引号内、经管道交给 shell 执行的写法同样命中。
+    (r"(?<!\w)(\S*/)?dispatch\s+(review|review-calibrate|signoff)\b", "review_signal", REVIEW_SIGNAL_REASON),
+    # harness / cli.py 的评审与复核入口（T706）：dispatch 的评审复核子命令，或顶层 review 命令；
+    # review-pack、review-plan 只写本地文件，放行。
+    (
+        (r"(?<!\w)(\S*/)?(?:harness|cli\.py)\s+dispatch\s+(?:review|review-calibrate|signoff)\b"
+         r"|(?<!\w)(\S*/)?(?:harness|cli\.py)\s+review\b(?!-(?:pack|plan))"),
+        "review_signal",
+        REVIEW_SIGNAL_REASON,
+    ),
 ]
 # 按工具名拒绝的 MCP 等非命令工具（如 GitHub MCP 的 merge_pull_request、enable_pr_auto_merge）。
 TOOL_RULES: list[tuple[str, str, str]] = [
