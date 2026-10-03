@@ -503,10 +503,28 @@ class ContractRouteTest(unittest.TestCase):
             "agents": {"AGENTS.md": "# 指令\n"},
             "spec": {"docs/specs/x.md": "# 规格\n"},
         }
+        def fresh(name: str) -> str:
+            """每个子例从 base 起独立分支，避免前面子例的越界文件串进来（#114 四轮一般项）。"""
+            self.git("checkout", "-q", "-B", name, self.base)
+            self._pr = 0
+            return self.record("glm-5.3")
+
+        def signed(head: str) -> list[dict]:
+            return [review_comment(head, audit={"model": "gpt-6.1-sol", "model_basis": "reported"}),
+                    signoff_comment(head)]
+
+        # 正向对照：同样构造、不带越界文件的 head 是候选并自动合并，说明下面的 false 只来自越界路径
+        clean = fresh("allow-clean")
+        self.assertEqual(self.run_policy(clean, fake_gh(comments=signed(clean)))["outputs"]["auto_merge"], "true")
+
         for label, extra in additions.items():
             with self.subTest(label=label):
-                head = self.record("glm-5.3")
+                head = fresh(f"allow-{label}")
                 head = self.commit(extra, "越界\n\nTask: T901")
+                changed = self.git("diff", "--name-only", f"{self.base}..{head}").stdout.split()
+                outside = [path for path in changed if not path.startswith(("engine/", "tests/", "docs/runs/"))
+                           and path != "CHANGELOG.md"]
+                self.assertEqual(outside, list(extra), label)  # 只有本子例的越界文件
                 comments = [
                     review_comment(head, audit={"model": "gpt-6.1-sol", "model_basis": "reported"}),
                     signoff_comment(head),
@@ -516,8 +534,8 @@ class ContractRouteTest(unittest.TestCase):
                 self.assertEqual(result["outputs"]["pending"], "", label)
                 self.assertNotIn("合同制路径", result["risk_reason"], label)
 
-        # [contract_route] 缺失：纯 engine/ 的 PR 也不是候选（安全缺省），且不多读评论
-        head = self.record("glm-5.3")
+        # [contract_route] 缺失：只含允许路径的 PR 也不是候选（安全缺省），且不多读评论
+        head = fresh("allow-no-route")
         no_route = {key: value for key, value in AUTONOMY.items() if key != "contract_route"}
         result = self.run_policy(head, fake_gh(comments=None), autonomy=no_route)
         self.assertEqual(result["outputs"]["auto_merge"], "false")
