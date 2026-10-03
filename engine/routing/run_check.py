@@ -186,6 +186,7 @@ _TRUSTED_GUARD_REASONS = frozenset((
     shell_structure.NO_VERIFY_SHORT, shell_structure.HOOKS_PATH, shell_structure.OVERRIDE,
     shell_structure.RESET_HARD, shell_structure.RM_OUTSIDE, shell_structure.RELEASE,
     shell_structure.ISSUE_DELETE, shell_structure.LABEL_ERASE, shell_structure.ISSUE_IMPLEMENTER,
+    shell_structure.REVIEW_SIGNAL,
     shell_structure.DELETE_REMOTE, shell_structure.API_WRITE, shell_structure.MERGE,
     shell_structure.APPROVE,
     "git clean -x 会删除本地运行时等被忽略的文件；用 -e 排除 checks.toml [runtime] preserve 登记的路径",
