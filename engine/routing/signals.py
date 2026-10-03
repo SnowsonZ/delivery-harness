@@ -109,8 +109,8 @@ def audit_model(comments: list[dict], login: str, head: str, base: str, cwd: Pat
 
 
 def model_family(model: str | None) -> str | None:
-    """模型家族：最后一个 / 之后、第一个 - 之前的部分，转小写（zai-coding-plan/glm-5.3 得 glm，
-    gpt-6.1-sol 得 gpt，claude-opus-5-5 得 claude）；空值得到 None。"""
+    """模型家族：最后一个 / 之后、第一个 - 之前的部分，转小写（provider/abc-x 与 abc-y 都得 abc，
+    即同一家族）；空值得到 None。"""
     if not model:
         return None
     family = model.rsplit("/", 1)[-1].split("-", 1)[0].lower()
