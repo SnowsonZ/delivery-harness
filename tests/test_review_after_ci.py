@@ -2,8 +2,9 @@
 
 夹具沿用 tests/test_ci_workflows.py 的端到端模式：匿名临时 git 仓库（含匿名 bare 远端）、隔离
 events_db.ROOT、假执行方宿主与假 verify；GitHub 子类把 wait_ci 打桩为立即通过/失败，评论查询
-（gh pr view --json comments）按工厂应答（head 用 wait_ci 实际收到的值，标记才能命中当前 head），
-评审方用 mock 掉的 engine.agents.review.review_pr 或注入 review_with_chain 的假评审模块。
+（gh pr view --json comments）按工厂应答（head 用 wait_ci 实际收到的值，标记才能命中当前 head；
+comments_error=True 时抛 RuntimeError，覆盖读取失败按 missing 处理的路径），评审方用 mock 掉的
+engine.agents.review.review_pr 或注入 review_with_chain 的假评审模块。
 """
 
 from __future__ import annotations
@@ -110,16 +111,18 @@ class FakeHost:
 class ReviewGitHub(dispatch.GitHub):
     """端到端夹具的 GitHub：wait_ci 按脚本应答并记下 head，评论查询按工厂应答，写操作只记录不触网。"""
 
-    def __init__(self, root, comments_factory=None, ci_ok=True, ci_summary=""):
+    def __init__(self, root, comments_factory=None, ci_ok=True, ci_summary="", comments_error=False):
         super().__init__(root)
         self.comments_factory = comments_factory or (lambda head: [])
-        self.ci_ok, self.ci_summary = ci_ok, ci_summary
+        self.ci_ok, self.ci_summary, self.comments_error = ci_ok, ci_summary, comments_error
         self.heads = []
         self.pushes, self.prs, self.posts, self.labels, self.issues, self.argvs = [], [], [], [], [], []
 
     def _run(self, argv, cwd=None, agent=False, stdin=None):
         self.argvs.append(list(argv))
         if "view" in argv and "comments" in argv:  # _reviewed 的评论查询（skip 检查）
+            if self.comments_error:
+                raise RuntimeError("gh pr view 失败：模拟读取失败")
             return json.dumps({"comments": self.comments_factory(self.heads[-1] if self.heads else "")})
         raise AssertionError(f"未预期的 gh 调用：{' '.join(argv)}")
 
@@ -262,7 +265,8 @@ class ReviewAfterCiTest(unittest.TestCase):
         self.assertTrue(github.prs)  # PR 已开出，评审发生在真实链路之后
 
     def test_skip_only_on_trusted_review(self):
-        """agent_login 已写结论时跳过；只有其他账号写的标记时照常评审（不核对作者就会被诱导漏评）。"""
+        """agent_login 已写结论时跳过；只有其他账号写的标记时照常评审（不核对作者就会被诱导漏评）；
+        评论读取失败按 missing 处理、照常评审（宁可重复评审，不漏评）。"""
         for login, expect_call in (("agent-bot", False), ("someone-else", True)):
             with self.subTest(login=login):
                 self.make_repo()
@@ -271,6 +275,13 @@ class ReviewAfterCiTest(unittest.TestCase):
                 code, calls = self.dispatch_with_stub_review(github)
                 self.assertEqual(code, 0)
                 self.assertEqual([(PR_NUMBER, "opencode")] if expect_call else [], calls)
+        # 读取失败（gh pr view 报错）按 missing 处理，照常评审：去掉 _reviewed 的容错、
+        # 让异常落到 _review_after_ci 的兜底（不评审、只提示）时，这里必须失败。
+        self.make_repo()
+        github = ReviewGitHub(self.root, comments_error=True)
+        code, calls = self.dispatch_with_stub_review(github)
+        self.assertEqual(code, 0)
+        self.assertEqual([(PR_NUMBER, "opencode")], calls)
 
     def test_review_chain_falls_back(self):
         """评审链：1/2/异常都换下一家，返回 0 即停（否决也算完成）；未配置 chain 时沿用 reviewer。"""
