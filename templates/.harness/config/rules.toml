@@ -61,10 +61,11 @@ r0 = [
     "README*.md",
 ]
 tests = ["tests/**"]
-# 合同：模板与待办清单须经用户审，先于 r0 判定。
+# 合同：模板与待办清单须经用户审，先于 r0 判定；contracts 与 taskbooks 同时决定 K0（合同）类别。
 contracts = [
     "docs/templates/**",
     "docs/plans/backlog.md",
+    "docs/specs/**",
 ]
 # 任务书按头部类别判定：K7、K8 与 architecture: true 为 R2，其余为 R0（实现 PR 仍按实际改动路径判级）。
 taskbooks = ["docs/plans/task-*.md"]
