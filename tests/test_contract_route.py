@@ -457,6 +457,36 @@ class ContractRouteTest(unittest.TestCase):
         gpt = [review_comment(head, audit={"model": "gpt-6.1-sol", "model_basis": "reported"})]
         self.assertTrue(policy._same_family_review(gpt, LOGIN, head, self.base, self.repo))
 
+    def test_review_flagged_must_be_explicit_false(self):
+        """flagged 只有明确为 false 才放行：缺失、null、0、空串都判 fail（#114 二轮严重项 1）。"""
+        head = self.record("glm-5.3")
+        for value in ("missing", None, 0, ""):
+            with self.subTest(flagged=value):
+                comment = review_comment(head, audit={"model": "gpt-6.1-sol", "model_basis": "reported"})
+                data = {"verdict": "通过", "reviewer": "codex", "model": "x", "head": head, "findings": 0,
+                        "parsed": True}
+                if value != "missing":
+                    data["flagged"] = value
+                body = comment["body"].splitlines()
+                body = [f"<!-- independent-review {json.dumps(data)} -->" if line.startswith("<!-- independent-review ")
+                        else line for line in body]
+                comment["body"] = "\n".join(body) + "\n"
+                self.assertEqual(signals.review_status([comment], LOGIN, head, self.base, self.repo)[0], "fail")
+                result = self.run_policy(head, fake_gh(comments=[comment, signoff_comment(head)]))
+                self.assertEqual(result["outputs"]["auto_merge"], "false")
+
+    def test_audit_basis_outside_contract_degrades(self):
+        """model_basis 不在 C6 可采信枚举内（缺失、null、非法值）或 model 为空串时按模型未知降级（#114 二轮严重项 2）。"""
+        head = self.record("glm-5.3")
+        for audit in ({"model": "gpt-6.1-sol"}, {"model": "gpt-6.1-sol", "model_basis": None},
+                      {"model": "gpt-6.1-sol", "model_basis": "guessed"}, {"model": "", "model_basis": "reported"}):
+            with self.subTest(audit=audit):
+                comments = [review_comment(head, audit=audit), signoff_comment(head)]
+                self.assertIsNone(signals.audit_model(comments, LOGIN, head, self.base, self.repo))
+                result = self.run_policy(head, fake_gh(comments=comments))
+                self.assertEqual(result["outputs"]["auto_merge"], "true")
+                self.assertEqual(result["outputs"]["audit"], "true")
+
     def test_signoff_counts_reject_booleans(self):
         """JSON 布尔值不算计数：mutations=true、caught=true 的「通过」复核判 fail（#114 一般项）。"""
         head = self.record("glm-5.3")

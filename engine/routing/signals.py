@@ -26,6 +26,8 @@ from engine.core.common import git
 REVIEW_MARK = "<!-- independent-review "
 SIGNOFF_MARK = "<!-- designer-signoff "
 AUDIT_MARK = "<!-- harness-review-audit "
+# 审计标记 model_basis 中可以采信 model 的取值（共用合同 C6：reported / explicit_request / unknown）。
+TRUSTED_BASES = ("reported", "explicit_request")
 
 
 def markers(comments: list[dict], mark: str, login: str) -> list[dict]:
@@ -62,8 +64,9 @@ def review_status(comments: list[dict], login: str, head: str, base: str, cwd: P
     data = pair[1]
     if data.get("verdict") != "通过":
         return "fail", f"评审结论为「{data.get('verdict')}」"
-    if data.get("flagged"):
-        return "fail", "评审标记了严重级发现（flagged）"
+    if data.get("flagged") is not False:
+        # 只有明确的 false 才算「没有严重级发现」：缺失、null、0、空串都不是安全结论。
+        return "fail", f"flagged 不是 false（{data.get('flagged')!r}）"
     return "ok", "评审通过且未标记严重"
 
 
@@ -106,9 +109,10 @@ def audit_model(comments: list[dict], login: str, head: str, base: str, cwd: Pat
         data = json.loads(audits[0].removeprefix(AUDIT_MARK).removesuffix("-->").strip())
     except json.JSONDecodeError:
         return None
-    if not isinstance(data, dict) or data.get("model") is None or data.get("model_basis") == "unknown":
-        return None
-    return str(data["model"])
+    if not isinstance(data, dict) or data.get("model_basis") not in TRUSTED_BASES:
+        return None  # 共用合同 C6 的枚举：缺失、null、unknown 或非法值都按模型未知处理
+    model = data.get("model")
+    return model if isinstance(model, str) and model.strip() else None
 
 
 def model_family(model: str | None) -> str | None:
