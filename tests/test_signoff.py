@@ -492,6 +492,9 @@ class SignoffTest(unittest.TestCase):
         app = next(step for step in steps if "create-github-app-token" in str(step.get("uses")))
         sync = next(step for step in steps if step.get("id") == "branch")
         merge = next(step for step in steps if step.get("name") == "Label, approve and merge")
+        # 模板里的真实顺序必须是 令牌 → 同步 → 批准合并：同步挪到批准之后就等于先批准再同步（#126 评审）。
+        self.assertLess(steps.index(app), steps.index(sync))
+        self.assertLess(steps.index(sync), steps.index(merge))
         self.assertEqual(app["with"]["permission-pull-requests"], "write")
         self.assertEqual(app["with"]["permission-contents"], "write")  # update-branch 需要写内容
         gate = str(merge.get("if"))
@@ -523,6 +526,9 @@ class SignoffTest(unittest.TestCase):
 
     def replay_merge_app(self, state: str, *, pr: str = "14") -> tuple[MergeReplay, str]:
         app, sync, merge = self.merge_app_steps()
+        # 按模板里的真实顺序重放，不由测试自行排序（#126 评审：自行排序会掩盖步骤顺序变异）。
+        names = [step.get("name") for step in self.template("auto-merge.yml")["jobs"]["merge-app"]["steps"]]
+        ordered = sorted((app, sync, merge), key=lambda step: names.index(step.get("name")))
         shim, log = self.write_gh_shim(state)
         project = self.tmp / f"proj-{state}-{pr}"
         project.mkdir()
@@ -541,7 +547,7 @@ class SignoffTest(unittest.TestCase):
                    "needs.judge.outputs.risk": "R2", "needs.judge.outputs.class": "K5",
                    "needs.judge.outputs.audit": "false"}
         replay = MergeReplay(project, env, context)
-        replay.run([app, sync, merge], stub=project / "unused-stub")
+        replay.run(ordered, stub=project / "unused-stub")
         return replay, log.read_text(encoding="utf-8")
 
     def test_merge_app_syncs_behind_branch(self):
