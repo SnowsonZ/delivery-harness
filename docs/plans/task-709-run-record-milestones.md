@@ -29,7 +29,8 @@ rollback: git revert（仅在用户授权后）
 
 ## 目标终态
 
-1. `_read_stages` 组装 stages 时**只保留 `stage == "dispatch"` 的事件**：
+1. `_read_stages` 组装 stages 时**只保留 `stage == "dispatch"` 的事件，以及任何阶段里 `status == "fail"` 的事件**：
+   - 失败事件要保留：告警的「已发生的阶段」（`engine/core/alerts.py` 的 `stage_lines`）调用的也是 `record_fields`，只留 dispatch 会让 `review/review fail`、`verify/verify.tests fail`、`ci/cli.evidence fail` 这类最关键的行从告警和记录里消失。实测 T708 整条链上非 dispatch 的失败事件只有 11 条，ok 事件 3766 条，保留失败事件不会让记录重新膨胀；
    - attempt 和 round 的编号规则不变（`_ROUND_STEPS`、`_ATTEMPT_BOUNDARIES` 本来就都是派发层的 step）；
    - 更早 attempt 的指针行规则不变；
    - 过滤用的常量与 `_ANCHOR_STAGE` 共用，或者另起一个名字清楚的模块常量。
@@ -50,7 +51,7 @@ rollback: git revert（仅在用户授权后）
 | `engine/routing/run_check.py` 对记录 stages 的格式校验 | 无需 | 只校验每一条的字段形状，条数变少不影响 |
 | `engine/reports/ledger.py`、`engine/reports/audit.py`（第 352 行起，读记录 stages 作 run_record_summary 证据） | 无需 | 原样复制，条数变少不影响结构；完整性检查依赖的是 anchors |
 | `engine/reports/trace.py` 第 180 行起（stages 末项的 `head_hash` 兜底） | 无需 | T125 之后记录 stages 已经没有 `head_hash`，这个兜底本来就用不上 |
-| `engine/core/alerts.py` 的阶段摘要 | 无需 | 读的是事件库，不是记录 |
+| `engine/core/alerts.py` 的阶段摘要（`stage_lines`） | 无需改代码，验收覆盖 | 它调用的正是 `run_timeline.record_fields`，与写记录同一路径，过滤对它同样生效；按目标终态 1 保留失败事件后，告警仍列出评审、verify、CI 的失败，只是去掉了成百行重复的 ok 事件（#134 告警刷屏即由此而来）。由验收第 5 行断言 |
 | `tests/test_run_timeline.py`、`tests/test_dispatch_robustness.py`、`tests/test_run_record_privacy.py` | 无需 | 夹具里的事件都是 `stage: dispatch` |
 | `tests/test_audit_ledger.py` | 实现前核对 | 夹具里另有一条 `emit("verify", …)`；见白名单的条件说明 |
 
@@ -75,10 +76,11 @@ CHANGELOG 由设计方在 D1 统一写入，本任务不改。
 
 | 编号 | 验收内容 | 证据类型 | 覆盖（测试名或步骤） | 未实现时怎样失败 |
 |---|---|---|---|---|
-| 不挂规格：B92 | 夹具链上混有 `ci`、`route`、`verify` 事件和派发事件时，记录 stages 只含 `stage == "dispatch"` 的条目，条数等于派发事件数 | 夹具 | `tests.test_run_record_milestones.RunRecordMilestonesTest.test_only_dispatch_stage_kept` | 测试事件被写进记录 |
+| 不挂规格：B92 | 夹具链上混有 `ci`、`route`、`verify` 的 ok 事件和派发事件时，记录 stages 只含 `stage == "dispatch"` 的条目，条数等于派发事件数 | 夹具 | `tests.test_run_record_milestones.RunRecordMilestonesTest.test_only_dispatch_stage_kept` | 测试事件被写进记录 |
 | 不挂规格：B92 | 链头是整条链的最后一个事件；即使最后一个是非 dispatch 事件，`anchors[0].head_hash` 也等于它的哈希 | 夹具 | `…test_head_is_whole_chain_tail` | 锚点指向被截短的链，防篡改链断开 |
 | 不挂规格：B92 | 多次 attempt 时，attempt 和 round 的编号、更早 attempt 的指针行，都和只有派发事件时完全相同（非 dispatch 事件不影响编号） | 夹具 | `…test_attempt_numbering_unchanged_by_noise` | 噪声事件打乱了 attempt 的划分 |
-| 不挂规格：B92 | 夹具里混入 1000 条非 dispatch 事件时，记录 JSON 小于 16KB，且不出现 `stages_truncated` | 夹具 | `…test_noise_does_not_grow_record` | 记录随测试数量膨胀 |
+| 不挂规格：B92 | 夹具里混入 1000 条非 dispatch 的 ok 事件时，记录 JSON 小于 16KB，且不出现 `stages_truncated` | 夹具 | `…test_noise_does_not_grow_record` | 记录随测试数量膨胀 |
+| 不挂规格：B92 | 链上有 `review/review` 与 `verify/verify.tests` 的 fail 事件时，记录 stages 保留这两条；`alerts.stage_lines` 的输出含 `review/review` fail 一行，且不含任何非 dispatch 的 ok 事件 | 夹具 | `…test_failures_kept_for_record_and_alert` | 告警丢掉评审不通过等关键行，或仍被 ok 噪声刷屏 |
 | 不挂规格：B92 | 既有测试全部通过 | 夹具 | `bin/verify --full` | 回归 |
 
 ## 步骤与提交顺序
@@ -87,13 +89,14 @@ CHANGELOG 由设计方在 D1 统一写入，本任务不改。
 
 | # | 改动 | 涉及文件 | 验证方式 | 对应验收 |
 |---|---|---|---|---|
-| 1 | `_read_stages` 只保留派发层事件，并补回归断言 | `engine/agents/run_timeline.py`、`tests/test_run_record_milestones.py` | `python3 -W error::ResourceWarning -m unittest tests.test_run_record_milestones tests.test_run_timeline tests.test_dispatch_robustness -v` | 验收第 1–4 行 |
-| 2 | 全量验证，整理交付证据 | `tests/` | `bin/verify --full` | 验收第 5 行 |
+| 1 | `_read_stages` 只保留派发层事件，并补回归断言 | `engine/agents/run_timeline.py`、`tests/test_run_record_milestones.py` | `python3 -W error::ResourceWarning -m unittest tests.test_run_record_milestones tests.test_run_timeline tests.test_dispatch_robustness -v` | 验收第 1–5 行 |
+| 2 | 全量验证，整理交付证据 | `tests/` | `bin/verify --full` | 验收第 6 行 |
 
 ## 交付与升级
 
 完成项目检查 `bin/verify --full`。设计方另做逐行验收与定向变异复核，以下两个变异必须各自被对应断言抓住：
 - 去掉 stage 过滤；
+- 去掉失败事件的保留（只留 dispatch）；
 - 链头改成取过滤后的最后一条。
 
 （attempt 编号的那条验收，防的是实现时把噪声事件也计入 round；由于边界本来都是派发层的步骤，「先过滤再编号」与「先编号再过滤」结果相同，所以不作为变异项。）
