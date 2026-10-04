@@ -4,6 +4,10 @@
 
 夹具为匿名临时 git 仓库（bare 远端 + refs/pull/<n>/head）、假 gh 与假评审方，不碰真实库/PR；
 并发编排只等待「条件成立」（标记文件、调用计数），不依赖固定 sleep 时序。
+
+评审锁模块在函数内按需导入（模块顶层不导入 engine.agents.review_lock）：修复证据与回放检查会把
+E128-R1 的修复整体退回（review_lock.py 随之消失），引用该编号的测试必须仍能加载并以断言失败
+（而非 ImportError 出错）结束，才证明它检查的是互斥本身而不是模块的存在（规范 §2「修复提交」）。
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from engine.agents import plan_review, review, review_calibration, review_lock
+from engine.agents import plan_review, review, review_calibration
 from engine.core import events_db
 
 GIT_ENV = {
@@ -189,6 +193,10 @@ class PairBlockingReviewer(review.Reviewer):
 class ReviewLockTest(unittest.TestCase):
     def test_concurrent_reviews_serialized(self):
         """两个线程同时对同一工作区 review_pr：第二个在第一个发布评论前不 checkout、不写材料（E128-R1）。"""
+        try:  # 锁模块随修复才存在；修复被退回（回放/修复证据会删掉整个 review_lock.py）时不接锁桩，
+            from engine.agents import review_lock  # 让互斥断言自己失败，而不是 ImportError 出错
+        except ImportError:
+            review_lock = None
         with tempfile.TemporaryDirectory(prefix="dh-review-lock-") as tmp:
             work = make_project(Path(tmp))
             head1, pr1 = push_pr(work, 7, ("a.txt", "one\n"))
@@ -197,8 +205,7 @@ class ReviewLockTest(unittest.TestCase):
             markdir.mkdir()
             order: list[tuple] = []
             attempts: list[str] = []
-            real_checkout, real_materials, real_lock = review.checkout, review.write_materials, \
-                review_lock.workspace_lock
+            real_checkout, real_materials = review.checkout, review.write_materials
 
             def rec_checkout(workspace, ref):
                 order.append(("checkout", ref))
@@ -208,10 +215,6 @@ class ReviewLockTest(unittest.TestCase):
                 order.append(("materials", 7 if "PR7" in pr_text else 8))
                 return real_materials(workspace, base, pr_text, task_text, ci_text)
 
-            def rec_lock(root, workspace, timeout_seconds, *args, **kwargs):
-                attempts.append(workspace.name)
-                return real_lock(root, workspace, timeout_seconds, *args, **kwargs)
-
             github = ReviewGitHub({7: pr1, 8: pr2}, order)
             results: dict[int, int] = {}
 
@@ -219,27 +222,44 @@ class ReviewLockTest(unittest.TestCase):
                 with contextlib.redirect_stdout(io.StringIO()):
                     results[number] = review.review_pr(number, "probe", root=work, github=github)
 
-            with mock.patch.object(events_db, "ROOT", work), \
-                    mock.patch.object(review, "make_reviewer", BlockingFactory(markdir)), \
-                    mock.patch.object(review, "checkout", rec_checkout), \
-                    mock.patch.object(review, "write_materials", rec_materials), \
-                    mock.patch.object(review_lock, "workspace_lock", rec_lock):
+            with contextlib.ExitStack() as stack:
+                for patcher in (mock.patch.object(events_db, "ROOT", work),
+                                mock.patch.object(review, "make_reviewer", BlockingFactory(markdir)),
+                                mock.patch.object(review, "checkout", rec_checkout),
+                                mock.patch.object(review, "write_materials", rec_materials)):
+                    stack.enter_context(patcher)
+                if review_lock is not None:
+                    real_lock = review_lock.workspace_lock
+
+                    def rec_lock(root, workspace, timeout_seconds, *args, **kwargs):
+                        attempts.append(workspace.name)
+                        return real_lock(root, workspace, timeout_seconds, *args, **kwargs)
+
+                    stack.enter_context(mock.patch.object(review_lock, "workspace_lock", rec_lock))
                 first = threading.Thread(target=run, args=(7,))
                 first.start()
                 wait_until((markdir / "started").exists, what="第一个评审进入评审方")
                 second = threading.Thread(target=run, args=(8,))
                 second.start()
-                wait_until(lambda: len(attempts) >= 2, what="第二个评审到达工作区锁")
-                # 第二个评审被锁挡住：此刻只有第一个评审的 checkout 与材料，也还没有任何评论
-                self.assertEqual([item[0] for item in order], ["checkout", "materials"])
-                self.assertEqual(order[0], ("checkout", head1))
-                self.assertEqual(order[1], ("materials", 7))
-                self.assertEqual(github.comments, [])
-                (markdir / "release").write_text("", encoding="utf-8")  # 放行第一个评审方
-                first.join(120)
-                second.join(120)
+                try:
+                    # 第二个评审要么到达工作区锁（被挡住，attempts 到 2），要么已越过互斥完成了
+                    # 自己的 checkout 与材料（缺陷在，order 涨到 4 或已发评论）：两种结局都可确定观测
+                    wait_until(lambda: len(attempts) >= 2 or len(order) >= 4 or github.comments,
+                               what="第二个评审到达工作区锁或越过互斥")
+                    # 第二个评审被锁挡住：此刻只有第一个评审的 checkout 与材料，也还没有任何评论
+                    self.assertEqual([item[0] for item in order], ["checkout", "materials"])
+                    self.assertEqual(order[0], ("checkout", head1))
+                    self.assertEqual(order[1], ("materials", 7))
+                    self.assertEqual(github.comments, [])
+                    (markdir / "release").write_text("", encoding="utf-8")  # 放行第一个评审方
+                finally:  # 断言失败也要放行阻塞的评审方并等两个线程结束，不留悬挂
+                    (markdir / "release").write_text("", encoding="utf-8")
+                    first.join(120)
+                    second.join(120)
             self.assertFalse(first.is_alive() or second.is_alive())
             self.assertEqual(results, {7: 0, 8: 0})
+            # 两个评审都经过同一把锁（同一工作区名到达两次）；无锁时 attempts 为空，这里同样失败
+            self.assertEqual(attempts, [f"{work.name}-review"] * 2)
             # 顺序：第一个 checkout → 材料 → 评论，之后第二个才开始 checkout → 材料 → 评论
             self.assertEqual([item[0] for item in order], ["checkout", "materials", "comment"] * 2)
             self.assertEqual(order[2], ("comment", 7))
@@ -259,6 +279,8 @@ class ReviewLockTest(unittest.TestCase):
     def test_stale_lock_reclaimed_and_timeout(self):
         """持有进程已不存在的锁被回收；持有者仍存活时等到超时抛 TimeoutError（信息含 pid 与用途）；
         正常退出、异常退出都删除锁文件。"""
+        from engine.agents import review_lock  # 按需导入：模块顶层导入会让修复退回后的并发测试连坐出错
+
         with tempfile.TemporaryDirectory(prefix="dh-review-lock-") as tmp:
             workspace = Path(tmp) / "app-review"
             workspace.mkdir()
