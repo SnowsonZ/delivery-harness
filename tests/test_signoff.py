@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from engine.agents import dispatch, review, signoff
 from engine.core import common, events_db
 from engine.routing import signals
-from tests.test_ci_events_workflows import parse_workflow
+from tests.test_ci_events_workflows import _Replay, parse_workflow
 
 ENGINE_REPO = Path(__file__).resolve().parents[1]
 GIT_ENV = {
@@ -154,6 +154,19 @@ class PendingGitHub:
         if joined.startswith("gh pr checks"):
             return json.dumps([{"state": "SUCCESS"}])
         raise AssertionError(f"未预期的 gh 调用：{joined}")
+
+
+class MergeReplay(_Replay):
+    """merge-app 步骤重放：补步骤级 env 的代入（App 令牌、PR 编号等经 context 提供取值）。"""
+
+    def run(self, steps: list[dict], *, stub: Path) -> None:
+        for step in steps:
+            if "uses" not in step and (step.get("env") or self.condition(step.get("if"))):
+                env = {key: self.substitute(str(value)) for key, value in (step.get("env") or {}).items()}
+                with mock.patch.object(self, "env", {**self.env, **env}):
+                    super().run([step], stub=stub)  # 基类逐步骤重放；这里只补 env 的代入
+                continue
+            super().run([step], stub=stub)
 
 
 class FakeReviewer:
@@ -470,6 +483,95 @@ class SignoffTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught, contextlib.redirect_stderr(io.StringIO()):
             dispatch.main(["signoff", str(PR)])
         self.assertEqual(caught.exception.code, 2)
+
+    # ---------- 验收 10：merge-app 同步落后分支、冲突打标签、其余状态照旧批准合并 ----------
+
+    def merge_app_steps(self) -> tuple[dict, dict, dict]:
+        """merge-app 的三个步骤（令牌、同步、批准合并）；模板结构断言在同一次解析里完成。"""
+        steps = self.template("auto-merge.yml")["jobs"]["merge-app"]["steps"]
+        app = next(step for step in steps if "create-github-app-token" in str(step.get("uses")))
+        sync = next(step for step in steps if step.get("id") == "branch")
+        merge = next(step for step in steps if step.get("name") == "Label, approve and merge")
+        self.assertEqual(app["with"]["permission-pull-requests"], "write")
+        self.assertEqual(app["with"]["permission-contents"], "write")  # update-branch 需要写内容
+        gate = str(merge.get("if"))
+        self.assertIn("BEHIND", gate)  # 落后时不进入批准
+        self.assertIn("DIRTY", gate)  # 冲突时不进入批准
+        self.assertIn('GH_TOKEN="$APP_TOKEN" gh pr update-branch "$PR"', sync["run"])  # 用 App 令牌同步
+        # 其他状态：批准与合并命令和原有步骙逐字相同（绑定评估过的提交）
+        for line in ('GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews"',
+                     '-f commit_id="$HEAD_SHA" -f event=APPROVE',
+                     'gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$HEAD_SHA"'):
+            self.assertIn(line, merge["run"])
+        return app, sync, merge
+
+    def write_gh_shim(self, state: str) -> tuple[Path, Path]:
+        """gh 桩：记录调用与生效令牌；mergeStateStatus 查询按 state 应答，其余静默成功。"""
+        folder = self.tmp / f"gh-shim-{state}"
+        folder.mkdir()
+        log = folder / "calls.log"
+        log.write_text("", encoding="utf-8")
+        script = folder / "gh"
+        script.write_text(
+            "#!/bin/bash\n"
+            'echo "CALL $* [token=${GH_TOKEN:-none}]" >> "$GH_SHIM_LOG"\n'
+            'case "$*" in\n'
+            f'  *"pr view"*"mergeStateStatus"*) echo "{state}" ;;\n'
+            "esac\n", encoding="utf-8")
+        script.chmod(0o755)
+        return folder, log
+
+    def replay_merge_app(self, state: str, *, pr: str = "14") -> tuple[MergeReplay, str]:
+        app, sync, merge = self.merge_app_steps()
+        shim, log = self.write_gh_shim(state)
+        project = self.tmp / f"proj-{state}-{pr}"
+        project.mkdir()
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith(("GIT_", "GITHUB_", "HARNESS_")) and key != "CI"}
+        env.update(GIT_ENV)
+        env["GITHUB_WORKSPACE"] = str(project)
+        env["GITHUB_REPOSITORY"] = "owner/repo"  # Actions 运行时提供，步蹧脚本里引用
+        env["RUNNER_TEMP"] = str(self.tmp / "runner-temp")
+        env["GH_SHIM_LOG"] = str(log)
+        env["PATH"] = f"{shim}:{env['PATH']}"
+        context = {"steps.app.outputs.token": "app-token-1",
+                   "github.event.workflow_run.pull_requests[0].number": pr,
+                   "github.event.workflow_run.head_sha": "a" * 40,
+                   "github.token": "job-token", "github.repository": "owner/repo",
+                   "needs.judge.outputs.risk": "R2", "needs.judge.outputs.class": "K5",
+                   "needs.judge.outputs.audit": "false"}
+        replay = MergeReplay(project, env, context)
+        replay.run([app, sync, merge], stub=project / "unused-stub")
+        return replay, log.read_text(encoding="utf-8")
+
+    def test_merge_app_syncs_behind_branch(self):
+        # BEHIND：用 App 令牌同步并退出，不批准、不合并，job 成功
+        replay, log = self.replay_merge_app("BEHIND")
+        self.assertIn("Sync behind branch before approving", replay.ran)
+        self.assertNotIn("Label, approve and merge", replay.ran)  # 批准步骙被拦下
+        self.assertEqual(replay.conclusion, "success")
+        self.assertIn("pr update-branch 14", log)
+        self.assertIn("[token=app-token-1]", log.split("update-branch")[1].splitlines()[0])  # App 令牌同步
+        self.assertNotIn("pulls/14/reviews", log)  # 没有批准
+        self.assertNotIn("pr merge", log)  # 没有合并
+        # DIRTY：打 escalation 标签并评论，同样不批准
+        _replay, log = self.replay_merge_app("DIRTY")
+        self.assertIn("--add-label escalation", log)
+        self.assertIn("pr comment 14", log)
+        self.assertNotIn("pulls/14/reviews", log)
+        self.assertNotIn("pr merge", log)
+        # 其他状态（CLEAN）：照常批准与合并，命令与原步骙逐字相同
+        replay, log = self.replay_merge_app("CLEAN")
+        self.assertIn("Label, approve and merge", replay.ran)
+        self.assertIn("--method POST repos/owner/repo/pulls/14/reviews", log)
+        self.assertIn("[token=app-token-1]", log.split("pulls/14/reviews")[1].splitlines()[0])  # App 令牌批准
+        self.assertIn("pr merge 14", log)
+        self.assertIn("--match-head-commit", log)
+        self.assertNotIn("update-branch", log)
+        # fork PR（无关联编号）：同步步骙查不到状态、批准步骙自行跳过，都不发 gh 写调用
+        _replay, log = self.replay_merge_app("", pr="")
+        self.assertIn("Label, approve and merge", _replay.ran)  # 状态为空不拦截（原行为：步骙内自行跳过）
+        self.assertEqual(log, "")
 
 
 if __name__ == "__main__":
