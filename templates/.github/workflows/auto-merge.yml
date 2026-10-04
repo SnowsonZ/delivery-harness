@@ -145,15 +145,42 @@ jobs:
       issues: write  # 类别标签与 audit 议题
       pull-requests: write
     steps:
-      - name: App token (approve only)
+      - name: App token (approve and branch sync)
         id: app
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars[needs.judge.outputs.app_client_id_var] }}
           private-key: ${{ secrets[needs.judge.outputs.app_private_key_secret] }}
           permission-pull-requests: write
+          permission-contents: write
+
+      # 批准之前先查分支状态：BEHIND 时用 App 令牌同步（GITHUB_TOKEN 推的提交不触发 CI，重判链会断），
+      # 同步触发的新一轮 harness 结束后会回到这里的判定；DIRTY 时打 escalation 标签交设计方处理。
+      # 两种情况都不批准、不合并，本 job 以成功结束。
+      - name: Sync behind branch before approving
+        id: branch
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          state=""
+          if [ -n "$PR" ]; then
+            state=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json mergeStateStatus --jq .mergeStateStatus)
+          fi
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          if [ "$state" = "BEHIND" ]; then
+            GH_TOKEN="$APP_TOKEN" gh pr update-branch "$PR" --repo "$GITHUB_REPOSITORY"
+            echo "分支落后，已同步，等新一轮 CI 后重判"
+          elif [ "$state" = "DIRTY" ]; then
+            gh label create escalation --repo "$GITHUB_REPOSITORY" --color d93f0b --force >/dev/null 2>&1 || true
+            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label escalation
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "与 main 冲突，需设计方处理"
+            echo "与 main 冲突，已打 escalation 标签，交设计方处理"
+          fi
 
       - name: Label, approve and merge
+        if: steps.branch.outputs.state != 'BEHIND' && steps.branch.outputs.state != 'DIRTY'
         env:
           APP_TOKEN: ${{ steps.app.outputs.token }}
           GH_TOKEN: ${{ github.token }}

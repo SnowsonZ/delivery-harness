@@ -24,6 +24,7 @@
     bin/dispatch review <PR> [--reviewer opencode|pi|codex|claude-code]   独立评审（engine/agents/review.py）
     bin/dispatch review --pending | --watch [--interval 5]   评审全部待评审的 PR（后台常驻用 --watch）
     bin/dispatch review-calibrate [--reviewer 名称] [--output 路径]   评审校准打分（不评论 PR）
+    bin/dispatch signoff <PR> --verdict 通过|不通过 --mutations N --caught M --body-file <md> [--designer 席位]   设计方复核（engine/agents/signoff.py）
 """
 
 from __future__ import annotations
@@ -646,6 +647,11 @@ def main(argv: list[str] | None = None) -> int:
     cal.add_argument("--reviewer", choices=["opencode", "pi", "codex", "claude-code"])
     cal.add_argument("--output", type=Path, default=Path("build/review/calibration-report.md"),
                      help="报告路径（相对仓库根，缺省 build/review/calibration-report.md）")
+    from engine.agents import signoff  # T702：按需导入（signoff 依赖本模块，顶层导入会循环）
+
+    # 参数定义只有 signoff.build_parser 一份，这里注册进子命令后原样转给 signoff.main。
+    sub.add_parser("signoff", help="设计方复核：发布复核评论，评审复核齐备后重跑判定（engine/agents/signoff.py）",
+                   parents=[signoff.build_parser(add_help=False)])
     sub.add_parser("status", help="查看槽位")
     stop = sub.add_parser("stop", help="停机：终止所有正在运行的执行方")
     stop.add_argument("--all", action="store_true", required=True)
@@ -666,6 +672,9 @@ def main(argv: list[str] | None = None) -> int:
         return review_module.review_pr(args.pr, args.reviewer)
     if args.command == "review-calibrate":
         return review_calibrate_command(args)
+    if args.command == "signoff":
+        rest = sys.argv[1:] if argv is None else argv
+        return signoff.main(rest[1:])
     if args.command == "stop":
         return stop_all()
     if (state_dir() / "stop").exists():
