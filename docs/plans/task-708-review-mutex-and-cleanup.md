@@ -37,10 +37,10 @@ rollback: git revert（仅在用户授权后）
 ## 目标终态
 
 1. **评审互斥**：新增模块 `engine/agents/review_lock.py`，提供上下文管理器 `workspace_lock(root, workspace, timeout_seconds)`。
-   - 实现方式与槽位锁相同：锁文件放在 `dispatch.state_dir(root) / "review-locks" / "<工作区目录名>.json"`，用 `os.open(O_CREAT|O_EXCL)` 创建，内容为 `{"pid", "started_at", "purpose"}`。
+   - 实现方式与槽位锁相同：锁文件放在**评审工作区旁边**，路径为 `<工作区目录>.review.lock`（即 `workspace.parent / f"{workspace.name}.review.lock"`），用 `os.open(O_CREAT|O_EXCL)` 创建，内容为 `{"pid", "started_at", "purpose"}`。（修订记录 2：原稿放在 `dispatch.state_dir(root)` 下，需要 root 是 git 仓库；本仓库和 Agent-Notification 的 calibrate 测试都以非 git 临时目录作 root，加锁就崩。）
    - 锁已存在且持有进程仍存活时，每 2 秒轮询一次，等到超时就抛 `TimeoutError`，错误信息里写明持有者。持有进程已经不存在时，回收这把锁。
-   - 退出时删除锁文件。`_alive` 与 `state_dir` 都通过 `dispatch.<名字>` 调用，保持 patch 语义。
-   - 上面列出的四处入口，从 checkout 到「评论已发布 / 报告已写入」整段都在锁内执行；只锁 checkout 这一步不算数。校准中 index 大于 0 的并行工作区各用各的锁，并行不受影响。超时取 `[review] timeout_minutes` 的两倍。
+   - 退出时删除锁文件。`_alive` 通过 `dispatch._alive` 调用，保持 patch 语义；锁的路径只由工作区路径决定，不依赖 git。
+   - 上面列出的四处入口，从 checkout 到「评论已发布 / 报告已写入」整段都在锁内执行；只锁 checkout 这一步不算数。较早那套校准 `calibrate` **按样本持锁**：每个样本从占用工作区（prepare_sample）到评审方结果落盘为一段，样本之间释放；index 为 0 的工作区与 `review_pr` 互斥，index 大于 0 的并行工作区各用各的锁文件，并行不受影响。超时取 `[review] timeout_minutes` 的两倍。
 2. **评审关闭 Codex 子代理**：`CodexReviewer.argv` 在推理强度参数之后、`-C` 之前插入 `-c agents.enabled=false`。原有参数的位置保持不变：Agent-Notification 的契约测试断言 `argv[5]` 是模型名。
 3. **B89 收尾**：
    - 移出模块里对**原本在同一模块中**的函数的调用，全部改为在函数内按需导入原模块，再以 `dispatch.<名字>` / `review.<名字>` 调用，范围覆盖病灶 3 列出的全部位置。
@@ -101,7 +101,7 @@ CHANGELOG 由设计方在 D1 统一写入，本任务不改。
 |---|---|---|---|---|
 | 不挂规格：#128 | 两个线程同时对同一工作区调用 `review_pr`（假评审方在事件上阻塞）：第二个在第一个发布评论之前，不会执行 checkout，也不会写材料；第一个释放后，第二个才开始。两条评论各自绑定自己的 head，材料不串 | 夹具 | `tests.test_review_lock.ReviewLockTest.test_concurrent_reviews_serialized` | 第二个评审覆盖了第一个的工作区（#120 的原样） |
 | 不挂规格：#128 | 持有者进程已不存在的锁文件会被回收；持有者仍存活时等到超时抛 `TimeoutError`，信息含持有者 pid 与用途；正常退出、异常退出都会删除锁文件 | 夹具 | `…test_stale_lock_reclaimed_and_timeout` | 死锁，或锁一直留着 |
-| 不挂规格：#128 | `plan_review` 与两套校准都经过同一把锁；校准 index 大于 0 的工作区各自独立加锁，互不阻塞 | 夹具 | `…test_all_entrypoints_use_lock` | 某个入口绕开了锁 |
+| 不挂规格：#128 | `plan_review` 与两套校准都经过同一把锁（`calibrate` 按样本持锁）；校准 index 大于 0 的工作区各自独立加锁，互不阻塞；`tests/test_harness_contract_review.py` 的 calibrate 场景（非 git 临时目录作 root）**不改任何测试**照常通过 | 夹具 | `…test_all_entrypoints_use_lock` | 某个入口绕开了锁 |
 | 不挂规格：B81 | `CodexReviewer("m","high").argv(...)` 含 `-c agents.enabled=false`，位于推理强度之后、`-C` 之前，第 0–5 位与原来一致 | 夹具 | `…test_codex_reviewer_disables_subagents` | 子代理照常派生 |
 | 不挂规格：B89 | 在原模块上 patch `review.load_samples`、`dispatch._salvage_and_remove`、`dispatch._manual_section` 后，调用移出的函数会走到 patch 后的版本 | 夹具 | `tests.test_split_modules.SplitModulesTest.test_patch_semantics_for_internal_calls` | 移出模块仍然直接调用本模块里的名字 |
 | 不挂规格：B89 | 在全新子进程里先导入新模块、再导入原模块，退出码为 0；把一个新模块改成顶层回导入时，子进程退出码不为 0 | 夹具 | `…test_import_order_independent` | 假阳性，顶层回导入也能通过 |
@@ -129,6 +129,7 @@ CHANGELOG 由设计方在 D1 统一写入，本任务不改。
 
 - 去掉 `review_pr` 的加锁；
 - 只在 checkout 时持锁，checkout 一完成就释放；
+- 去掉 `calibrate` 的加锁；
 - 去掉死锁回收；
 - 去掉 `-c agents.enabled=false`；
 - 把 `review_calibrate` 调用 `load_samples` 改回直接调用本模块的名字；
@@ -142,4 +143,16 @@ CHANGELOG 由设计方在 D1 统一写入，本任务不改。
 ## 修订记录 1（2026-10-05，设计方：引用改为按函数名定位）
 
 原稿的行号取自 T702 合并之前的 main，T702（#126）合并后，`review.py` 中的调用点向后偏移。前置条件原本要求「行号有出入就停下」，这会让执行方无谓地停工。现改为按函数名与代码片段定位，行号只作参考。范围、白名单、验收均不变。
+
+## 修订记录 2（2026-10-05，设计方裁决执行方升级）
+
+执行方在第 1 次派发中两度停下请求澄清：给 `review.py` 的 `calibrate` 加锁时，`tests/test_harness_contract_review.py`（不在白名单）以非 git 临时目录作 root，且没有 patch `dispatch.state_dir`，锁取不到目录而崩溃。设计方核对后发现，Agent-Notification 的 `tests/test_harness_review_independent.py` 第 213 行起有同样的场景，消费方契约 CI 会用新引擎跑它。
+
+裁决（不采纳「改测试夹具」的方案，那需要两个仓库都改测试）：
+
+- 锁文件改放在评审工作区旁边（`<工作区目录>.review.lock`），路径只由工作区决定，不依赖 git；两个仓库的测试都不用改。
+- `calibrate` 按样本持锁，与执行方的推荐一致。
+- 验收第 3 行补一条：上述测试场景不改测试也能通过。
+
+白名单、其余目标终态、变异清单均不变；变异清单增加一项「去掉 `calibrate` 的加锁」。已完成的提交（dd6e923–803c2d9）保留，在此基础上续跑。
 
