@@ -52,8 +52,8 @@ from engine.agents.review_calibration import (  # noqa: F401  重新导出（T70
     score_samples,
 )
 from engine.core import alerts
-from engine.core.common import ENGINE_DIR, ROOT, changed_files, commit_field, git, load_rules
-from engine.routing import run_check
+from engine.core.common import ENGINE_DIR, ROOT, changed_files, commit_field, git, load_rules, setting
+from engine.routing import run_check, signals
 
 PROMPT = ENGINE_DIR / "prompts" / "review_prompt.md"
 EVALS = ROOT / "evals" / "review"
@@ -363,6 +363,13 @@ def run_check_records(workspace: Path, base: str) -> list[dict]:
     return records
 
 
+def _escape(text) -> str:
+    """评审方输出的纵深防御（T702）：`<!--` 一律转义成 `&lt;!--`，模型输出不能在评论里写出 HTML
+    注释。T701 的防混入（标记合计恰好一次、独占一行、位置固定）是第一道防线，这里是第二道；
+    引擎自己生成的两个标记行不经这里，原样保留。"""
+    return str(text).replace("<!--", "&lt;!--")
+
+
 def render_comment(verdict: Verdict, reviewer: str, model: str, designer: str | None, head: str, seconds: float,
                    same_host: bool = False, audit: dict | None = None) -> str:
     lines = [
@@ -372,11 +379,12 @@ def render_comment(verdict: Verdict, reviewer: str, model: str, designer: str | 
     ]
     if same_host:
         lines.append(f"- ⚠️ 评审方与本 PR 的执行方同为 {reviewer}：独立性较弱，请结合自己的判断。")
-    lines += ["", f"**结论**：{verdict.summary or '（无）'}", ""]
+    lines += ["", f"**结论**：{_escape(verdict.summary) or '（无）'}", ""]
     if verdict.findings:
         lines += ["| 严重度 | 位置 | 问题 | 修复要求 |", "|---|---|---|---|"]
-        lines += [f"| {item.get('severity', '')} | {item.get('location', '')} | {item.get('problem', '')} | "
-                  f"{item.get('fix', '')} |" for item in verdict.findings]
+        lines += [f"| {_escape(item.get('severity'))} | {_escape(item.get('location'))} | "
+                  f"{_escape(item.get('problem'))} | "
+                  f"{_escape(item.get('fix'))} |" for item in verdict.findings]
     else:
         lines.append("没有发现。")
     data = {"verdict": verdict.verdict, "reviewer": reviewer, "model": model, "head": head,
@@ -448,6 +456,12 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
         pass  # 没有该标签
     if verdict.verdict == "不通过":  # D067：评审否决在已有评论发布后补标签/告警，不重跑评审
         alerts.publish(trace, "review_rejected", pr=number, gh=github)
+    if verdict.verdict == "通过" and not verdict.flagged:
+        # T702：复核先到、评审后到时由这一步触发重判（两样都齐了才轮到 auto-merge，而它只由
+        # harness 的 workflow_run 触发）。按需导入：signoff 依赖 dispatch，与本模块同层。
+        from engine.agents import signoff
+
+        signoff.retrigger_if_ready(number, root, github)
     print(f"PR #{number}：{verdict.verdict}（{name}），已评论")
     return 0
 
@@ -470,13 +484,19 @@ def reviewed_heads(comments: list[dict]) -> set[str]:
     return heads
 
 
-def pending_prs(github) -> list[int]:
-    """待评审：开着、带 needs-independent-review、CI 已全部完成且通过、当前 head 还没有独立评审结论。"""
+def pending_prs(github, root: Path = ROOT) -> list[int]:
+    """待评审：开着、带 needs-independent-review、CI 已全部完成且通过、当前 head 还没有可信的独立评审结论。
+
+    「已评审」用 signals.review_status 判，只认 checks.toml [identity] agent_login 写的标记（T702）；
+    reviewed_heads 不核对作者，第三方贴一条标记就会让 PR 永远不被评审（拆分评审严重项 4），不再用它判。
+    """
+    login = setting("identity", "agent_login")
     found = json.loads(github._run(["gh", "pr", "list", "--state", "open", "--label", LABEL, "--limit", "50",
                                     "--json", "number,headRefOid,comments"]))
     pending = []
     for pr in sorted(found, key=lambda item: item["number"]):
-        if pr["headRefOid"] in reviewed_heads(pr.get("comments", [])):
+        if signals.review_status(pr.get("comments") or [], login, pr["headRefOid"],
+                                 "origin/main", root)[0] != "missing":
             continue
         try:
             checks = json.loads(github._run(["gh", "pr", "checks", str(pr["number"]), "--json", "state"]))
@@ -488,13 +508,27 @@ def pending_prs(github) -> list[int]:
 
 
 def review_pending(reviewer_name: str | None = None, root: Path = ROOT, github=None, review=None) -> list[int]:
-    """逐个评审（多个 OpenCode 同时运行会互相冲突，2026-09-28 实测）。返回评审过的 PR。"""
+    """逐个评审（多个 OpenCode 同时运行会互相冲突，2026-09-28 实测）。返回评审完成的 PR。
+
+    注入 review（现有测试）时行为逐字不变。生产路径上没有指定评审方时走 dispatch.review_with_chain
+    （T702，与派发用同一条评审链）；指定了评审方就只用该评审方。只有返回 0 的 PR 才算「已评审」，
+    评审没成的 PR 另起一行打印「评审未完成：#<PR>」，不再被报告成已评审（拆分评审第五轮一般项 3）。
+    """
     github = github or dispatch.GitHub(root)
+    injected = review is not None
     review = review or review_pr
     done = []
-    for number in pending_prs(github):
-        review(number, reviewer_name, root, github)
-        done.append(number)
+    for number in pending_prs(github, root):
+        if injected:
+            review(number, reviewer_name, root, github)
+            done.append(number)
+            continue
+        code = (dispatch.review_with_chain(number, root, github) if reviewer_name is None
+                else review_pr(number, reviewer_name, root, github))
+        if code == 0:
+            done.append(number)
+        else:
+            print(f"评审未完成：#{number}", flush=True)
     return done
 
 
