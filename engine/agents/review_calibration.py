@@ -1,8 +1,9 @@
 """B59 评审校准：真实历史样本的清单装载、逐样本重跑与 TPR/TNR 报告（T707 自 review.py 逐字移出，行为不变）。
 
 调用原模块的名字（VERDICTS、checkout、load_rules、make_reviewer、review_workspace、write_materials、
-run_reviewer、git）时按需在函数体内导入 review 并以属性访问：保留测试在原模块上的 patch 语义，
-也避免循环导入。
+run_reviewer、git，以及原本同一模块的 load_samples、prepare_head_sample、sample_deviates、
+score_samples、_cell、render_calibration_report）时按需在函数体内导入 review 并以属性访问：
+保留测试在原模块上的 patch 语义，也避免循环导入。
 """
 
 from __future__ import annotations
@@ -83,6 +84,8 @@ def sample_deviates(item: dict) -> bool:
 def score_samples(results: list[dict]) -> dict:
     """TPR＝期望不通过的样本里抓中的比例，TNR＝期望通过的样本里放行的比例。样本检出失败（error）与评审方
     失败（failure）都进 errors、不进分母；有输出但没有可用结论（unparsed）同样不进分母，单独计数。"""
+    from engine.agents import review  # sample_deviates 留在原模块，按需导入（B89）
+
     scored = [item for item in results if "error" not in item and not item.get("failure") and item.get("parsed", True)]
     bad = [item for item in scored if item["expected"] == "不通过"]
     good = [item for item in scored if item["expected"] == "通过"]
@@ -90,7 +93,7 @@ def score_samples(results: list[dict]) -> dict:
         "total": len(results), "bad": len(bad), "good": len(good),
         "caught": sum(item["flagged"] for item in bad),
         "released": sum(not item["flagged"] for item in good),
-        "deviations": sum(sample_deviates(item) for item in scored),
+        "deviations": sum(review.sample_deviates(item) for item in scored),
         "errors": sum(1 for item in results if "error" in item or item.get("failure")),
         "unparsed": sum("error" not in item and not item.get("failure") and not item.get("parsed", True)
                         for item in results),
@@ -106,6 +109,8 @@ def _cell(text: str) -> str:
 
 def render_calibration_report(samples_path: Path, results: list[dict], summary: dict, reviewer: str,
                               model: str) -> str:
+    from engine.agents import review  # _cell、sample_deviates 留在原模块，按需导入（B89）
+
     def ratio(part: int, whole: int) -> str:
         return f"{part / whole:.3f}（{part}/{whole}）" if whole else "n/a（分母 0）"
 
@@ -121,14 +126,14 @@ def render_calibration_report(samples_path: Path, results: list[dict], summary: 
     ]
     for item in results:
         if "error" in item:
-            actual, deviation = f"样本错误：{_cell(item['error'])}", "未计分"
+            actual, deviation = f"样本错误：{review._cell(item['error'])}", "未计分"
         elif item.get("failure"):
-            actual, deviation = f"评审方失败：{_cell(item['failure'])}", "未计分"
+            actual, deviation = f"评审方失败：{review._cell(item['failure'])}", "未计分"
         else:
-            actual = _cell(item["verdict"]) + ("（抓住）" if item["flagged"] else "")
-            deviation = "是" if sample_deviates(item) else "—"
+            actual = review._cell(item["verdict"]) + ("（抓住）" if item["flagged"] else "")
+            deviation = "是" if review.sample_deviates(item) else "—"
         lines.append(f"| #{item['pr']} | {item['head'][:12]} | {item['expected']} | {actual} | {deviation} | "
-                     f"{_cell(item['reason'])} |")
+                     f"{review._cell(item['reason'])} |")
     lines += ["", "## 结论", "",
               ("- 校准是测量工具：本报告只给出 TPR/TNR 与逐样本偏差，不改原判定、不评论任何 PR；"
                "换评审方或模型后应在同一清单上重跑再比较。")]
@@ -141,7 +146,7 @@ def review_calibrate(review_name: str | None, samples_path: Path, output: Path, 
     报告写本地 markdown（不评论到任何 GitHub PR）。样本检出失败与评审方失败进 errors，不进 TPR/TNR 分母。"""
     from engine.agents import review  # make_reviewer 等留在原模块，按需导入（T707）
 
-    samples = load_samples(samples_path)
+    samples = review.load_samples(samples_path)
     name = review_name or review.load_rules().get("review", {}).get("reviewer")
     runner = reviewer or (review.make_reviewer(name) if name else None)
     if runner is None:
@@ -158,7 +163,7 @@ def review_calibrate(review_name: str | None, samples_path: Path, output: Path, 
             item = {"pr": sample["pr"], "head": sample["head"], "expected": sample["expected"],
                     "reason": sample["reason"]}
             try:
-                base, pr_text = prepare_head_sample(workspace, sample)
+                base, pr_text = review.prepare_head_sample(workspace, sample)
                 review.write_materials(workspace, base, pr_text, "")
             except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
                 results.append({**item, "error": str(error)})
@@ -172,10 +177,10 @@ def review_calibrate(review_name: str | None, samples_path: Path, output: Path, 
             print(f"PR #{sample['pr']} @ {sample['head'][:12]}：{verdict.verdict}"
                   f"{'（抓住）' if verdict.flagged else ''}"
                   f"{'：' + verdict.failure if verdict.failure else ''}", flush=True)
-        summary = score_samples(results)
+        summary = review.score_samples(results)
         model = next((item["model"] for item in results if item.get("model")), "")
         output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(render_calibration_report(samples_path, results, summary, runner.name, model),
+        output.write_text(review.render_calibration_report(samples_path, results, summary, runner.name, model),
                           encoding="utf-8")
     print(f"校准完成：TPR {summary['tpr']}、TNR {summary['tnr']}、偏差 {summary['deviations']} 条、"
           f"errors {summary['errors']} 条；报告已写入 {output}")
