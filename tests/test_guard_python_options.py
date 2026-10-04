@@ -7,7 +7,12 @@ T706 的解释器分支有两处缺口：`_option_value` 把 `-Wonce` 里的 c �
 
 from __future__ import annotations
 
+import sys
 import unittest
+from pathlib import Path
+
+# 回放（.harness/project/replay_cases.py 的 E123-R1）在 tests/ 下运行本模块：仓库根要能导入 engine。
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from engine.core import shell_structure
 from engine.guards import command_guard
