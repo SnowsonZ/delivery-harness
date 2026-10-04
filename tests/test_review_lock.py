@@ -1,10 +1,9 @@
 """评审互斥与评审方回归（T708，Defect: E128-R1——逃逸 #128）：同一评审工作区的并发评审串行化、
-死锁回收与超时、各评审入口持锁，以及 Codex 评审关闭子代理（B81）。
+死锁回收与超时、各评审入口持锁（calibrate 按样本持锁；jobs>1 时并行工作区各用各的锁文件、
+互不阻塞，任务书修订记录 2），以及 Codex 评审关闭子代理（B81）。
 
 夹具为匿名临时 git 仓库（bare 远端 + refs/pull/<n>/head）、假 gh 与假评审方，不碰真实库/PR；
 并发编排只等待「条件成立」（标记文件、调用计数），不依赖固定 sleep 时序。
-calibrate（另一套校准）的加锁因 tests/test_harness_contract_review.py 用非 git 目录当 root、
-与锁的 state_dir 冲突而暂缓，待设计方决定后补上（见派发升级记录与 PR 说明）。
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from engine.agents import dispatch, plan_review, review, review_calibration, review_lock
+from engine.agents import plan_review, review, review_calibration, review_lock
 from engine.core import events_db
 
 GIT_ENV = {
@@ -119,12 +118,12 @@ class ProbeReviewer(review.Reviewer):
 
     name = "probe"
 
-    def __init__(self, locks_dir: Path | None = None, seen: list | None = None):
-        self.locks_dir, self.seen = locks_dir, seen
+    def __init__(self, seen: list | None = None):
+        self.seen = seen
 
     def argv(self, prompt, workspace, output):
         if self.seen is not None:
-            self.seen.append((workspace.name, (self.locks_dir / f"{workspace.name}.json").exists()))
+            self.seen.append((workspace.name, (workspace.parent / f"{workspace.name}.review.lock").exists()))
         return [sys.executable, "-c", f"print({VERDICT_LINE!r})"]
 
     def read(self, stdout, output):
@@ -157,6 +156,34 @@ class BlockingFactory:
     def __call__(self, name):
         blocking, self.first = self.first, False
         return BlockingReviewer(self.markdir, blocking)
+
+
+def pair_script() -> str:
+    """并行样本的评审方脚本：把「自己的锁文件是否存在」写进 started，等 ready 出现后输出结论。"""
+    return ("import pathlib, sys, time\n"
+            "mark, lock = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])\n"
+            "mark.write_text('1' if lock.exists() else '0', encoding='utf-8')\n"
+            "while not (mark.parent / 'ready').exists():\n"
+            "    time.sleep(0.01)\n"
+            f"print({VERDICT_LINE!r})\n")
+
+
+class PairBlockingReviewer(review.Reviewer):
+    """并行样本评审方：started 内容记录评审启动时自己的锁文件是否存在，等同目录 ready 后输出结论。"""
+
+    name = "probe"
+
+    def __init__(self, markdir: Path):
+        self.markdir = markdir
+
+    def argv(self, prompt, workspace, output):
+        mark = self.markdir / workspace.name / "started"
+        mark.parent.mkdir(parents=True, exist_ok=True)
+        return [sys.executable, "-c", pair_script(), str(mark),
+                str(workspace.parent / f"{workspace.name}.review.lock")]
+
+    def read(self, stdout, output):
+        return stdout, "probe-model", "explicit_request"
 
 
 class ReviewLockTest(unittest.TestCase):
@@ -227,60 +254,67 @@ class ReviewLockTest(unittest.TestCase):
             pr_md = work.parent / f"{work.name}-review" / "build" / "review" / "pr.md"
             self.assertIn("PR8", pr_md.read_text(encoding="utf-8"))  # 工作区最终是第二个评审的材料
             # 评审结束锁已删除
-            self.assertFalse((dispatch.state_dir(work) / "review-locks" / f"{work.name}-review.json").exists())
+            self.assertFalse((work.parent / f"{work.name}-review.review.lock").exists())
 
     def test_stale_lock_reclaimed_and_timeout(self):
         """持有进程已不存在的锁被回收；持有者仍存活时等到超时抛 TimeoutError（信息含 pid 与用途）；
         正常退出、异常退出都删除锁文件。"""
         with tempfile.TemporaryDirectory(prefix="dh-review-lock-") as tmp:
-            root, state = Path(tmp), Path(tmp) / "state"
-            workspace = root / "app-review"
-            lock = state / "review-locks" / "app-review.json"
+            workspace = Path(tmp) / "app-review"
+            workspace.mkdir()
+            lock = workspace.parent / f"{workspace.name}.review.lock"
             dead = subprocess.Popen([sys.executable, "-c", "pass"])
             dead.wait()
-            with mock.patch.object(dispatch, "state_dir", return_value=state):
-                # 死锁回收：持有进程已退出，直接拿回并覆盖为自己的持有信息
-                lock.parent.mkdir(parents=True)
-                lock.write_text(json.dumps({"pid": dead.pid, "started_at": "t0", "purpose": "旧评审"}),
-                                encoding="utf-8")
-                with review_lock.workspace_lock(root, workspace, 5, "探针") as acquired:
-                    self.assertEqual(acquired, lock)
-                    held = json.loads(lock.read_text(encoding="utf-8"))
-                    self.assertEqual(held["pid"], os.getpid())
-                    self.assertEqual(held["purpose"], "探针")
-                    self.assertIn("started_at", held)
-                self.assertFalse(lock.exists())  # 正常退出删除锁文件
-                # 异常退出同样删除锁文件
-                with self.assertRaises(RuntimeError), review_lock.workspace_lock(root, workspace, 5, "探针"):
-                    raise RuntimeError("评审中断")
-                self.assertFalse(lock.exists())
-                # 持有者仍存活（本进程）：等到超时抛 TimeoutError，信息含持有者 pid 与用途；
-                # 等待方不删别人还持有的锁
-                lock.write_text(json.dumps({"pid": os.getpid(), "started_at": "t1", "purpose": "别的评审"}),
-                                encoding="utf-8")
-                with self.assertRaises(TimeoutError) as caught, \
-                        review_lock.workspace_lock(root, workspace, 0.05, "探针", poll_seconds=0.01):
-                    pass
-                self.assertIn(str(os.getpid()), str(caught.exception))
-                self.assertIn("别的评审", str(caught.exception))
-                self.assertEqual(json.loads(lock.read_text(encoding="utf-8"))["purpose"], "别的评审")
+            # 死锁回收：持有进程已退出，直接拿回并覆盖为自己的持有信息
+            lock.write_text(json.dumps({"pid": dead.pid, "started_at": "t0", "purpose": "旧评审"}),
+                            encoding="utf-8")
+            with review_lock.workspace_lock(Path(tmp), workspace, 5, "探针") as acquired:
+                self.assertEqual(acquired, lock)
+                held = json.loads(lock.read_text(encoding="utf-8"))
+                self.assertEqual(held["pid"], os.getpid())
+                self.assertEqual(held["purpose"], "探针")
+                self.assertIn("started_at", held)
+            self.assertFalse(lock.exists())  # 正常退出删除锁文件
+            # 异常退出同样删除锁文件
+            with self.assertRaises(RuntimeError), review_lock.workspace_lock(Path(tmp), workspace, 5, "探针"):
+                raise RuntimeError("评审中断")
+            self.assertFalse(lock.exists())
+            # 持有者仍存活（本进程）：等到超时抛 TimeoutError，信息含持有者 pid 与用途；
+            # 等待方不删别人还持有的锁
+            lock.write_text(json.dumps({"pid": os.getpid(), "started_at": "t1", "purpose": "别的评审"}),
+                            encoding="utf-8")
+            with self.assertRaises(TimeoutError) as caught, \
+                    review_lock.workspace_lock(Path(tmp), workspace, 0.05, "探针", poll_seconds=0.01):
+                pass
+            self.assertIn(str(os.getpid()), str(caught.exception))
+            self.assertIn("别的评审", str(caught.exception))
+            self.assertEqual(json.loads(lock.read_text(encoding="utf-8"))["purpose"], "别的评审")
 
     def test_all_entrypoints_use_lock(self):
-        """review_pr、review_calibrate、plan_review 都经同一把锁（同一工作区同一锁文件）；
-        评审方运行期间锁文件存在、入口返回后删除。"""
+        """review_pr、两套校准（calibrate、review_calibrate）、plan_review 都经同一把锁（同一工作区同一
+        锁文件）；评审方运行期间锁文件存在、入口返回后删除。"""
         with tempfile.TemporaryDirectory(prefix="dh-review-lock-") as tmp:
             work = make_project(Path(tmp))
             head1, pr1 = push_pr(work, 7, ("a.txt", "one\n"))
-            locks_dir = dispatch.state_dir(work) / "review-locks"
-            lock_file = locks_dir / f"{work.name}-review.json"
+            lock_file = work.parent / f"{work.name}-review.review.lock"
             seen: list[tuple[str, bool]] = []
-            probe = ProbeReviewer(locks_dir, seen)
+            probe = ProbeReviewer(seen)
             with mock.patch.object(events_db, "ROOT", work), \
                     mock.patch.object(review, "make_reviewer", lambda name: probe), \
                     contextlib.redirect_stdout(io.StringIO()):
                 # review_pr
                 self.assertEqual(review.review_pr(7, "probe", root=work,
                                                   github=ReviewGitHub({7: pr1})), 0)
+                self.assertIn((f"{work.name}-review", True), seen)
+                self.assertFalse(lock_file.exists())
+                # calibrate（较早那套校准，按样本持锁；jobs=1 时用 index 0 工作区，与 review_pr 互斥）。
+                # bad 样本＝事故回放：在 main_ref 上把 find 替换为 replace 后建提交，不推送。
+                samples = [{"kind": "bad", "id": "S1", "title": "夹具样本", "file": "app.txt",
+                            "find": "v1\n", "replace": "v2\n"}]
+                with mock.patch.object(review, "calibration_samples", return_value=samples), \
+                        mock.patch.object(review, "EVALS", Path(tmp)):
+                    record = review.calibrate("probe", root=work, reviewer=probe)
+                self.assertEqual(record["samples"][0]["id"], "S1")
                 self.assertIn((f"{work.name}-review", True), seen)
                 self.assertFalse(lock_file.exists())
                 # review_calibrate（B59 真实历史样本校准）
@@ -301,7 +335,45 @@ class ReviewLockTest(unittest.TestCase):
                                                          reviewer=probe), 0)
                 self.assertIn((f"{work.name}-review", True), seen)
                 self.assertFalse(lock_file.exists())
-            self.assertGreaterEqual(seen.count((f"{work.name}-review", True)), 3)
+            self.assertGreaterEqual(seen.count((f"{work.name}-review", True)), 4)
+
+    def test_calibrate_parallel_workspaces_do_not_block(self):
+        """jobs=2 时 index 0 与 index 1 的工作区各用各的锁文件：两个样本同时进入评审方、互不阻塞；
+        评审启动时两把锁都在，结束后都删除（任务书修订记录 2）。"""
+        with tempfile.TemporaryDirectory(prefix="dh-review-lock-") as tmp:
+            work = make_project(Path(tmp))
+            markdir = Path(tmp) / "marks"
+            markdir.mkdir()
+            names = [f"{work.name}-review", f"{work.name}-review-1"]
+            samples = [{"kind": "bad", "id": f"S{n}", "title": f"夹具样本 {n}", "file": "app.txt",
+                        "find": "v1\n", "replace": f"v{n}\n"} for n in (1, 2)]
+            done: dict = {}
+
+            def run() -> None:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    done["record"] = review.calibrate("probe", root=work,
+                                                      reviewer=PairBlockingReviewer(markdir), jobs=2)
+
+            with mock.patch.object(events_db, "ROOT", work), \
+                    mock.patch.object(review, "calibration_samples", return_value=samples), \
+                    mock.patch.object(review, "EVALS", Path(tmp)):
+                thread = threading.Thread(target=run, daemon=True)
+                thread.start()
+                try:
+                    for name in names:  # 两个样本都进入评审方：若共用一把锁，第二个会卡在等锁上
+                        wait_until((markdir / name / "started").exists, timeout=30,
+                                   what=f"{name} 的评审方启动")
+                        self.assertEqual((markdir / name / "started").read_text(encoding="utf-8"), "1")
+                    for name in names:  # 各自的锁文件都在评审方运行期间存在
+                        self.assertTrue((work.parent / f"{name}.review.lock").exists())
+                finally:  # 失败路径也要放行已启动的评审方，让线程能结束
+                    for name in names:
+                        (markdir / name / "ready").write_text("", encoding="utf-8")
+                    thread.join(120)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(sorted(item["id"] for item in done["record"]["samples"]), ["S1", "S2"])
+            for name in names:
+                self.assertFalse((work.parent / f"{name}.review.lock").exists())
 
 
     def test_codex_reviewer_disables_subagents(self):

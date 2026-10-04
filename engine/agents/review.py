@@ -625,18 +625,24 @@ def calibrate(reviewer_name: str, limit: int | None = None, root: Path = ROOT, r
     workspaces = Queue()
     for index in range(max(1, min(jobs, len(pending)))):
         workspaces.put(workspace if index == 0 else review_workspace(root, index))
+    # E128-R1（逃逸 #128）：按样本持锁——从占用工作区（prepare_sample）到评审方结果落盘为一段，样本之间
+    # 释放（修订记录 2）；index 0 的工作区与 review_pr 等入口互斥，index 大于 0 的并行工作区各用各的锁文件。
+    lock_timeout = load_rules().get("review", {}).get("timeout_minutes", 30) * 60 * 2
 
     def review_one(sample: dict) -> dict:
         space = workspaces.get()
         try:
-            try:
-                base, pr_text = prepare_sample(space, sample, main_ref, root)
-            except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
-                return {"kind": sample["kind"], "id": sample["id"], "error": str(error)}
-            write_materials(space, base, pr_text, "")
-            verdict, model, seconds = run_reviewer(reviewer, space, 30 * 60)
-            return {"kind": sample["kind"], "id": sample["id"], "verdict": verdict.verdict, "flagged": verdict.flagged,
-                    "parsed": verdict.parsed, "failure": verdict.failure, "seconds": round(seconds), "model": model}
+            with review_lock.workspace_lock(root, space, lock_timeout, purpose=f"calibrate {sample['id']}"):
+                try:
+                    base, pr_text = prepare_sample(space, sample, main_ref, root)
+                except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+                    return {"kind": sample["kind"], "id": sample["id"], "error": str(error)}
+                write_materials(space, base, pr_text, "")
+                verdict, model, seconds = run_reviewer(reviewer, space, 30 * 60)
+                return {"kind": sample["kind"], "id": sample["id"], "verdict": verdict.verdict,
+                        "flagged": verdict.flagged,
+                        "parsed": verdict.parsed, "failure": verdict.failure, "seconds": round(seconds),
+                        "model": model}
         finally:
             workspaces.put(space)
 
