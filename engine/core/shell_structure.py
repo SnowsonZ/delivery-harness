@@ -223,13 +223,18 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
             return reasons + check(code, text_rules, role), False
         return reasons, _reads_stdin(args)
     if program in INTERPRETERS or re.fullmatch(r"python3(\.\d+)?", program):
-        code = _option_value(args, "c") if program.startswith("python") else _option_value(args, "e")
+        if program.startswith("python"):
+            # 按 Python 的参数语法统一解析（#123）：-c 代码、-m 模块、脚本文件三者择一，-W/-X 的值不是脚本。
+            kind, value, rest = _python_args(args)
+            if kind == "code":
+                return reasons + text_rules(value), False
+            if role == "implementer" and kind in ("module", "script") and value in ("cli.py", "engine.cli") \
+                    and _review_entrypoint(rest):  # cli.py 脚本或 -m engine.cli 模块，同 harness 入口
+                reasons.append(REVIEW_SIGNAL)
+            return reasons, _reads_stdin(args)
+        code = _option_value(args, "e")
         if code is not None:
             return reasons + text_rules(code), False
-        if program.startswith("python") and role == "implementer":
-            target, rest = _python_target(args)  # cli.py 脚本或 -m engine.cli 模块，同 harness 入口
-            if target in ("cli.py", "engine.cli") and _review_entrypoint(rest):
-                reasons.append(REVIEW_SIGNAL)
         return reasons, _reads_stdin(args)
     if program == "git":
         return reasons + _git(args), False
@@ -244,25 +249,42 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
     return reasons, False
 
 
-# Python 解释器带值的选项：分开写（-W ignore、-X dev）时下一个参数是值，不是脚本；-c 由调用方先处理。
-PYTHON_VALUE_OPTIONS = ("-W", "-X")
+# Python 解释器带值的短选项字母（#123）：c 代码、m 模块、W 警告、X 实现选项。可以与无值开关合写
+# （-uW x、-uWx、-Bc code），值或者紧跟在同一参数里，或者是下一个参数。
+PYTHON_VALUE_LETTERS = "cmWX"
+# 带值的长选项（其余长选项不带值）。
+PYTHON_VALUE_LONG = ("--check-hash-based-pycs",)
 
 
-def _python_target(args: list[str]) -> tuple[str | None, list[str]]:
-    """(脚本文件名或 -m 的模块名, 之后属于脚本的参数)：按 Python 的参数语法先消费解释器选项及其值。"""
+def _python_args(args: list[str]) -> tuple[str | None, str, list[str]]:
+    """按 Python 的参数语法解析解释器参数：("code", 代码, []) / ("module", 模块名, 其后参数) /
+    ("script", 脚本文件名, 其后参数) / (None, "", [])。-W/-X 的值、无值开关一律跳过，不会被误认成脚本。"""
     index = 0
     while index < len(args):
         arg = args[index]
-        if arg == "-m" or (arg.startswith("-m") and not arg.startswith("--")):
-            module = arg[2:] or (args[index + 1] if index + 1 < len(args) else "")
-            return module, args[index + (1 if arg[2:] else 2):]
-        if arg in PYTHON_VALUE_OPTIONS:
-            index += 2
-        elif arg.startswith("-"):
-            index += 1  # 无值开关，或连写的 -Wignore、-Xdev
-        else:
-            return os.path.basename(arg), args[index + 1:]
-    return None, []
+        if arg == "--":
+            rest = args[index + 1:]
+            return ("script", os.path.basename(rest[0]), rest[1:]) if rest else (None, "", [])
+        if arg.startswith("--"):
+            index += 2 if arg in PYTHON_VALUE_LONG else 1
+            continue
+        if arg.startswith("-") and len(arg) > 1:
+            index += 1
+            for position, letter in enumerate(arg[1:], 1):
+                if letter not in PYTHON_VALUE_LETTERS:
+                    continue  # 无值开关（-u、-B、-I……），继续看同一参数里的下一个字母
+                value = arg[position + 1:]
+                if not value:
+                    value = args[index] if index < len(args) else ""
+                    index += 1
+                if letter == "c":
+                    return "code", value, []
+                if letter == "m":
+                    return "module", value, args[index:]
+                break  # -W / -X 的值已消费
+            continue
+        return "script", os.path.basename(arg), args[index + 1:]
+    return None, "", []
 
 
 def _review_entrypoint(args: list[str]) -> str | None:
