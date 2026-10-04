@@ -18,6 +18,7 @@ import os
 import re
 from pathlib import Path
 
+from engine.agents import review_lock
 from engine.agents.review import (
     Reviewer,
     Verdict,
@@ -116,31 +117,34 @@ def review_plan(plan_doc: Path, output: Path, *, root: Path = ROOT, reviewer: Re
         print(f"拆分评审：设计文档缺失（{missing[0]}），报告已写入 {output}")
         return 1
     workspace = review_workspace(root)
-    git("fetch", "--quiet", "origin", "main", cwd=workspace)
-    checkout(workspace, "origin/main")
-    base = git("rev-parse", "origin/main", cwd=workspace)
-    folder = workspace / "build" / "review" / "materials"
-    folder.mkdir(parents=True, exist_ok=True)
-    for rel, text in materials:  # 材料全文按仓库相对路径落盘，评审方在只读沙箱里读得到
-        target = folder / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
-    listing = "\n".join(f"- `{rel}`" for rel, _ in materials) or "-（没有收集到任何材料）"
-    gone = "\n".join(f"- `{item}`" for item in missing) or "-（无）"
-    pr_text = (
-        f"# 拆分评审：{plan_rel}\n\n"
-        "这不是 PR 评审，而是任务拆分评审：对照 docs/task-splitting.md 的拆分评审检查项（完整性、正确性、"
-        "可验证、可完成、一致性），依据下面的主材料与关联材料评审这份拆分能否一并提交。\n\n"
-        f"## 主材料：{plan_rel} 全文\n\n{plan_text}\n\n"
-        f"## 关联材料（{len(materials)} 份，全文在 build/review/materials/ 下按仓库相对路径存放）\n\n{listing}\n\n"
-        f"## 缺失的链接目标（未参与评审）\n\n{gone}\n"
-    )
-    write_materials(workspace, base, pr_text, "", "（拆分评审没有 CI 运行）")
-    verdict, model, seconds = run_reviewer(runner, workspace, load_rules().get("review", {}).get(
-        "timeout_minutes", 30) * 60)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(render_plan_report(plan_rel, materials, missing, verdict, runner.name, model, seconds),
-                      encoding="utf-8")
+    # E128-R1（逃逸 #128）：与其他评审入口共用工作区，从 checkout 到报告写入整段持锁串行。
+    timeout = load_rules().get("review", {}).get("timeout_minutes", 30) * 60 * 2
+    with review_lock.workspace_lock(root, workspace, timeout, purpose="plan_review"):
+        git("fetch", "--quiet", "origin", "main", cwd=workspace)
+        checkout(workspace, "origin/main")
+        base = git("rev-parse", "origin/main", cwd=workspace)
+        folder = workspace / "build" / "review" / "materials"
+        folder.mkdir(parents=True, exist_ok=True)
+        for rel, text in materials:  # 材料全文按仓库相对路径落盘，评审方在只读沙箱里读得到
+            target = folder / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        listing = "\n".join(f"- `{rel}`" for rel, _ in materials) or "-（没有收集到任何材料）"
+        gone = "\n".join(f"- `{item}`" for item in missing) or "-（无）"
+        pr_text = (
+            f"# 拆分评审：{plan_rel}\n\n"
+            "这不是 PR 评审，而是任务拆分评审：对照 docs/task-splitting.md 的拆分评审检查项（完整性、正确性、"
+            "可验证、可完成、一致性），依据下面的主材料与关联材料评审这份拆分能否一并提交。\n\n"
+            f"## 主材料：{plan_rel} 全文\n\n{plan_text}\n\n"
+            f"## 关联材料（{len(materials)} 份，全文在 build/review/materials/ 下按仓库相对路径存放）\n\n{listing}\n\n"
+            f"## 缺失的链接目标（未参与评审）\n\n{gone}\n"
+        )
+        write_materials(workspace, base, pr_text, "", "（拆分评审没有 CI 运行）")
+        verdict, model, seconds = run_reviewer(runner, workspace, load_rules().get("review", {}).get(
+            "timeout_minutes", 30) * 60)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(render_plan_report(plan_rel, materials, missing, verdict, runner.name, model, seconds),
+                          encoding="utf-8")
     if verdict.failure:
         print(f"拆分评审：评审方失败（{verdict.failure}），报告已写入 {output}")
         return 1

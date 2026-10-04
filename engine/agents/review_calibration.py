@@ -147,29 +147,36 @@ def review_calibrate(review_name: str | None, samples_path: Path, output: Path, 
     if runner is None:
         print("未能判定评审方：用 --reviewer 指定，或在 rules.toml [review] 配置 reviewer")
         return 2
-    workspace = review.review_workspace(root)
-    review.git("fetch", "--quiet", "origin", "main", cwd=workspace)
-    results = []
-    for sample in samples:
-        item = {"pr": sample["pr"], "head": sample["head"], "expected": sample["expected"],
-                "reason": sample["reason"]}
-        try:
-            base, pr_text = prepare_head_sample(workspace, sample)
-            review.write_materials(workspace, base, pr_text, "")
-        except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
-            results.append({**item, "error": str(error)})
-            print(f"PR #{sample['pr']} @ {sample['head'][:12]}：样本错误（{error}）", flush=True)
-            continue
-        verdict, model, seconds = review.run_reviewer(runner, workspace, review.load_rules().get("review", {}).get(
-            "timeout_minutes", 30) * 60)
-        results.append({**item, "verdict": verdict.verdict, "flagged": verdict.flagged, "parsed": verdict.parsed,
-                        "failure": verdict.failure, "model": model, "seconds": round(seconds)})
-        print(f"PR #{sample['pr']} @ {sample['head'][:12]}：{verdict.verdict}{'（抓住）' if verdict.flagged else ''}"
-              f"{'：' + verdict.failure if verdict.failure else ''}", flush=True)
-    summary = score_samples(results)
-    model = next((item["model"] for item in results if item.get("model")), "")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(render_calibration_report(samples_path, results, summary, runner.name, model), encoding="utf-8")
+    from engine.agents import review_lock  # E128-R1：与其他评审入口共用工作区，同样持锁串行
+
+    timeout = review.load_rules().get("review", {}).get("timeout_minutes", 30) * 60 * 2
+    with review_lock.workspace_lock(root, review.review_workspace(root), timeout, purpose="review_calibrate"):
+        workspace = review.review_workspace(root)
+        review.git("fetch", "--quiet", "origin", "main", cwd=workspace)
+        results = []
+        for sample in samples:
+            item = {"pr": sample["pr"], "head": sample["head"], "expected": sample["expected"],
+                    "reason": sample["reason"]}
+            try:
+                base, pr_text = prepare_head_sample(workspace, sample)
+                review.write_materials(workspace, base, pr_text, "")
+            except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+                results.append({**item, "error": str(error)})
+                print(f"PR #{sample['pr']} @ {sample['head'][:12]}：样本错误（{error}）", flush=True)
+                continue
+            verdict, model, seconds = review.run_reviewer(runner, workspace, review.load_rules().get("review", {}).get(
+                "timeout_minutes", 30) * 60)
+            results.append({**item, "verdict": verdict.verdict, "flagged": verdict.flagged,
+                            "parsed": verdict.parsed, "failure": verdict.failure, "model": model,
+                            "seconds": round(seconds)})
+            print(f"PR #{sample['pr']} @ {sample['head'][:12]}：{verdict.verdict}"
+                  f"{'（抓住）' if verdict.flagged else ''}"
+                  f"{'：' + verdict.failure if verdict.failure else ''}", flush=True)
+        summary = score_samples(results)
+        model = next((item["model"] for item in results if item.get("model")), "")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(render_calibration_report(samples_path, results, summary, runner.name, model),
+                          encoding="utf-8")
     print(f"校准完成：TPR {summary['tpr']}、TNR {summary['tnr']}、偏差 {summary['deviations']} 条、"
           f"errors {summary['errors']} 条；报告已写入 {output}")
     return 0
