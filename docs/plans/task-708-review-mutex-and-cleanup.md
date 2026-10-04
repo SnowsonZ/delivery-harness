@@ -21,14 +21,14 @@ rollback: git revert（仅在用户授权后）
 
 ## 病灶（代码证据）
 
-1. **#128 评审并发**：所有评审入口共用同一个工作区，没有任何互斥。`engine/agents/review.py` 第 293–299 行的 `review_workspace(root, index=0)` 固定返回 `<仓库名>-review`。下列入口都直接 checkout、clean 并覆盖材料：
-   - `review_pr`（第 397 行）；
-   - 较早的校准段 `calibrate`（第 571、585 行；index 为 0 的那个工作区与 `review_pr` 共用）；
+1. **#128 评审并发**：所有评审入口共用同一个工作区，没有任何互斥。`engine/agents/review.py` 的 `review_workspace(root, index=0)` 固定返回 `<仓库名>-review`（T702 合并后的 main 上约在第 293 行）。下列入口都直接 checkout、clean 并覆盖材料：
+   - `review_pr`（函数内调用 `review_workspace(root)` 的那一行，约第 405 行）；
+   - 较早的校准段 `calibrate`（`def calibrate` 约在第 601 行，函数内两处 `review_workspace` 调用；index 为 0 的那个工作区与 `review_pr` 共用）；
    - `review_calibration.review_calibrate`（第 150 行）；
    - `plan_review`（第 118 行）。
 
    2026-10-04 11:04，#119 的补审与 #120 的评审同时运行，#120 那次评审读到的全是 T707 的代码（见 #127）。T703 的 `review_after_ci` 让多个派发进程在 CI 通过后各自评审，D1 打开这个开关后，并发会成为常态。
-2. **Codex 子代理**：`CodexReviewer.argv`（`engine/agents/review.py` 第 120 行附近）没有约束子代理，所以会沿用使用者全局配置里的 `[agents]`。实测（2026-10-03/04 的会话日志）：每次评审另外派生 2 个子代理，子代理占评审输入 token 的 53%；9 条严重发现中，主会话自己就查到了 8 条。2026-10-04 用 `-c agents.enabled=false` 补审 #120，输入从平均 3.8M 降到 0.96M，同样查出了严重问题。
+2. **Codex 子代理**：`CodexReviewer.argv`（`engine/agents/review.py` 的 `class CodexReviewer`）没有约束子代理，所以会沿用使用者全局配置里的 `[agents]`。实测（2026-10-03/04 的会话日志）：每次评审另外派生 2 个子代理，子代理占评审输入 token 的 53%；9 条严重发现中，主会话自己就查到了 8 条。2026-10-04 用 `-c agents.enabled=false` 补审 #120，输入从平均 3.8M 降到 0.96M，同样查出了严重问题。
 3. **B89（T707 收尾，#124 与 #127 的评审发现）**：
    - 移出模块之间仍按本模块的名字互相调用，在原模块上 patch 这些名字拦不住：`dispatch_slots.py` 第 75、113、138 行；`dispatch_text.py` 第 27、62 行；`review_calibration.py` 第 93、124–131、144、157、169、172 行。
    - `tests/test_split_modules.py` 第 116 行起的 `test_import_order_independent` 只清了 `sys.modules`，包属性 `engine.agents.<名字>` 还留着旧模块，所以「顶层回导入」这种写法也能通过（假阳性）。
@@ -90,7 +90,7 @@ CHANGELOG 由设计方在 D1 统一写入，本任务不改。
 
 ## 前置条件
 
-- 工作区基于最新的 `origin/main`（含 T702 #126，它改了 `review.py` 和 `auto-merge.yml`）。如果 #126 尚未合并，就停下报告。核对上面引用的行号与函数，有出入就停下，向设计方报告。
+- 工作区基于最新的 `origin/main`（含 T702 #126，它改了 `review.py` 和 `auto-merge.yml`）。如果 #126 尚未合并，就停下报告。**按函数名与代码片段定位**，文中行号只作参考，偏差几行不算出入；只有函数、调用点或接口本身对不上时，才停下向设计方报告。
 - 实现前先确认本任务书已在 main 上：`bin/harness taskbook docs/plans/task-708-review-mutex-and-cleanup.md --on-main` 通过。
 
 ## 验收
@@ -138,3 +138,8 @@ CHANGELOG 由设计方在 D1 统一写入，本任务不改。
 设计方在本 PR 中补提交 `.harness/project/replay_cases.py` 的 E128-R1 注入用例（注入点为「去掉 `review_pr` 的加锁」）。
 
 同一失败连续三轮没有新证据时，停止这条路径。不得自行扩大白名单、修改任务书、实现非目标。
+
+## 修订记录 1（2026-10-05，设计方：引用改为按函数名定位）
+
+原稿的行号取自 T702 合并之前的 main，T702（#126）合并后，`review.py` 中的调用点向后偏移。前置条件原本要求「行号有出入就停下」，这会让执行方无谓地停工。现改为按函数名与代码片段定位，行号只作参考。范围、白名单、验收均不变。
+
