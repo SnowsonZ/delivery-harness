@@ -66,6 +66,7 @@ from engine.agents.github import GitHub
 from engine.checks import taskbook
 from engine.core import alerts
 from engine.core.common import ENGINE_DIR, ROOT, git, load_rules, setting
+from engine.routing import signals
 
 PROMPT_TEMPLATE = ENGINE_DIR / "prompts" / "dispatch_prompt.md"
 ESCALATION_FILE = "build/dispatch/escalation.md"
@@ -95,6 +96,7 @@ class Config:
     poll_seconds: float = 5
     ci_timeout_seconds: float = 3600
     verify: list[str] = field(default_factory=lambda: ["bin/verify"])
+    review_after_ci: bool = False  # B77③：CI 通过后由本进程接上独立评审（评审链见 review_with_chain）
 
     @classmethod
     def load(cls, rules: dict | None = None) -> Config:
@@ -103,6 +105,7 @@ class Config:
             slots=raw.get("slots", 3),
             stall_seconds=raw.get("stall_minutes", 15) * 60,
             ci_timeout_seconds=raw.get("ci_timeout_minutes", 60) * 60,
+            review_after_ci=raw.get("review_after_ci", False),
         )
 
 
@@ -284,6 +287,8 @@ class Dispatcher:
         self.identity = identity
         self.used_seconds = 0.0
         self.acquired: int | None = None  # 已认领的槽位号；归还（return_slot）由派发进程结束路径统一做（B77）
+        # CI 通过时记下 (PR, head)：开关 review_after_ci 打开时，run 在归还槽位后接上独立评审（B77③）。
+        self.review_target: tuple[int, str] | None = None
 
     def run_executor(self, task: Task, slot: Path, guard: Path, prompt: str, events: Path) -> dispatch_host.RunResult:
         budget_seconds = task.budget["wall_clock_min"] * 60
@@ -432,9 +437,14 @@ class Dispatcher:
             if not resume:
                 self.github.push(slot, task.branch)  # 分支即认领
                 observation.claim(task.branch, True)
-            return self._loop(task, index, slot, guard, guard_ref)
+            code = self._loop(task, index, slot, guard, guard_ref)
         finally:
             release_slot(self.root, index)
+        # B77③：CI 已通过（_loop 因 CI 通过返回 0）且开关打开时接上独立评审——上面的 finally 已先归还
+        # 槽位，评审不占槽位；升级、预算耗尽、本地未完成都返回非 0，不触发评审。
+        if code == 0 and self.config.review_after_ci and self.review_target is not None:
+            self._review_after_ci()
+        return code
 
     def _chain_hint(self, branch: str) -> None:
         """等待链自愈提示（B77）：上一轮派发进程异常退出（槽位锁 pid 不存活）、分支 head 已保全到远端时，
@@ -442,6 +452,40 @@ class Dispatcher:
         print(f"链路自检：上一轮派发异常退出，分支 {branch} 的 head 已在远端；若该 head 没有 CI 结论或"
               "独立评审结论，请设计方手动接链（重跑 CI 或 bin/dispatch review <PR>），评审不会自动重跑。",
               file=sys.stderr)
+
+    def _reviewed(self, pr: int, head: str) -> bool:
+        """已有本 Agent 账号写的、指向当前 head 的独立评审结论时为真（B77③，跳过自动评审）。
+
+        用 T701 的 signals.review_status：它核对标记作者（agent_login）。不能用
+        review.reviewed_heads——它不核对作者，其他账号贴一条标记就会让派发误以为已评审而漏评
+        （拆分评审严重项 4）。评论读取失败按 missing 处理：宁可重复评审，不漏评。
+        """
+        login = setting("identity", "agent_login")
+        try:
+            comments = json.loads(self.github._run(["gh", "pr", "view", str(pr), "--json", "comments"]))["comments"]
+        except (RuntimeError, ValueError, KeyError):
+            comments = []
+        status, _reason = signals.review_status(comments, login, head, "origin/main", self.root)
+        if status != "missing":
+            print(f"PR #{pr}：已有评审结论（{status}），跳过")
+            return True
+        return False
+
+    def _review_after_ci(self) -> None:
+        """CI 通过后由派发进程接上独立评审（B77③）：调用方 run 已先归还槽位，评审不占槽位。
+
+        失败只提示不改变退出码：CI 已通过，任务本身已完成；缺链必须让设计方看见，不沉默。
+        """
+        pr, head = self.review_target
+        try:
+            if self._reviewed(pr, head):
+                return
+            code = review_with_chain(pr, self.root, self.github)
+            reason = "" if code == 0 else "评审链全部失败（各评审方结果见上方汇总）"
+        except Exception as error:  # noqa: BLE001  评审衔接失败不改变派发判定与退出码
+            reason = f"{type(error).__name__}: {error}"
+        if reason:
+            print(f"评审未能自动接上：{reason}；请设计方运行 bin/dispatch review {pr}", file=sys.stderr)
 
     def _loop(self, task: Task, index: int, slot: Path, guard: Path, guard_ref: str) -> int:
         runs = state_dir(self.root) / "runs" / task.id
@@ -476,6 +520,7 @@ class Dispatcher:
             observation.ci_wait(task.branch, pr, head, ci_rounds, ok, summary, detail.get("run_ids"))
             if ok:
                 print(f"{task.id}：PR #{pr} 的 CI 通过，合并由 auto-merge 判定")
+                self.review_target = (pr, head)  # B77③：开关打开时由 run 在归还槽位后接上评审
                 return 0
             if ci_rounds >= task.budget["ci_rounds"]:
                 self.github.add_label(pr, "budget-exceeded")
@@ -504,6 +549,36 @@ EXIT_TEXT = {
     "error": "执行方异常退出", "loop": "打转：连续两轮同一失败", "retries": "重试次数用尽",
     "clarify": "执行方请求澄清",
 }
+
+
+def review_with_chain(pr: int, root: Path = ROOT, github=None, review=None) -> int:
+    """按 rules.toml [review] chain 依次评审 PR，直到一家给出结论（B77③；T702 的 watch 复用）。
+
+    chain 缺省为 [reviewer]，即原来的单一评审方。review_pr 返回 0（通过或否决都算评审完成）即停；
+    返回 1（评审方失败，如额度用尽，已发 review_error 告警）、返回 2（配置不可用，如该家就是设计方，
+    无告警）或抛异常（如评审程序不存在的 FileNotFoundError）都换下一家。全部失败返回 1，
+    stderr 汇总每一家的结果。review 参数供调用方注入评审模块（测试与 T702）。
+    """
+    if review is None:
+        from engine.agents import review as review_module  # review 依赖本模块，按需导入，沿用 main 的写法
+        review = review_module
+    review_config = load_rules().get("review", {})
+    reviewers = review_config.get("chain") or [review_config.get("reviewer")]
+    outcomes: list[str] = []
+    for name in reviewers:
+        try:
+            code = review.review_pr(pr, name, root, github)
+        except Exception as error:  # noqa: BLE001  单家异常换下一家，不让链断在这里
+            print(f"评审链：{name} 异常（{error}），换下一家", file=sys.stderr)
+            outcomes.append(f"{name}：异常 {error}")
+            continue
+        if code == 0:
+            return 0
+        if code == 2:
+            print(f"评审链：{name} 配置不可用（如该家就是设计方），换下一家", file=sys.stderr)
+        outcomes.append(f"{name}：{'评审方失败' if code == 1 else f'返回 {code}'}")
+    print(f"PR #{pr}：评审链全部失败（{'；'.join(outcomes) or '没有配置评审方'}）", file=sys.stderr)
+    return 1
 
 
 def _now() -> str:
