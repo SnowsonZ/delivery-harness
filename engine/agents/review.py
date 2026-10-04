@@ -124,7 +124,11 @@ class CodexReviewer(Reviewer):
         # 没配置模型时沿用 Codex 自己的默认设置。
         model = ["-m", self.model] if self.model else []
         effort = ["-c", f'model_reasoning_effort="{self.effort}"'] if self.effort else []
-        return ["codex", "exec", "-s", "read-only", *model, *effort, "-C", str(workspace),
+        # B81：关闭子代理（实测每次评审另派 2 个子代理，占评审输入 token 的 53%，而 9 条严重发现
+        # 里主会话自己查到 8 条；关掉后输入从平均 3.8M 降到 0.96M，同样查出严重问题，2026-10-04）。
+        # 插在推理强度之后、-C 之前：第 0–5 位不变（Agent-Notification 契约断言 argv[5] 是模型名）。
+        no_subagents = ["-c", "agents.enabled=false"]
+        return ["codex", "exec", "-s", "read-only", *model, *effort, *no_subagents, "-C", str(workspace),
                 "--skip-git-repo-check", "-o", str(output), prompt]
 
     def read(self, stdout, output):

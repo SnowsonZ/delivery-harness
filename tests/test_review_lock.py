@@ -304,5 +304,21 @@ class ReviewLockTest(unittest.TestCase):
             self.assertGreaterEqual(seen.count((f"{work.name}-review", True)), 3)
 
 
+    def test_codex_reviewer_disables_subagents(self):
+        """Codex 评审关闭子代理（B81）：-c agents.enabled=false 位于推理强度之后、-C 之前；
+        第 0–5 位与原来一致（Agent-Notification 契约断言 argv[5] 是模型名）。"""
+        argv = review.CodexReviewer("host/model-a", "high").argv("p", Path("/w"), Path("/o"))
+        agents = argv.index("agents.enabled=false")
+        self.assertEqual(argv[agents - 1], "-c")  # 作为 -c 的配置项传入
+        self.assertLess(argv.index('model_reasoning_effort="high"'), agents)  # 在推理强度之后
+        self.assertLess(agents, argv.index("-C"))  # 在 -C 之前
+        self.assertEqual(argv[:6], ["codex", "exec", "-s", "read-only", "-m", "host/model-a"])
+        # 只配置模型、不配置推理强度时同样关闭，且第 0–5 位不变
+        plain = review.CodexReviewer("host/model-a").argv("p", Path("/w"), Path("/o"))
+        self.assertIn("agents.enabled=false", plain)
+        self.assertLess(plain.index("agents.enabled=false"), plain.index("-C"))
+        self.assertEqual(plain[:6], ["codex", "exec", "-s", "read-only", "-m", "host/model-a"])
+
+
 if __name__ == "__main__":
     unittest.main()
