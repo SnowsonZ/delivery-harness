@@ -4,7 +4,9 @@
 匿名临时 git 仓库，不写真实事件库：
 - 匹配当前公共目录时，db_path/artifacts_dir 与 emit 写入的事件都落在临时目录，真实库无此事件；
 - for_common_dir 与当前公共目录不同（patch ROOT 指向夹具、夹具仓库里起的子进程）时路径照旧；
-- 变量值不是合法 JSON、缺字段、类型不对时按原路径处理且不抛异常（观察旁路不影响主流程）。
+- 变量值不是合法 JSON、缺字段、类型不对时按原路径处理且不抛异常（观察旁路不影响主流程）；
+- 安装布局夹具里跑 verify：项目检查子进程收到匹配当前仓库的变量且事件不进夹具真实库，
+  引擎检查照常写夹具真实库，运行结束后临时目录被删除。
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from engine import __version__ as ENGINE_VERSION
+from engine.checks import integrity
 from engine.core import events, events_db
 
 ENGINE_REPO = Path(__file__).resolve().parents[1]
@@ -38,6 +42,29 @@ from engine.core import events
 ok = isinstance(events.emit(stage="ci", step="iso.child", status="ok", trace_id="t710-child"), int)
 raise SystemExit(0 if ok else 1)
 """
+
+
+# 安装布局夹具的项目检查：把收到的重定向变量、自己解析出的事件库路径与 emit 结果写进报告文件。
+DEMO_CHECK = """\
+import json, os, pathlib, sys
+sys.path.insert(0, ".harness")
+from engine.core import events, events_db
+report = {
+    "redirect": os.environ.get("HARNESS_EVENTS_REDIRECT"),
+    "db": str(events_db.db_path()),
+    "emit": events.emit(stage="ci", step="demo.project_check", status="ok", trace_id="t710-verify"),
+}
+pathlib.Path("demo-report.json").write_text(json.dumps(report), encoding="utf-8")
+"""
+CHECKS_TOML = """\
+[verify]
+
+[[verify.checks]]
+name = "demo"
+tiers = ["default", "full"]
+command = ["{python}", "demo_check.py"]
+"""
+REPLAY_EMPTY = "BASELINE = []\nCASES = []\nGUARDED = {}\nDEFERRED = {}\n"
 
 
 def rows_in(db: Path, sql: str, params: tuple = ()) -> list[tuple]:
@@ -163,6 +190,48 @@ class TestEventsIsolation(unittest.TestCase):
                                                  trace_id="t710-bad"), int)
         self.assertEqual(rows_in(self.fixture_db, "SELECT COUNT(*) FROM events WHERE step=?", ("iso.bad",)),
                          [(len(bad_values),)])  # 每次都照常写进原路径，主流程不受影响
+
+    # ---------- 验收 4：verify 只给项目检查设置变量并清理临时目录 ----------
+
+    def test_verify_sets_redirect_only_for_project_checks(self):
+        repo = self.fresh_repo("verify")
+        engine_dir = repo / ".harness" / "engine"
+        shutil.copytree(ENGINE_REPO / "engine", engine_dir,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        lock = {"engine": "delivery-harness", "version": ENGINE_VERSION, "commit": "fixture",
+                "tree": integrity.tree_hash(engine_dir)}
+        (repo / ".harness" / "engine.lock").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
+        (repo / ".harness" / "config").mkdir(parents=True, exist_ok=True)
+        (repo / ".harness" / "config" / "checks.toml").write_text(CHECKS_TOML, encoding="utf-8")
+        (repo / ".harness" / "project").mkdir(parents=True, exist_ok=True)
+        (repo / ".harness" / "project" / "replay_cases.py").write_text(REPLAY_EMPTY, encoding="utf-8")
+        (repo / "demo_check.py").write_text(DEMO_CHECK, encoding="utf-8")
+        (repo / ".gitignore").write_text("build/\n", encoding="utf-8")
+        self.git("add", "-A", cwd=repo)
+        self.git("commit", "-q", "-m", "fixture", cwd=repo)
+
+        proc = subprocess.run(
+            [sys.executable, str(engine_dir / "cli.py"), "verify", "--only", "integrity,demo"],
+            cwd=repo, capture_output=True, text=True, timeout=300, check=False, env=self.child_env())
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("verify 通过", proc.stdout)
+
+        # 项目检查子进程收到匹配当前仓库的变量，事件解析并写进临时库。
+        report = json.loads((repo / "demo-report.json").read_text(encoding="utf-8"))
+        self.assertIsInstance(report["redirect"], str)
+        data = json.loads(report["redirect"])
+        self.assertEqual(set(data), {"dir", "for_common_dir"})
+        self.assertEqual(Path(data["for_common_dir"]).resolve(), (repo / ".git").resolve())
+        self.assertEqual(Path(report["db"]), Path(data["dir"]) / "harness" / "harness.db")
+        self.assertIsInstance(report["emit"], int)
+        self.assertFalse(Path(data["dir"]).exists())  # 运行结束后临时目录已删除
+
+        # 引擎检查照常写夹具真实库；项目检查子进程的事件（demo.project_check）不在其中。
+        # （cli.<命令> 入口事件在命令返回后才记录，所以排在各自内容事件之后。）
+        self.assertEqual([row[0] for row in rows_in(repo / ".git" / "harness" / "harness.db",
+                                                   "SELECT step FROM events ORDER BY id")],
+                         ["integrity", "cli.integrity", "verify.integrity", "verify.demo",
+                          "verify.summary", "cli.verify"])
 
 
 if __name__ == "__main__":

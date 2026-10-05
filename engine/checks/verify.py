@@ -20,10 +20,11 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 
-from engine.core import events
+from engine.core import events, events_db
 from engine.core.common import CLI, ENGINE_REL, ROOT, clean_git_env, git, setting
 
 LOG_DIR = ROOT / "build" / "verify"
@@ -40,6 +41,7 @@ class Check:
     requires: str | None = None  # "macos"
     why_skipped: str = ""
     func: object = None  # 进程内检查：返回 (ok, 输出)
+    project: bool = False  # 项目检查（checks.toml [[verify.checks]]）：子进程事件导临时库（B92）
 
 
 @dataclass
@@ -142,6 +144,7 @@ def project_checks() -> list[Check]:
                 shell=item.get("shell"),
                 requires=item.get("requires"),
                 why_skipped=item.get("why_skipped", ""),
+                project=True,
             )
         )
     return checks
@@ -199,7 +202,31 @@ def emit_summary(info: dict, tier: str, ok: bool) -> None:
         return
 
 
-def run_check(check: Check) -> Result:
+class _ProjectEventsSink:
+    """项目检查子进程的事件临时库（B92）：懒建临时目录，verify 结束后整体删除。
+
+    重定向变量只放进项目检查子进程的环境，由 events_db._harness_dir 按公共目录匹配生效；
+    引擎检查与 verify 自身照常写真实事件库，夹具仓库等公共目录不同的子进程自行忽略。
+    """
+
+    def __init__(self) -> None:
+        self._dir: str | None = None
+
+    def env(self) -> dict[str, str]:
+        common = events_db.common_dir()
+        if common is None:
+            return {}
+        if self._dir is None:
+            self._dir = tempfile.mkdtemp(prefix="dh-verify-events-")
+        return {"HARNESS_EVENTS_REDIRECT": json.dumps({"dir": self._dir, "for_common_dir": str(common)})}
+
+    def close(self) -> None:
+        if self._dir is not None:
+            shutil.rmtree(self._dir, ignore_errors=True)
+            self._dir = None
+
+
+def run_check(check: Check, sink: _ProjectEventsSink | None = None) -> Result:
     if check.requires == "macos" and not _is_macos():
         return Result(check.name, "skip", note=check.why_skipped)
     target = LOG_DIR / f"{check.name}.log"
@@ -209,6 +236,9 @@ def run_check(check: Check) -> Result:
         target.write_text(output + "\n")
         code = 0 if ok else 1
     else:
+        env = clean_git_env({"PYTHONDONTWRITEBYTECODE": "1"})
+        if check.project and sink is not None:
+            env.update(sink.env())  # 项目检查子进程的事件导进临时库（B92）
         with open(target, "w") as log:
             completed = subprocess.run(
                 check.command if check.command else check.shell,
@@ -218,7 +248,7 @@ def run_check(check: Check) -> Result:
                 stderr=subprocess.STDOUT,
                 # 钩子会注入 GIT_DIR 等变量；linked worktree 里它是指向真实仓库的绝对路径，
                 # 检查里的临时 git 仓库会被它带偏（H0926-3），所以子进程不继承这些变量。
-                env=clean_git_env({"PYTHONDONTWRITEBYTECODE": "1"}),
+                env=env,
                 check=False,
             )
         code = completed.returncode
@@ -275,22 +305,26 @@ def main(argv: list[str] | None = None) -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     info = head_info()
     results = []
-    for check in checks:
-        if check.name in skipped_by_user:
-            result = Result(check.name, "skip", note="--skip 手动跳过")
-        else:
-            result = run_check(check)
-        if result.status == "skip" and args.strict:
-            result = Result(check.name, "fail", note=f"--strict 下不允许跳过（{result.note}）")
-        results.append(result)
-        emit_result(result, info, tier_name)  # 最终 Result（含 strict 转换）之后埋点，--skip 与 strict 都不漏
-        mark = {"pass": "✓", "fail": "✗", "skip": "-"}[result.status]
-        extra = f"  {result.note}" if result.note else ""
-        print(f"{mark} {result.name:<15} {result.seconds:5.1f}s{extra}", flush=True)
-        for line in result.tail:
-            print(f"    │ {line}")
-        if result.tail:
-            print(f"    └ 完整输出：{result.log}")
+    sink = _ProjectEventsSink()  # 项目检查子进程的事件临时库，运行结束后删净（B92）
+    try:
+        for check in checks:
+            if check.name in skipped_by_user:
+                result = Result(check.name, "skip", note="--skip 手动跳过")
+            else:
+                result = run_check(check, sink)
+            if result.status == "skip" and args.strict:
+                result = Result(check.name, "fail", note=f"--strict 下不允许跳过（{result.note}）")
+            results.append(result)
+            emit_result(result, info, tier_name)  # 最终 Result（含 strict 转换）之后埋点，--skip 与 strict 都不漏
+            mark = {"pass": "✓", "fail": "✗", "skip": "-"}[result.status]
+            extra = f"  {result.note}" if result.note else ""
+            print(f"{mark} {result.name:<15} {result.seconds:5.1f}s{extra}", flush=True)
+            for line in result.tail:
+                print(f"    │ {line}")
+            if result.tail:
+                print(f"    └ 完整输出：{result.log}")
+    finally:
+        sink.close()
 
     failed = [result.name for result in results if result.status == "fail"]
     summary = {
