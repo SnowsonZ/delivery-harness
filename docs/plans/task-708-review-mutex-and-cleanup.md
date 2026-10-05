@@ -156,3 +156,30 @@ CHANGELOG 由设计方在 D1 统一写入，本任务不改。
 
 白名单、其余目标终态、变异清单均不变；变异清单增加一项「去掉 `calibrate` 的加锁」。已完成的提交（dd6e923–803c2d9）保留，在此基础上续跑。
 
+
+## 修订记录 3（2026-10-05，设计方裁决 #134 独立评审的两项严重发现）
+
+#134 的 Codex 评审（head `3b6610a`）判「不通过」，设计方核实两项严重发现属实：
+
+1. **锁机制本身有竞争**（设计缺陷，出在本任务书）：目标终态规定的「`O_CREAT|O_EXCL` 创建、内容写 pid、按 pid 判活回收」有两个窗口——①创建与写入之间文件为空，等待方读到空内容就当成死锁删掉并加锁，两方同时进入临界区，先退出的一方还会删掉后者的锁；②多个等待方同时回收同一把死锁时，后一方会删掉前一方刚建的新锁。执行方按任务书原样实现，测试也照任务书写，所以没覆盖到。
+2. **落后且冲突时不升级**：`behind_by>0` 且 `mergeable=CONFLICTING` 时脚本先走同步，同步失败步骤退出，escalation 标签与评论都没发出；验收第 7 行只测了 `behind_by=0` 的冲突。
+
+裁决：
+
+- **锁改用内核文件锁 `fcntl.flock`**（README 已声明只支持 Linux 与 macOS）。`workspace_lock` 以 `O_CREAT|O_RDWR` 打开锁文件，`flock(LOCK_EX|LOCK_NB)` 轮询到超时；拿到锁后核对 `os.fstat(fd).st_ino == os.stat(lock).st_ino`，文件已被删除或换了 inode 就关掉重来（防止拿到前一持有者刚删除的旧 inode）；核对通过后截断并写入 `{"pid","started_at","purpose"}`，内容只用于超时提示，不再参与判活。释放时先删文件、再关闭描述符（仍持锁时删除，等待方靠 inode 核对重来）。持有进程退出时内核自动释放，原来的「按 pid 判活回收」随之去掉，`dispatch._alive` 不再被锁调用。
+- 同一进程内两个线程各自 `open` 得到不同的打开文件描述，`flock` 照样互斥（不得改用按进程生效的 `fcntl.lockf`/`F_SETLK`）。
+- **冲突优先于落后**：先判 `mergeable=CONFLICTING`，冲突就打 escalation 标签、发评论，不同步、不批准、不合并；不冲突且 `behind_by>0` 才同步。
+- 白名单不变（改动只在 `engine/agents/review_lock.py`、`templates/.github/workflows/auto-merge.yml`、`tests/test_review_lock.py`、`tests/test_signoff.py`）。
+
+验收调整（其余行不变）：
+
+| 编号 | 验收内容 | 证据类型 | 覆盖 | 未实现时怎样失败 |
+|---|---|---|---|---|
+| 不挂规格：#128 | 替换验收第 2 行：锁文件残留但无人持有（持有进程已退出）时直接拿到锁并覆盖持有信息；另一个描述符持有 `flock` 时等到超时抛 `TimeoutError`，信息含持有者 pid 与用途，且不删除对方的锁文件；正常退出、异常退出都删除锁文件 | 夹具 | `…test_stale_lock_reclaimed_and_timeout` | 死锁，或锁一直留着 |
+| 不挂规格：#128 | 创建窗口：持有方已拿到 `flock` 但锁文件仍为空（尚未写入持有信息）时，等待方不得进入、不得删除锁文件 | 夹具 | `…test_lock_held_before_info_written` | 空内容被当成死锁（评审发现①） |
+| 不挂规格：#128 | 多等待方：至少 4 个线程反复争用同一把锁，用事件与计数器断言临界区从不重叠，结束后锁文件不存在；持有方删除文件后、等待方拿到旧 inode 时必须重来 | 夹具 | `…test_many_waiters_never_overlap` | 回收或释放时删掉他人的新锁（评审发现②） |
+| 不挂规格：B81 | 补入验收第 7 行：`behind_by=2` 且 `mergeable=CONFLICTING` 时打 escalation 标签并评论，步骤成功结束，不调用 `update-branch`、不批准、不合并 | 夹具 | `tests.test_signoff.SignoffTest.test_merge_app_syncs_behind_branch` | 先同步、同步失败后不升级 |
+
+变异清单调整：「去掉死锁回收」改为「去掉 inode 核对」与「改回 `O_EXCL` 创建后再写内容、按 pid 判活」两项；新增「冲突判定排到落后同步之后」。E128-R1 回放用例（注入点仍是去掉 `review_pr` 的加锁）不变。
+
+已完成的提交（dd6e923–3b6610a）保留，执行方在此基础上续跑；派发时附上 #134 的评审意见。
