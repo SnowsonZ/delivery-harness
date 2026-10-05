@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     start = Path(args.start)
-    tests = discover_tests(start, args.pattern)
+    tests = discover_tests(start, args.pattern) if start.is_dir() else []
     serial_specs = list(dict.fromkeys(args.serial))
 
     def is_serial(name: str) -> bool:  # 相对路径精确匹配，或文件名匹配（同名的所有文件都算）
