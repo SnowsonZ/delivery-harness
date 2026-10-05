@@ -124,3 +124,25 @@ rollback: git revert（仅在用户授权后）
 - 白名单加入 `tests/test_events_equivalence.py`，**只改一处**：pre-push 各状态调用之前，清空夹具仓库 git 公共目录下的 `harness/verify-pass/`，使每个状态都真正跑 verify，等价比较的对象不变。其余断言不动。
 - 消费方扫描补一行：`tests/test_events_equivalence.py` 的 pre-push 三态比较依赖「每次 pre-push 都跑 verify」，需按上条隔离。
 - 其余目标终态、验收、变异清单不变；已完成的提交保留，在此基础上续跑步骤 3 的验证与步骤 4。
+
+## 修订记录 2（2026-10-06，设计方采纳 #154 独立评审的两项严重发现）
+
+#154 的 Codex 评审（head `c05b865`）判「不通过」，设计方核实两项严重发现属实：
+
+1. **运行器只发现顶层测试文件**：`unittest discover` 会递归进带 `__init__.py` 的子包，`run-tests` 只列测试目录顶层。子包里有失败测试时，串行 discover 失败，`run-tests` 却漏跑并返回 0，违反「检查强度不降」。本仓库与 Agent-Notification 目前都没有测试子包，眼下没有实际漏跑，但引擎面向所有接入方，口径必须与 discover 一致。
+2. **通过记录可能绑错代码树**：`dirty` 在检查开始前采集，记录用的 HEAD tree 却在检查结束后读取。验证期间提交、切换分支或改动已跟踪文件时，旧代码的验证结果会被写成新代码树的通过记录，之后 pre-push 会错误地跳过验证。
+
+裁决：
+
+- 目标终态 1 补一条：**发现口径与 `unittest discover -s <目录> -p <模式>` 一致**。按 discover 的规则递归进带 `__init__.py` 的子包；每个测试文件仍一个子进程，以「顶层目录 + 模块的点分路径」定位（例如 `-s tests` 下的 `pkg/test_x.py` 用 `python -m unittest pkg.test_x`，工作目录与 `-t` 的取法同 discover），保证不漏、不重；不同子包里的同名文件各算一个。
+- 目标终态 2 补一条：verify **开始时**固定待验证的 HEAD tree 与引擎标识（`engine.lock` 的 `tree`）；写记录前重新读取，HEAD tree、引擎标识任一变化，或已跟踪文件不再干净，就不写记录。
+- 验收补两行：
+
+| 编号 | 验收内容 | 证据类型 | 覆盖（测试名或步骤） | 未实现时怎样失败 |
+|---|---|---|---|---|
+| 不挂规格：验证提速 | 夹具：顶层 `test_ok.py` 通过、子包 `pkg/test_bad.py`（带 `__init__.py`）失败、另一子包有同名 `test_ok.py`：`run-tests` 退出码 1，`Ran` 总数与 `unittest discover` 相同，两个同名文件都执行 | 夹具 | `tests.test_test_runner.TestRunnerTest.test_discovery_matches_unittest` | 子包测试漏跑，失败被当成通过 |
+| 不挂规格：验证提速 | verify 期间（检查运行中，用桩在某项检查里制造变化）分别发生：已跟踪文件改动、提交新 HEAD、引擎锁 `tree` 变化，三种情况都不写通过记录；不变时照常写 | 夹具 | `tests.test_prepush_reuse.PrepushReuseTest.test_no_record_when_tree_changes_during_verify` | 旧验证结果绑到新代码树 |
+
+- 变异清单补两项：「运行器只列顶层文件」；「写记录时不再核对开始时固定的 tree」。另：原清单「verify 在有失败时也写通过记录」，单删函数内部检查是等价变异（调用方在失败时已提前返回），设计方复核按「写入挪到失败返回之前」施加。
+- 交付证据要求不变，设计方在最终 head 上补齐（三次并行与一次串行的原始输出、G2、变异）。
+- 白名单、其余目标终态与验收不变；已完成的提交保留，在此基础上续跑。
