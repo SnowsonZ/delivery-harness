@@ -225,6 +225,23 @@ def _coding_declaration(data: bytes) -> tuple[str, str] | None:
     return None
 
 
+def _encoding_allowed(base_bytes: bytes, head_bytes: bytes) -> bool:
+    """head 前两行的编码声明必须与 base 完全相同且只能是 utf-8（修订 2）。
+
+    head 没有声明（常规情况）直接通过；有声明时须与 base 的逐字相同，且名字归一后是
+    utf-8（utf8、UTF-8 等写法等价）；未知编码名按不通过处理。
+    """
+    head_cookie = _coding_declaration(head_bytes)
+    if head_cookie is None:
+        return True
+    if head_cookie != _coding_declaration(base_bytes):
+        return False  # head 引入或改动了编码声明（含 base 未声明、utf-8 改写 utf8）
+    try:
+        return codecs.lookup(head_cookie[1]).name == "utf-8"
+    except LookupError:
+        return False
+
+
 def replay_cases_grew_only(base: str, head: str, path: str, cwd: Path) -> bool:
     """回放清单是否只向 ``CASES`` 末尾追加了全字面量的 ``Case(...)``（rules.toml [risk] grow_only_cases）。
 
@@ -239,12 +256,8 @@ def replay_cases_grew_only(base: str, head: str, path: str, cwd: Path) -> bool:
     try:
         base_bytes = _blob_bytes(base, path, cwd)
         head_bytes = _blob_bytes(head, path, cwd)
-        head_cookie = _coding_declaration(head_bytes)
-        if head_cookie is not None:
-            if head_cookie != _coding_declaration(base_bytes):
-                return False  # head 引入或改动了编码声明（含 base 未声明、utf-8 改写 utf8）
-            if codecs.lookup(head_cookie[1]).name != "utf-8":
-                return False  # 只接受 utf-8 家族的声明
+        if not _encoding_allowed(base_bytes, head_bytes):
+            return False  # head 引入或改动编码声明，或声明不是 utf-8（修订 2）
         base_stmts = ast.parse(base_bytes).body
         head_stmts = ast.parse(head_bytes).body
         if len(base_stmts) != len(head_stmts):
