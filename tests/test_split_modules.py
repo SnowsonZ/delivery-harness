@@ -3,16 +3,19 @@
 对应任务书验收表第 1–4 行：dispatch.py ≤ 660 行、review.py ≤ 680 行、三个新模块各 ≤ 400 行
 且 files_over_800 为 0；移出的名字从原模块取到的是同一个对象；在原模块上 patch
 （review.make_reviewer、dispatch.state_dir）后调用移出的函数仍然生效；先单独导入新模块
-再导入原模块没有循环导入。
+再导入原模块没有循环导入。T708（B89）把后两条加强为：模块内部调用一律经原模块属性
+（tests test_patch_semantics_for_internal_calls），导入顺序用全新子进程判定，新模块顶层
+不得回导入原模块。
 """
 
 from __future__ import annotations
 
-import importlib
+import ast
 import json
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -114,19 +117,87 @@ class SplitModulesTest(unittest.TestCase):
             self.assertEqual(json.loads((state / "slots" / "1.json").read_text(encoding="utf-8"))["attempt"], 2)
 
     def test_import_order_independent(self):
-        """验收 4：先单独导入三个新模块再导入原模块，都没有循环导入错误。"""
-        names = ["engine.agents.review_calibration", "engine.agents.dispatch_slots",
+        """验收 4（B89）：全新子进程里按「三个新模块 → 原模块」顺序导入，退出码为 0；把新模块改成
+        顶层回导入原模块时退出码非 0（顶层回导入在部分初始化的模块上取不到名字）。另用 AST 断言
+        三个新模块的模块层没有对原模块的导入，把顶层回导入直接判死（TYPE_CHECKING 块与函数内的
+        按需导入不受影响）。"""
+        order = ["engine.agents.review_calibration", "engine.agents.dispatch_slots",
                  "engine.agents.dispatch_text", "engine.agents.review", "engine.agents.dispatch"]
-        saved = {name: sys.modules.pop(name) for name in names}
-        try:
-            for name in names:
-                importlib.import_module(name)
-        finally:
-            import engine.agents  # 恢复包属性与 sys.modules 的原状
+        result = subprocess.run([sys.executable, "-c", "import " + ", ".join(order)],
+                                cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True,
+                                check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        agents = Path(dispatch.__file__).parent
+        for name, original in (("dispatch_text.py", "engine.agents.dispatch"),
+                               ("dispatch_slots.py", "engine.agents.dispatch"),
+                               ("review_calibration.py", "engine.agents.review")):
+            for node in ast.parse((agents / name).read_text(encoding="utf-8")).body:
+                targets = [alias.name for alias in node.names] if isinstance(node, ast.Import) \
+                    else [node.module or ""] if isinstance(node, ast.ImportFrom) else []
+                for target in targets:
+                    self.assertNotEqual(target, original, f"{name} 在模块层导入了原模块 {original}")
 
-            for name, module in saved.items():
-                sys.modules[name] = module
-                setattr(engine.agents, name.rsplit(".", 1)[1], module)
+    def test_patch_semantics_for_internal_calls(self):
+        """验收 5（B89）：在原模块上 patch 移出名字后，移出函数内部的调用走到 patch 后的版本。"""
+        # review.load_samples：review_calibrate 内部经 review.<名字> 取样本清单（真实装载必拒非法清单）
+        with tempfile.TemporaryDirectory() as tmp:
+            work, _head = make_project(Path(tmp))
+            manifest = Path(tmp) / "samples.json"
+            manifest.write_text("不是合法 JSON", encoding="utf-8")
+            with mock.patch.object(review, "load_samples", return_value=[]) as load_samples:
+                code = review.review_calibrate("probe", manifest, Path(tmp) / "report.md", root=work,
+                                               reviewer=ProbeReviewer())
+            self.assertEqual(code, 0)
+            load_samples.assert_called_once_with(manifest)
+            self.assertIn("TPR", (Path(tmp) / "report.md").read_text(encoding="utf-8"))
+        # review.sample_deviates：score_samples 内部；review._cell：render_calibration_report 内部
+        with mock.patch.object(review, "sample_deviates", return_value=True) as deviates:
+            summary = review_calibration.score_samples([{"expected": "通过", "flagged": True, "parsed": True}])
+        self.assertEqual(summary["deviations"], 1)
+        deviates.assert_called_once()
+        counts = {"total": 1, "bad": 0, "good": 0, "caught": 0, "released": 0, "deviations": 0,
+                  "errors": 1, "unparsed": 0, "tpr": None, "tnr": None}
+        with mock.patch.object(review, "_cell", side_effect=lambda text: f"[{text}]") as cell:
+            report = review_calibration.render_calibration_report(
+                Path("s.json"), [{"pr": 1, "head": "f" * 40, "expected": "通过", "reason": "依据",
+                                  "error": "注入失败"}], counts, "probe", "m")
+        self.assertIn("[注入失败]", report)
+        cell.assert_any_call("注入失败")
+        # dispatch._salvage_and_remove：reclaim_stale_slots 与 return_slot 内部；
+        # dispatch._registered_worktrees：_salvage_and_remove 内部
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = root / "state"
+            (state / "slots").mkdir(parents=True)
+            for index, branch in ((1, "task/1-x"), (2, "task/2-y")):
+                (state / "slots" / f"{index}.json").write_text(
+                    json.dumps({"pid": 4194304, "branch": branch, "task": "T1"}), encoding="utf-8")
+            config = dispatch.Config(slots=2, slot_root=root / "slots", stall_seconds=30, poll_seconds=0.05,
+                                     ci_timeout_seconds=60, verify=[], review_after_ci=False)
+            with mock.patch.object(dispatch, "state_dir", return_value=state), \
+                    mock.patch.object(dispatch, "_alive", return_value=False), \
+                    mock.patch.object(dispatch, "_salvage_and_remove") as salvage:
+                reclaimed = dispatch_slots.reclaim_stale_slots(root, config, push=object())
+                expected = [dispatch.slot_path(root, config, index) for index in (1, 2)]
+                dispatch_slots.return_slot(root, config, 1, object())
+            self.assertEqual(reclaimed, ["task/1-x", "task/2-y"])
+            self.assertEqual([call.args[1] for call in salvage.call_args_list[:2]], expected)
+            self.assertEqual(salvage.call_args_list[2].args[1], expected[0])  # return_slot 同样经原模块归还
+            with mock.patch.object(dispatch, "_registered_worktrees", return_value=set()) as registered:
+                (root / "slot-1").mkdir()
+                dispatch_slots._salvage_and_remove(root, root / "slot-1", object())
+            registered.assert_called_once_with(root)
+        # dispatch._title：_pr_title 内部；dispatch._manual_section：pr_body 内部
+        task = types.SimpleNamespace(path="docs/plans/task-1-x.md", id="T1", klass="K1", risk="R1",
+                                     spec_refs=[], branch="task/1-x")
+        with mock.patch.object(dispatch, "_title", return_value="T1：样本") as title:
+            self.assertEqual(dispatch_text._pr_title(Path(tmp), task), "T1：样本")
+        title.assert_called_once_with(Path(tmp), task)
+        attempt = types.SimpleNamespace(usage={}, model="m", executor_seconds=60.0, retries=0, guard_denials={})
+        with mock.patch.object(dispatch, "_manual_section", return_value="人工验收指引") as section:
+            body = dispatch_text.pr_body(task, attempt, 7, "0123456789abcdef", root=Path(tmp))
+        self.assertIn("人工验收指引", body)
+        section.assert_called_once_with(Path(tmp), task)
 
 
 if __name__ == "__main__":
