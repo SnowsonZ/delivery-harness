@@ -79,6 +79,9 @@ contracts = [
 taskbooks = ["docs/plans/task-*.md"]
 # 只能缩减的清单：只删不增时按 R0。
 shrink_only = [".harness/state/acceptance-gaps.txt", ".harness/state/taskbook-exempt.txt"]
+# 只追加的回放清单（T712）：修复 PR 只向 CASES 末尾追加全字面量 Case(...) 时按 R2，可走合同制路径；
+# 删改已有用例、在 BASELINE/GUARDED/DEFERRED 里加豁免仍按 R3（用户 2026-10-05 决定：缺陷修复也可自动合并）。
+grow_only_cases = [".harness/project/replay_cases.py"]
 # 黄金快照：任何改动都意味着行为变化，不能算 R1。
 golden = ["tests/golden/**"]
 
