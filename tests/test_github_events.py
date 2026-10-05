@@ -38,6 +38,16 @@ GIT_ENV = {
     "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
 }
 CLEAN_PREFIXES = ("GIT_", "GITHUB_", "GH_", "HARNESS_", "CI")
+
+
+def install_env() -> dict[str, str]:
+    # install 子进程环境：清洗 CLEAN_PREFIXES，但保留 HARNESS_EVENTS_REDIRECT——verify 跑项目
+    # 检查时带着它，安装子进程运行的是本仓库引擎（公共目录相同），清洗掉它会把测试事件写回
+    # 真实库（B92 修订 2）；其余 HARNESS_ 覆盖开关照旧去掉，写法与 test_install.env() 相同。
+    clean = {k: v for k, v in os.environ.items()
+             if not k.startswith(CLEAN_PREFIXES) or k == "HARNESS_EVENTS_REDIRECT"}
+    return {**clean, **GIT_ENV, "PYTHONDONTWRITEBYTECODE": "1"}
+
 REPO = "owner/repo"
 TS = "2026-01-02T03:04:05Z"
 TS2 = "2026-01-02T09:05:06Z"
@@ -132,7 +142,10 @@ class ObservabilityTaskTest(unittest.TestCase):
         env_patch = mock.patch.dict(os.environ)
         env_patch.start()
         self.addCleanup(env_patch.stop)
-        for key in [name for name in os.environ if name.startswith(CLEAN_PREFIXES)]:
+        # 同 install_env()：清洗时保留事件重定向变量（B92 修订 2），否则它在测试进程里就没了，
+        # install 子进程拿不到；对夹具仓库与进程内写入无效（公共目录不同），不影响其余测试。
+        for key in [name for name in os.environ
+                    if name.startswith(CLEAN_PREFIXES) and name != "HARNESS_EVENTS_REDIRECT"]:
             os.environ.pop(key, None)
         events._warned = False
         self.addCleanup(setattr, events, "_warned", False)
@@ -476,8 +489,7 @@ class ObservabilityTaskTest(unittest.TestCase):
 
     def test_installed_entry_with_fake_gh(self):
         project = self.fresh_repo("installed")
-        env = {**{k: v for k, v in os.environ.items() if not k.startswith(CLEAN_PREFIXES)}, **GIT_ENV,
-               "PYTHONDONTWRITEBYTECODE": "1"}
+        env = install_env()
         result = subprocess.run([sys.executable, str(CLI), "install", "--target", str(project),
                                  "--allow-dirty"], capture_output=True, text=True, env=env, check=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

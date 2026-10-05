@@ -222,9 +222,18 @@ class _ProjectEventsSink:
         return {"HARNESS_EVENTS_REDIRECT": json.dumps({"dir": self._dir, "for_common_dir": str(common)})}
 
     def close(self) -> None:
-        if self._dir is not None:
-            shutil.rmtree(self._dir, ignore_errors=True)
-            self._dir = None
+        if self._dir is None:
+            return
+        directory, self._dir = self._dir, None
+        # SQLite WAL 清理与文件句柄释放有竞态，删除失败稍候重试（修订记录 2）；事件只是
+        # 观察数据，重试后仍有残留只向 stderr 提示一行，不影响 verify 的结论。
+        for _attempt in range(3):
+            shutil.rmtree(directory, ignore_errors=True)
+            if not os.path.isdir(directory):
+                return
+            time.sleep(0.2)
+        print(f"verify：事件临时目录 {directory} 删除后仍有残留（事件只是观察数据，不影响结论）",
+              file=sys.stderr)
 
 
 def _spawn(check: Check, log: TextIO, redirect: dict[str, str] | None, env: dict[str, str]) -> subprocess.CompletedProcess:

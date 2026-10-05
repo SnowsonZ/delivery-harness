@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import os
 import shutil
@@ -246,6 +247,84 @@ class TestEventsIsolation(unittest.TestCase):
         self.assertEqual(cleaned.get("HARNESS_EVENTS_REDIRECT"), redirect)
         self.assertNotIn("HARNESS_EVENTS", cleaned)  # 其余 HARNESS_ 覆盖开关照旧去掉
         self.assertNotIn("HARNESS_ALLOW_REWRITE", cleaned)
+
+    # ---------- 修订记录 2：三个测试文件的 install 子进程清洗保留重定向变量 ----------
+
+    def redirect_json(self) -> str:
+        return json.dumps({"dir": str(self.tmp / "holder"),
+                           "for_common_dir": str(events_db.common_dir())})
+
+    def captured_install_env(self, module, helper: str) -> dict[str, str]:
+        """以桩替换 subprocess.run，真实调用安装辅助方法，捕获传给 install 子进程的环境。"""
+        case = module.ObservabilityTaskTest(helper)  # 只借实例调用辅助方法，不跑 setUp
+        captured: dict[str, dict[str, str]] = {}
+
+        def fake_run(command, **kwargs):
+            captured["env"] = kwargs["env"]
+            if helper == "install":  # ci_events 的 install 还断言安装产物存在
+                target = Path(command[command.index("--target") + 1])
+                path = target / ".harness" / "engine" / "reports" / "ci_events.py"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("", encoding="utf-8")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        with mock.patch.object(module.subprocess, "run", fake_run):
+            getattr(case, helper)(self.tmp / "proj")
+        return captured["env"]
+
+    def test_engine_install_helpers_keep_redirect(self):
+        """install_engine/install 的子进程在本仓库根运行本仓库引擎，清洗不得去掉重定向变量。"""
+        from tests import test_alert_cli, test_ci_events_workflows
+
+        redirect = self.redirect_json()
+        for module, helper in ((test_alert_cli, "install_engine"),
+                               (test_ci_events_workflows, "install")):
+            with self.subTest(module=module.__name__):
+                with mock.patch.dict(os.environ, {"HARNESS_EVENTS_REDIRECT": redirect,
+                                                  "HARNESS_EVENTS": "0", "HARNESS_ALLOW_REWRITE": "1"}):
+                    env = self.captured_install_env(module, helper)
+                self.assertEqual(env.get("HARNESS_EVENTS_REDIRECT"), redirect)
+                self.assertNotIn("HARNESS_EVENTS", env)  # 其余 HARNESS_ 覆盖开关照旧去掉
+                self.assertNotIn("HARNESS_ALLOW_REWRITE", env)
+
+    def test_github_events_cleaning_keeps_redirect(self):
+        """install_env 保留重定向变量；setUp 的弹掉清洗同样保留，否则 install_env 根本拿不到它。"""
+        from tests import test_github_events
+
+        redirect = self.redirect_json()
+        with mock.patch.dict(os.environ, {"HARNESS_EVENTS_REDIRECT": redirect, "HARNESS_EVENTS": "0"}):
+            cleaned = test_github_events.install_env()
+        self.assertEqual(cleaned.get("HARNESS_EVENTS_REDIRECT"), redirect)
+        self.assertNotIn("HARNESS_EVENTS", cleaned)
+
+        case = test_github_events.ObservabilityTaskTest("test_human_app_and_none_merge_facts")
+        with mock.patch.dict(os.environ, {"HARNESS_EVENTS_REDIRECT": redirect, "HARNESS_EVENTS": "0"}):
+            case.setUp()
+            try:
+                self.assertEqual(os.environ.get("HARNESS_EVENTS_REDIRECT"), redirect)
+                self.assertNotIn("HARNESS_EVENTS", os.environ)
+            finally:
+                case.doCleanups()
+
+    # ---------- 修订记录 2：临时目录删除的重试与提示 ----------
+
+    def test_sink_close_retries_and_reports(self):
+        """close 删不掉临时目录时不抛异常：重试 3 次、间隔 0.2 秒，向 stderr 提示一行。"""
+        from engine.checks import verify as verify_module
+
+        sink = verify_module._ProjectEventsSink()
+        sink.env()  # ROOT 已 patch 到夹具：解析出公共目录并建出临时目录
+        directory = Path(sink._dir)
+        self.assertTrue(directory.is_dir())
+        sleeps: list[float] = []
+        with mock.patch.object(verify_module.shutil, "rmtree", lambda path, ignore_errors=False: None), \
+                mock.patch.object(verify_module.time, "sleep", sleeps.append), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            sink.close()  # 删不掉也不抛异常，不改变 verify 的结论
+        self.assertIsNone(sink._dir)
+        self.assertEqual(sleeps, [0.2, 0.2, 0.2])  # 最多重试 3 次，每次间隔 0.2 秒
+        self.assertIn("残留", err.getvalue())  # 仍有残留时向 stderr 提示
+        shutil.rmtree(directory, True)  # 桩替换了删除，这里真删掉
 
 
 if __name__ == "__main__":
