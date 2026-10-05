@@ -99,14 +99,40 @@ def common_dir() -> Path | None:
     return path.resolve()
 
 
-def db_path() -> Path | None:
+def _harness_dir() -> Path | None:
+    """事件与产物的 harness 目录：默认 git 公共目录下的 harness/。
+
+    环境变量 HARNESS_EVENTS_REDIRECT 由 verify 在启动项目检查子进程时设置（B92），值是 JSON：
+    {"dir": <临时目录>, "for_common_dir": <设置方解析到的 git 公共目录绝对路径>}。当前解析到的
+    公共目录与 for_common_dir 完全相同时返回 <dir>/harness，该子进程的事件与产物导进临时库；
+    变量不存在、不是合法 JSON、字段缺失或类型不对、公共目录不同（测试 patch ROOT 指向夹具仓库、
+    夹具里再起的子进程）时一律返回原路径。解析失败不抛异常：事件只是观察，不影响任何判定。
+    """
     directory = common_dir()
-    return directory / "harness" / "harness.db" if directory else None
+    if directory is None:
+        return None
+    raw = os.environ.get("HARNESS_EVENTS_REDIRECT")
+    if not raw:
+        return directory / "harness"
+    try:
+        data = json.loads(raw)
+        target, origin = data.get("dir"), data.get("for_common_dir")
+        if (isinstance(target, str) and isinstance(origin, str)
+                and Path(origin).resolve() == directory):
+            return Path(target) / "harness"
+    except Exception:  # noqa: BLE001  解析失败按原路径处理，不抛异常（事件只是观察）
+        return directory / "harness"
+    return directory / "harness"
+
+
+def db_path() -> Path | None:
+    directory = _harness_dir()
+    return directory / "harness.db" if directory else None
 
 
 def artifacts_dir() -> Path | None:
-    directory = common_dir()
-    return directory / "harness" / "artifacts" if directory else None
+    directory = _harness_dir()
+    return directory / "artifacts" if directory else None
 
 
 def _connect(path: Path) -> sqlite3.Connection:

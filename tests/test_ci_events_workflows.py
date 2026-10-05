@@ -389,7 +389,11 @@ class ObservabilityTaskTest(unittest.TestCase):
 
     def install(self, project: Path) -> None:
         """真实产品入口：把当前引擎（含 ci_events.py）安装进临时项目。"""
-        env = {**{k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "HARNESS_"))}, **GIT_ENV,
+        # HARNESS_ 覆盖开关不混进测试；HARNESS_EVENTS_REDIRECT 除外——verify 跑项目检查时带着它，
+        # 安装子进程运行的是本仓库引擎（公共目录相同），清洗掉它会把测试事件写回真实库（B92 修订 2）。
+        env = {**{k: v for k, v in os.environ.items()
+                  if not k.startswith("GIT_") and (not k.startswith("HARNESS_")
+                                                   or k == "HARNESS_EVENTS_REDIRECT")}, **GIT_ENV,
                "PYTHONDONTWRITEBYTECODE": "1"}
         result = subprocess.run([sys.executable, str(CLI), "install", "--target", str(project), "--allow-dirty"],
                                 capture_output=True, text=True, env=env, check=False)
