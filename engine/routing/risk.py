@@ -18,6 +18,7 @@ R1 需要同时满足：范围内每个提交都带 `Risk: R1` trailer；最高�
 from __future__ import annotations
 
 import argparse
+import ast
 import os
 import re
 from dataclasses import dataclass, field
@@ -111,6 +112,13 @@ def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd
     )
     if shrinking:
         return record("shrink_only", FileRisk(path, status, 0, "只能缩减的清单被缩减"), None)
+    growing = (
+        status == "M"
+        and path_matches(path, risk.get("grow_only_cases", []))
+        and replay_cases_grew_only(base, head, path, cwd)
+    )
+    if growing:
+        return record("grow_only_cases", FileRisk(path, status, 2, "回放清单只追加新用例"), None)
     pattern = path_matches(path, risk["r3"])
     if pattern:
         return record(pattern, FileRisk(path, status, 3, f"命中 R3 规则 `{pattern}`"), None)
@@ -126,6 +134,71 @@ def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd
     if pattern:
         return record(pattern, FileRisk(path, status, 2, f"命中 R2 规则 `{pattern}`"), None)
     return record("unclassified", FileRisk(path, status, 2, "未归类路径按 R2"), None)
+
+
+def _cases_value(stmt: ast.stmt) -> ast.expr | None:
+    """顶层语句是给名字 ``CASES`` 的赋值（含带注解赋值）时返回值表达式，其余返回 None。"""
+    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+        name = stmt.targets[0].id
+    elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+        name = stmt.target.id
+    else:
+        return None
+    return stmt.value if name == "CASES" else None
+
+
+def _single_cases_index(stmts: list[ast.stmt]) -> int | None:
+    """``CASES`` 赋值语句在顶层语句里的下标；不存在或出现多次返回 None。"""
+    index = [i for i, stmt in enumerate(stmts) if _cases_value(stmt) is not None]
+    return index[0] if len(index) == 1 else None
+
+
+def _literal_case_call(node: ast.expr) -> bool:
+    """清单项是否为对名字 ``Case`` 的调用：无位置参数，只有具名关键字参数，且每个参数值都是字面量。"""
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name) or node.func.id != "Case":
+        return False
+    if node.args or any(keyword.arg is None for keyword in node.keywords):
+        return False  # 位置参数或 ** 解包不算「只有关键字参数」
+    for keyword in node.keywords:
+        try:
+            ast.literal_eval(keyword.value)
+        except Exception:  # noqa: BLE001  函数调用、f 字符串、名字引用等非字面量一律判不成立
+            return False
+    return True
+
+
+def replay_cases_grew_only(base: str, head: str, path: str, cwd: Path) -> bool:
+    """回放清单是否只向 ``CASES`` 末尾追加了全字面量的 ``Case(...)``（rules.toml [risk] grow_only_cases）。
+
+    只用 ``ast.parse`` 读 base 与 head 两个版本的文件内容，不执行 PR 内容（判级时 PR 只能当数据读，
+    见 engine/core/cases.py 的说明）。其余顶层语句（``BASELINE``、``GUARDED``、``DEFERRED``、import、
+    文档字符串）必须 ``ast.dump`` 完全相同——在 ``DEFERRED``、``GUARDED`` 里新增一行同样是「只增行」，
+    那是削弱护栏，必须拦下。任何一步失败（含读取或解析异常）都返回 False，不抛异常。
+    """
+    try:
+        base_stmts = ast.parse(git("show", f"{base}:{path}", cwd=cwd)).body
+        head_stmts = ast.parse(git("show", f"{head}:{path}", cwd=cwd)).body
+        if len(base_stmts) != len(head_stmts):
+            return False
+        index = _single_cases_index(base_stmts)
+        if index is None or index != _single_cases_index(head_stmts):
+            return False
+        for offset, (base_stmt, head_stmt) in enumerate(zip(base_stmts, head_stmts)):
+            if offset == index:
+                continue
+            if ast.dump(base_stmt) != ast.dump(head_stmt):
+                return False  # BASELINE、GUARDED、DEFERRED、import、文档字符串都不得改动
+        base_list, head_list = _cases_value(base_stmts[index]), _cases_value(head_stmts[index])
+        if not isinstance(base_list, ast.List) or not isinstance(head_list, ast.List):
+            return False
+        if len(head_list.elts) <= len(base_list.elts):
+            return False
+        kept = len(base_list.elts)
+        if [ast.dump(item) for item in base_list.elts] != [ast.dump(item) for item in head_list.elts[:kept]]:
+            return False  # 已有用例被修改、删除或调换顺序
+        return all(_literal_case_call(item) for item in head_list.elts[kept:])
+    except Exception:  # noqa: BLE001  base 没有该文件、语法错误等读取与解析失败一律按不成立处理
+        return False
 
 
 def classify_taskbook(status: str, path: str, head: str, cwd: Path) -> FileRisk:
