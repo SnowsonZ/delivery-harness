@@ -123,3 +123,26 @@ rollback: git revert（仅在用户授权后）
 - 变异清单补一项：「`CASES` 语句只比较列表，不比较注解」。
 - CHANGELOG 的条目改为 `**Migration:**` 开头，写明：新键可选、缺省不启用，现有配置无需改动。
 - 白名单、其余目标终态与验收不变；已完成的提交保留，在此基础上续跑。
+
+## 修订记录 2（2026-10-05，设计方采纳 #146 第二轮独立评审的发现）
+
+#146 第二轮 Codex 评审（head `24b1201`）判「不通过」，设计方核实属实：
+
+- **编码声明绕过**（严重）：`ast.parse` 拿到的是解码后的字符串，忽略源码里的编码声明（PEP 263）。在文件开头加 `# -*- coding: unicode_escape -*-`，再在注释里写 `\u000aBASELINE.clear()`，结构比较照常通过、判 R2；但 Python 加载模块时按 `unicode_escape` 解码，`\u000a` 变成换行，`BASELINE.clear()` 成了可执行语句，基线被清空。
+
+另外，设计方复核时发现一处测试强度不足（原记为待办 B98）：`test_never_executes_pr_content` 的标记文件路径相对于 `__file__`；若实现把 head 内容写进临时目录再执行，标记文件会落在临时目录里，测试察觉不到。
+
+裁决：
+
+- 目标终态 3 补两条：
+  - 两个版本都以 git blob 的**原始字节**交给 `ast.parse`（读取时不先解码成字符串），使解析结果遵守编码声明，与 Python 加载时一致。
+  - head 的前两行若有编码声明（PEP 263 的 `coding[:=]` 形式），必须与 base 的完全相同，且只能是 utf-8（含 `utf8`、`UTF-8` 等写法）；否则判不成立。
+- 验收补两行：
+
+| 编号 | 验收内容 | 证据类型 | 覆盖（测试名或步骤） | 未实现时怎样失败 |
+|---|---|---|---|---|
+| 不挂规格：K4 合同制 | 追加合法 `Case` 的同时加入 `unicode_escape` 编码声明，并在注释里藏 `\u000aBASELINE.clear()`：判 R3；另加一个非 utf-8 编码声明（如 `latin-1`）但内容无害的变体：同样判 R3；不带编码声明的正常追加仍判 R2 | 夹具 | `tests.test_risk_grow_only_cases.GrowOnlyCasesTest.test_encoding_declaration_stays_r3` | 借编码声明藏入可执行语句 |
+| 不挂规格：K4 合同制 | `test_never_executes_pr_content` 的标记文件改为绝对路径（夹具临时目录下），使「在任何位置执行 PR 内容」都会被察觉 | 夹具 | `…test_never_executes_pr_content` | 内容在临时目录执行时测试漏报 |
+
+- 变异清单补两项：「改回以字符串解析（`git show` 解码后再 `ast.parse`）」；「改为把 head 内容写进临时目录后 `exec_module` 加载」。
+- 白名单、其余目标终态与验收不变；已完成的提交保留，在此基础上续跑。
