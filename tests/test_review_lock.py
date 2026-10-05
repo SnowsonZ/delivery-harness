@@ -1,9 +1,11 @@
 """评审互斥与评审方回归（T708，Defect: E128-R1——逃逸 #128）：同一评审工作区的并发评审串行化、
-死锁回收与超时、各评审入口持锁（calibrate 按样本持锁；jobs>1 时并行工作区各用各的锁文件、
-互不阻塞，任务书修订记录 2），以及 Codex 评审关闭子代理（B81）。
+flock 持锁/超时与创建窗口、各评审入口持锁（calibrate 按样本持锁；jobs>1 时并行工作区各用各的锁
+文件、互不阻塞，任务书修订记录 2），以及 Codex 评审关闭子代理（B81）。锁为 fcntl.flock 内核文件
+锁＋inode 核对（任务书修订记录 3，#134 评审发现①②：空内容不得被当成可抢、回收不得删他人的新锁）。
 
 夹具为匿名临时 git 仓库（bare 远端 + refs/pull/<n>/head）、假 gh 与假评审方，不碰真实库/PR；
-并发编排只等待「条件成立」（标记文件、调用计数），不依赖固定 sleep 时序。
+并发编排只等待「条件成立」（标记文件、调用计数），不依赖固定 sleep 时序；临界区内的小睡只为
+放大缺陷的可观测窗口，断言本身不依赖时长。
 
 评审锁模块在函数内按需导入（模块顶层不导入 engine.agents.review_lock）：修复证据与回放检查会把
 E128-R1 的修复整体退回（review_lock.py 随之消失），引用该编号的测试必须仍能加载并以断言失败
@@ -13,6 +15,7 @@ E128-R1 的修复整体退回（review_lock.py 随之消失），引用该编号
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import io
 import json
 import os
@@ -277,17 +280,18 @@ class ReviewLockTest(unittest.TestCase):
             self.assertFalse((work.parent / f"{work.name}-review.review.lock").exists())
 
     def test_stale_lock_reclaimed_and_timeout(self):
-        """持有进程已不存在的锁被回收；持有者仍存活时等到超时抛 TimeoutError（信息含 pid 与用途）；
-        正常退出、异常退出都删除锁文件。"""
+        """锁文件残留但无人持有（持有进程已退出，flock 已被内核放掉）时直接拿到锁并覆盖持有信息；
+        另一个描述符持有 flock 时等到超时抛 TimeoutError（信息含持有者 pid 与用途），且不删除、
+        不改写对方的锁文件；正常退出、异常退出都删除锁文件（任务书修订记录 3）。"""
         from engine.agents import review_lock  # 按需导入：模块顶层导入会让修复退回后的并发测试连坐出错
 
         with tempfile.TemporaryDirectory(prefix="dh-review-lock-") as tmp:
             workspace = Path(tmp) / "app-review"
             workspace.mkdir()
             lock = workspace.parent / f"{workspace.name}.review.lock"
+            # 残留锁：内容写着早已退出的 pid，但 flock 已随进程退出被内核放掉——直接拿到并覆盖
             dead = subprocess.Popen([sys.executable, "-c", "pass"])
             dead.wait()
-            # 死锁回收：持有进程已退出，直接拿回并覆盖为自己的持有信息
             lock.write_text(json.dumps({"pid": dead.pid, "started_at": "t0", "purpose": "旧评审"}),
                             encoding="utf-8")
             with review_lock.workspace_lock(Path(tmp), workspace, 5, "探针") as acquired:
@@ -301,16 +305,84 @@ class ReviewLockTest(unittest.TestCase):
             with self.assertRaises(RuntimeError), review_lock.workspace_lock(Path(tmp), workspace, 5, "探针"):
                 raise RuntimeError("评审中断")
             self.assertFalse(lock.exists())
-            # 持有者仍存活（本进程）：等到超时抛 TimeoutError，信息含持有者 pid 与用途；
-            # 等待方不删别人还持有的锁
-            lock.write_text(json.dumps({"pid": os.getpid(), "started_at": "t1", "purpose": "别的评审"}),
-                            encoding="utf-8")
-            with self.assertRaises(TimeoutError) as caught, \
-                    review_lock.workspace_lock(Path(tmp), workspace, 0.05, "探针", poll_seconds=0.01):
-                pass
-            self.assertIn(str(os.getpid()), str(caught.exception))
-            self.assertIn("别的评审", str(caught.exception))
-            self.assertEqual(json.loads(lock.read_text(encoding="utf-8"))["purpose"], "别的评审")
+            # 另一个描述符持有 flock：等到超时抛 TimeoutError，信息含持有者 pid 与用途；
+            # 等待方不删别人还持有的锁文件，也不改写其内容
+            holder = os.open(lock, os.O_CREAT | os.O_RDWR, 0o644)
+            try:
+                fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                os.write(holder, json.dumps(
+                    {"pid": os.getpid(), "started_at": "t1", "purpose": "别的评审"}).encode("utf-8"))
+                with self.assertRaises(TimeoutError) as caught, \
+                        review_lock.workspace_lock(Path(tmp), workspace, 0.05, "探针", poll_seconds=0.01):
+                    pass
+                self.assertIn(str(os.getpid()), str(caught.exception))
+                self.assertIn("别的评审", str(caught.exception))
+                self.assertEqual(json.loads(lock.read_text(encoding="utf-8"))["purpose"], "别的评审")
+            finally:
+                os.close(holder)
+                lock.unlink(missing_ok=True)
+
+    def test_lock_held_before_info_written(self):
+        """创建窗口（#134 评审发现①）：持有方已拿到 flock 但锁文件仍为空（尚未写入持有信息）时，
+        等待方不得进入、不得删除锁文件（空内容不得被当成可抢的残留锁）。"""
+        from engine.agents import review_lock
+
+        with tempfile.TemporaryDirectory(prefix="dh-review-lock-") as tmp:
+            workspace = Path(tmp) / "app-review"
+            workspace.mkdir()
+            lock = workspace.parent / f"{workspace.name}.review.lock"
+            holder = os.open(lock, os.O_CREAT | os.O_RDWR, 0o644)  # 已创建文件并拿到 flock，尚未写内容
+            try:
+                fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                # 若空内容被当成可抢，等待方会进入而不抛超时
+                with self.assertRaises(TimeoutError), \
+                        review_lock.workspace_lock(Path(tmp), workspace, 0.05, "探针",
+                                                    poll_seconds=0.01):
+                    pass
+                self.assertEqual(lock.read_text(encoding="utf-8"), "")  # 锁文件原样保留：未删、未改
+            finally:
+                os.close(holder)
+                lock.unlink(missing_ok=True)
+
+    def test_many_waiters_never_overlap(self):
+        """多等待方（#134 评审发现②）：至少 4 个线程经同一把闸门出发、反复争用同一把锁，计数器断言
+        临界区从不重叠；每次释放都是「先删文件再关描述符」，等待方在旧 inode 上 flock 成功后必须靠
+        inode 核对重来（回收/释放不得删掉他人的新锁）；全部结束后锁文件不存在（修订记录 3）。"""
+        from engine.agents import review_lock
+
+        with tempfile.TemporaryDirectory(prefix="dh-review-lock-") as tmp:
+            workspace = Path(tmp) / "app-review"
+            workspace.mkdir()
+            lock = workspace.parent / f"{workspace.name}.review.lock"
+            worker_count, rounds = 5, 10
+            guard = threading.Lock()
+            gate = threading.Event()  # 所有线程同点出发，保证反复正面争用而不是排队鱼贯
+            counter = {"inside": 0, "peak": 0, "done": 0}
+
+            def churn() -> None:
+                gate.wait()
+                for _ in range(rounds):
+                    with review_lock.workspace_lock(Path(tmp), workspace, 60, "争用",
+                                                    poll_seconds=0.002):
+                        with guard:  # 临界区计数：任何时刻至多 1 个线程在内，重叠即缺陷
+                            counter["inside"] += 1
+                            counter["done"] += 1
+                            counter["peak"] = max(counter["peak"], counter["inside"])
+                        time.sleep(0.001)  # 只放大缺陷可观测窗口，断言不依赖此时长
+                        with guard:
+                            counter["inside"] -= 1
+
+            threads = [threading.Thread(target=churn, daemon=True) for _ in range(worker_count)]
+            for thread in threads:
+                thread.start()
+                wait_until(thread.is_alive, what="争用线程启动")
+            gate.set()
+            for thread in threads:
+                thread.join(120)
+            self.assertFalse(any(thread.is_alive() for thread in threads))
+            self.assertEqual(counter["done"], worker_count * rounds)  # 没有人因争用掉队
+            self.assertEqual(counter["peak"], 1)  # 临界区从不重叠
+            self.assertFalse(lock.exists())  # 全部结束后锁文件不存在
 
     def test_all_entrypoints_use_lock(self):
         """review_pr、两套校准（calibrate、review_calibrate）、plan_review 都经同一把锁（同一工作区同一
