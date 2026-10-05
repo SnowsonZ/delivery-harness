@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
+from typing import TextIO
 
 from engine.core import events, events_db
 from engine.core.common import CLI, ENGINE_REL, ROOT, clean_git_env, git, setting
@@ -226,6 +227,22 @@ class _ProjectEventsSink:
             self._dir = None
 
 
+def _spawn(check: Check, log: TextIO, redirect: dict[str, str] | None, env: dict[str, str]) -> subprocess.CompletedProcess:
+    """启动检查子进程（输出写进 log）。redirect 只对项目检查非空：在清洗过的环境上追加
+    事件重定向变量（B92），由 events_db 按公共目录匹配后导进临时库。"""
+    if redirect:
+        env.update(redirect)
+    return subprocess.run(
+        check.command if check.command else check.shell,
+        shell=check.command is None,
+        cwd=ROOT,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        env=env,
+        check=False,
+    )
+
+
 def run_check(check: Check, sink: _ProjectEventsSink | None = None) -> Result:
     if check.requires == "macos" and not _is_macos():
         return Result(check.name, "skip", note=check.why_skipped)
@@ -236,20 +253,15 @@ def run_check(check: Check, sink: _ProjectEventsSink | None = None) -> Result:
         target.write_text(output + "\n")
         code = 0 if ok else 1
     else:
-        env = clean_git_env({"PYTHONDONTWRITEBYTECODE": "1"})
-        if check.project and sink is not None:
-            env.update(sink.env())  # 项目检查子进程的事件导进临时库（B92）
+        redirect = sink.env() if check.project and sink is not None else None
         with open(target, "w") as log:
-            completed = subprocess.run(
-                check.command if check.command else check.shell,
-                shell=check.command is None,
-                cwd=ROOT,
-                stdout=log,
-                stderr=subprocess.STDOUT,
+            completed = _spawn(
+                check,
+                log,
+                redirect,
                 # 钩子会注入 GIT_DIR 等变量；linked worktree 里它是指向真实仓库的绝对路径，
                 # 检查里的临时 git 仓库会被它带偏（H0926-3），所以子进程不继承这些变量。
-                env=env,
-                check=False,
+                env=clean_git_env({"PYTHONDONTWRITEBYTECODE": "1"}),
             )
         code = completed.returncode
     seconds = time.monotonic() - started
