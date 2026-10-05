@@ -10,7 +10,10 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -101,7 +104,9 @@ class TestRunnerTest(unittest.TestCase):
     def make_dir(self, files: dict[str, str]) -> Path:
         directory = Path(tempfile.mkdtemp(prefix="dh-runner-suite-", dir=self.tmp))
         for name, content in files.items():
-            (directory / name).write_text(content, encoding="utf-8")
+            target = directory / name
+            target.parent.mkdir(parents=True, exist_ok=True)  # 名字可含子包路径
+            target.write_text(content, encoding="utf-8")
         return directory
 
     def run_main(self, argv: list[str]) -> tuple[int, str, str]:
@@ -165,6 +170,34 @@ class TestRunnerTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"DH_RUNNER_ENV_PROBE": "sentinel-713"}):
             code, out, err = self.run_main(["-s", str(env_suite)])
         self.assertEqual(code, 0, out + err)  # 读不到继承的变量时该用例失败、退出码 1
+
+    def test_discovery_matches_unittest(self):
+        """修订 2：发现口径与 unittest discover 一致——子包（带 __init__.py）里的测试不漏跑、
+        不同子包的同名文件各算一个、无 __init__.py 的目录不进；Ran 总数与 discover 相同。"""
+        suite = self.make_dir({
+            "test_ok.py": suite_module(1),
+            "pkg/__init__.py": "",
+            "pkg/test_bad.py": suite_module(2, fail_at=0),
+            "other/__init__.py": "",
+            "other/test_ok.py": suite_module(2),
+            "plain/test_skip.py": suite_module(1),  # 无 __init__.py：discover 不进，run-tests 也不进
+        })
+        discover = subprocess.run(  # 真跑一次 discover，取它的口径作对照
+            [sys.executable, "-m", "unittest", "discover", "-s", str(suite)],
+            capture_output=True, text=True, check=False)
+        ran = re.search(r"Ran (\d+) tests? in ", discover.stdout + discover.stderr)
+        self.assertEqual(discover.returncode, 1, discover.stdout + discover.stderr)
+        self.assertEqual(ran.group(1), "5")  # 1 + 2 + 2，plain/ 不计入
+
+        code, out, err = self.run_main(["-s", str(suite)])
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"合计：3 个文件，Ran {ran.group(1)} 个用例，失败 1、出错 0，", out)
+        self.assertIn("✓ test_ok.py", out)          # 顶层与子包里的同名文件都执行
+        self.assertIn("✓ other/test_ok.py", out)
+        self.assertIn("✗ pkg/test_bad.py", out)      # 子包里的失败不被漏掉
+        self.assertIn("──── pkg/test_bad.py 的完整输出 ────", out)
+        self.assertIn("FAIL: test_0", out)
+        self.assertNotIn("plain", out)
 
 
 if __name__ == "__main__":
