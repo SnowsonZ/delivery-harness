@@ -294,23 +294,14 @@ class ObservabilityTaskTest(unittest.TestCase):
         }, "任务书夹具")
         rev = self.head_sha()
 
-        # 合法与非法任务书各一条 admit 事件：路径@提交+内容哈希、通过与问题规则计数
+        # 只有不合格的任务书发 admit 事件（路径@提交+内容哈希、问题规则计数），另加一条汇总
         before = self.max_event_id()
         code, out, err = self.run_main(taskbook)
         self.assertEqual(code, 1)
         self.assertIn("不合格 1", out)
-        rows = [row for row in self.events_after(before) if row["step"] == "taskbook.admit"]
-        self.assertEqual(len(rows), 2)
-        legal, bad = rows
-        self.assertEqual((legal["stage"], legal["status"], legal["redacted"]), ("ci", "ok", 0))
-        self.assertEqual(self.outputs_of(legal), {"problems": 0})
-        self.assertEqual((legal["decision_by"], legal["decision_rule"], legal["decision_reason"]),
-                         ("taskbook", "admit", "合格"))
-        legal_body = (self.repo / "docs/plans/task-901-legal.md").read_bytes()
-        self.assertEqual(self.input_refs(legal["id"]),
-                         [("taskbook", f"docs/plans/task-901-legal.md@{rev}",
-                           hashlib.sha256(legal_body).hexdigest(), len(legal_body))])
-
+        rows = self.events_after(before)
+        self.assertEqual([row["step"] for row in rows], ["taskbook.admit", "taskbook.summary"])
+        bad, summary = rows
         self.assertEqual((bad["stage"], bad["status"], bad["redacted"]), ("ci", "fail", 0))
         self.assertEqual(self.outputs_of(bad),
                          {"problems": 3, "header.budget": 1, "acceptance.row": 1, "acceptance.link": 1})
@@ -321,6 +312,11 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(self.input_refs(bad["id"]),
                          [("taskbook", f"docs/plans/task-902-bad.md@{rev}",
                            hashlib.sha256(bad_body).hexdigest(), len(bad_body))])
+        self.assertEqual((summary["stage"], summary["status"], summary["redacted"]), ("ci", "fail", 0))
+        self.assertEqual(self.outputs_of(summary), {"total": 2, "failed": 1})
+        self.assertEqual((summary["decision_by"], summary["decision_rule"], summary["decision_reason"]),
+                         ("taskbook", "admit", "1 份不合格"))
+        self.assertEqual(self.input_refs(summary["id"]), [])
 
         # 干净的 tracked 扫描：无违规，只有汇总事件
         before = self.max_event_id()
