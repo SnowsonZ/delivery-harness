@@ -41,6 +41,8 @@ jobs:
       approval: ${{ steps.policy.outputs.approval }}
       app_client_id_var: ${{ steps.policy.outputs.app_client_id_var }}
       app_private_key_secret: ${{ steps.policy.outputs.app_private_key_secret }}
+      sync_app_client_id_var: ${{ steps.policy.outputs.sync_app_client_id_var }}
+      sync_app_private_key_secret: ${{ steps.policy.outputs.sync_app_private_key_secret }}
       environment: ${{ steps.policy.outputs.environment }}
     steps:
       - uses: actions/checkout@v7
