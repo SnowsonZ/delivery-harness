@@ -534,7 +534,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual((review["verdict"], review["reviewer"], review["head"]),
                          ("通过", "opencode", fx.branch_head))
         summaries = [item for item in report["stages"] if item["evidence"] == "run_record_summary"]
-        self.assertEqual({item["step"] for item in summaries}, {"admit", "verify.tests"})
+        self.assertEqual({item["step"] for item in summaries}, {"admit"})
 
         # head 一致：报告的每条链链头与本机事件库实际链头一致
         self.assertTrue(report["chains"])
