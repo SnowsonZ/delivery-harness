@@ -1,7 +1,7 @@
 """派发的 PR 与升级文本组装（T707 自 dispatch.py 逐字移出，行为不变）。
 
-调用原模块的名字（EXIT_TEXT）时按需在函数体内导入 dispatch 并以属性访问：
-保留测试在原模块上的 patch 语义，也避免循环导入。
+调用原模块的名字（EXIT_TEXT，以及原本同一模块的 _title、_manual_section）时按需在函数体内
+导入 dispatch 并以属性访问：保留测试在原模块上的 patch 语义，也避免循环导入。
 """
 
 from __future__ import annotations
@@ -24,7 +24,9 @@ def _title(root: Path, task: Task) -> str:
 
 def _pr_title(root: Path, task: Task) -> str:
     """PR 标题：任务书标题已带「TXXX：」前缀时不再重复拼接（B65）。"""
-    title = _title(root, task)
+    from engine.agents import dispatch  # _title 留在原模块，按需导入（B89）
+
+    title = dispatch._title(root, task)
     return title if title.startswith(f"{task.id}：") else f"{task.id}：{title}"
 
 
@@ -40,6 +42,8 @@ def _manual_section(root: Path, task: Task) -> str:
 
 
 def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str, root: Path = ROOT) -> str:
+    from engine.agents import dispatch  # _manual_section 留在原模块，按需导入（B89）
+
     usage = attempt.usage
     return "\n".join([
         "## 任务", "",
@@ -59,7 +63,7 @@ def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str, root: Pa
         "- CI 运行（当前 head）：见本 PR checks",
         "- 风险等级与修复证据：见 harness job summary（机器生成）", "",
         "## 需要人工验收的部分", "",
-        _manual_section(root, task), "",
+        dispatch._manual_section(root, task), "",
         "🤖 Dispatched by bin/dispatch",
     ]) + "\n"
 
