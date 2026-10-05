@@ -507,6 +507,10 @@ class SignoffTest(unittest.TestCase):
         self.assertIn('gh api "repos/$GITHUB_REPOSITORY/compare/$DEFAULT_BRANCH...$HEAD_SHA"', sync["run"])
         self.assertIn("--jq .behind_by", sync["run"])
         self.assertIn("--json mergeable", sync["run"])
+        # 冲突优先于落后：落后且冲突时 update-branch 只会失败，必须先打 escalation
+        # （任务书修订记录 3，#134 评审发现②）
+        self.assertLess(sync["run"].index('"$conflict" = "true"'),
+                        sync["run"].index('"$behind" = "true"'))
         self.assertIn('GH_TOKEN="$APP_TOKEN" gh pr update-branch "$PR"', sync["run"])  # 用 App 令牌同步
         # 其他状态：批准与合并命令和原有步骙逐字相同（绑定评估过的提交）
         for line in ('GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews"',
@@ -565,7 +569,7 @@ class SignoffTest(unittest.TestCase):
         return replay, log.read_text(encoding="utf-8")
 
     def test_merge_app_syncs_behind_branch(self):
-        # 落后（compare 的 behind_by=2；此时 mergeStateStatus 是 BLOCKED 也照样识别）：
+        # 落后（compare 的 behind_by=2；mergeable 不是 CONFLICTING（如 BLOCKED）也照样识别）：
         # 用 App 令牌同步并退出，不批准、不合并，job 成功
         replay, log = self.replay_merge_app(behind_by="2", mergeable="BLOCKED")
         self.assertIn("Sync behind branch before approving", replay.ran)
@@ -575,7 +579,18 @@ class SignoffTest(unittest.TestCase):
         self.assertIn("[token=app-token-1]", log.split("update-branch")[1].splitlines()[0])  # App 令牌同步
         self.assertNotIn("pulls/14/reviews", log)  # 没有批准
         self.assertNotIn("pr merge", log)  # 没有合并
-        # 冲突（mergeable=CONFLICTING）：打 escalation 标签并评论，同样不批准、不同步
+        # 落后且冲突（behind_by=2、mergeable=CONFLICTING）：冲突优先于落后——打 escalation 标签
+        # 并评论，步骙成功结束，不调用 update-branch、不批准、不合并（任务书修订记录 3，#134 评审发现②）
+        replay, log = self.replay_merge_app(behind_by="2", mergeable="CONFLICTING")
+        self.assertIn("Sync behind branch before approving", replay.ran)
+        self.assertNotIn("Label, approve and merge", replay.ran)
+        self.assertEqual(replay.conclusion, "success")
+        self.assertIn("--add-label escalation", log)
+        self.assertIn("pr comment 14", log)
+        self.assertNotIn("update-branch", log)  # 没有先去同步
+        self.assertNotIn("pulls/14/reviews", log)
+        self.assertNotIn("pr merge", log)
+        # 冲突（behind_by=0、mergeable=CONFLICTING）：打 escalation 标签并评论，同样不批准、不同步
         _replay, log = self.replay_merge_app(behind_by="0", mergeable="CONFLICTING")
         self.assertIn("--add-label escalation", log)
         self.assertIn("pr comment 14", log)

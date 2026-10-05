@@ -155,10 +155,11 @@ jobs:
           permission-contents: write
 
       # 批准之前先查分支状态：落后用 compare 的 behind_by 判定（批准之前 ruleset 要求的审批还不满足，
-      # mergeStateStatus 可能返回 BLOCKED 而非 BEHIND，落后的分支永远等不到同步）；落后时用 App 令牌
-      # 同步（GITHUB_TOKEN 推的提交不触发 CI，重判链会断），同步触发的新一轮 harness 结束后会回到
-      # 这里的判定；mergeable 为 CONFLICTING 时打 escalation 标签交设计方处理。
-      # 两种情况都不批准、不合并，本 job 以成功结束。
+      # mergeStateStatus 可能返回 BLOCKED 而非 BEHIND，落后的分支永远等不到同步）；冲突用 pr view 的
+      # mergeable 判定。冲突优先于落后：落后且冲突时 update-branch 只会失败，先打 escalation 标签
+      # 交设计方处理（任务书修订记录 3，#134 评审发现②）；不冲突且落后才用 App 令牌同步
+      # （GITHUB_TOKEN 推的提交不触发 CI，重判链会断），同步触发的新一轮 harness 结束后会回到
+      # 这里的判定。两种情况都不批准、不合并，本 job 以成功结束。
       - name: Sync behind branch before approving
         id: branch
         env:
@@ -178,14 +179,14 @@ jobs:
           fi
           echo "behind=$behind" >> "$GITHUB_OUTPUT"
           echo "conflict=$conflict" >> "$GITHUB_OUTPUT"
-          if [ "$behind" = "true" ]; then
-            GH_TOKEN="$APP_TOKEN" gh pr update-branch "$PR" --repo "$GITHUB_REPOSITORY"
-            echo "分支落后，已同步，等新一轮 CI 后重判"
-          elif [ "$conflict" = "true" ]; then
+          if [ "$conflict" = "true" ]; then
             gh label create escalation --repo "$GITHUB_REPOSITORY" --color d93f0b --force >/dev/null 2>&1 || true
             gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label escalation
             gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "与 main 冲突，需设计方处理"
             echo "与 main 冲突，已打 escalation 标签，交设计方处理"
+          elif [ "$behind" = "true" ]; then
+            GH_TOKEN="$APP_TOKEN" gh pr update-branch "$PR" --repo "$GITHUB_REPOSITORY"
+            echo "分支落后，已同步，等新一轮 CI 后重判"
           fi
 
       - name: Label, approve and merge
