@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 COMMANDS = {
     # 判定器
     "verify": "engine.checks.verify",
+    "run-tests": "engine.checks.test_runner",
     "hygiene": "engine.checks.hygiene",
     "acceptance": "engine.checks.acceptance",
     "taskbook": "engine.checks.taskbook",
