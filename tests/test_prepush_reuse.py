@@ -186,6 +186,53 @@ class PrepushReuseTest(unittest.TestCase):
         self.assertEqual(self.run_verify([]), 0)
         self.assertEqual(self.records(), [])
 
+    # ---------- 验收（修订 2）：验证期间代码树/引擎标识/工作区发生变化就不写记录 ----------
+
+    def test_no_record_when_tree_changes_during_verify(self):
+        """检查运行中分别发生已跟踪文件改动、提交新 HEAD、引擎锁 tree 变化，都不写通过
+        记录；什么都不变时照常写。引擎锁先移出版本控制，使「引擎标识变化」可以单独发生。"""
+        self.git("rm", "-q", "--cached", ".harness/engine.lock")
+        self.git("commit", "-q", "-m", "untrack lock")  # 锁留在磁盘上但不再入库：改锁不弄脏工作区
+
+        # 什么都不变：照常写。
+        self.install_verify([Check("alpha", ALL_TIERS, func=lambda: (True, "正常"))])
+        self.assertEqual(self.run_verify([]), 0)
+        self.assertEqual(self.records(), [f"{self.sha('HEAD^{tree}')}.json"])
+        shutil.rmtree(self.records_dir())
+
+        # 检查运行中改动已跟踪文件：不写。
+        def touch_readme():
+            (self.repo / "README.md").write_text("# 改动\n", encoding="utf-8")
+            return True, "正常"
+
+        self.install_verify([Check("alpha", ALL_TIERS, func=touch_readme),
+                             Check("beta", ALL_TIERS, func=lambda: (True, "正常"))])
+        self.assertEqual(self.run_verify([]), 0)
+        self.assertEqual(self.records(), [])
+        self.git("checkout", "-q", "--", "README.md")
+
+        # 检查运行中提交新 HEAD（tree 变化）：旧代码的验证结果不得绑到新 tree。
+        def commit_during_check():
+            (self.repo / "extra.txt").write_text("extra\n", encoding="utf-8")
+            self.git("add", "extra.txt")
+            self.git("commit", "-q", "-m", "during verify")
+            return True, "正常"
+
+        self.install_verify([Check("alpha", ALL_TIERS, func=commit_during_check),
+                             Check("beta", ALL_TIERS, func=lambda: (True, "正常"))])
+        self.assertEqual(self.run_verify([]), 0)
+        self.assertEqual(self.records(), [])
+
+        # 检查运行中引擎锁 tree 变化（锁未入库：工作区仍干净、HEAD 不变）：不写。
+        def change_lock_during_check():
+            write_lock(self.repo, "sha256:" + "c" * 64)
+            return True, "正常"
+
+        self.install_verify([Check("alpha", ALL_TIERS, func=change_lock_during_check),
+                             Check("beta", ALL_TIERS, func=lambda: (True, "正常"))])
+        self.assertEqual(self.run_verify([]), 0)
+        self.assertEqual(self.records(), [])
+
     # ---------- 验收：pre-push 只在记录完全匹配时跳过 ----------
 
     def test_prepush_skips_only_on_matching_record(self):
