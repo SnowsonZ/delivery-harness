@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import itertools
 import json
 import os
 import shutil
@@ -193,6 +194,7 @@ def verdict_script(verdict: str, findings_json: str) -> str:
 
 class SignoffTest(unittest.TestCase):
     def setUp(self):
+        self._shim_seq = itertools.count()
         self.tmp = Path(tempfile.mkdtemp(prefix="dh-signoff-"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.repo = self.tmp / "app"
@@ -498,8 +500,17 @@ class SignoffTest(unittest.TestCase):
         self.assertEqual(app["with"]["permission-pull-requests"], "write")
         self.assertEqual(app["with"]["permission-contents"], "write")  # update-branch 需要写内容
         gate = str(merge.get("if"))
-        self.assertIn("BEHIND", gate)  # 落后时不进入批准
-        self.assertIn("DIRTY", gate)  # 冲突时不进入批准
+        self.assertIn("behind", gate)  # 落后时不进入批准
+        self.assertIn("conflict", gate)  # 冲突时不进入批准
+        # 落后用 compare 的 behind_by 判定（批准前 mergeStateStatus 可能是 BLOCKED），
+        # 冲突用 pr view 的 mergeable 判定；同步仍用 App 令牌。
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/compare/$DEFAULT_BRANCH...$HEAD_SHA"', sync["run"])
+        self.assertIn("--jq .behind_by", sync["run"])
+        self.assertIn("--json mergeable", sync["run"])
+        # 冲突优先于落后：落后且冲突时 update-branch 只会失败，必须先打 escalation
+        # （任务书修订记录 3，#134 评审发现②）
+        self.assertLess(sync["run"].index('"$conflict" = "true"'),
+                        sync["run"].index('"$behind" = "true"'))
         self.assertIn('GH_TOKEN="$APP_TOKEN" gh pr update-branch "$PR"', sync["run"])  # 用 App 令牌同步
         # 其他状态：批准与合并命令和原有步骙逐字相同（绑定评估过的提交）
         for line in ('GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews"',
@@ -508,9 +519,10 @@ class SignoffTest(unittest.TestCase):
             self.assertIn(line, merge["run"])
         return app, sync, merge
 
-    def write_gh_shim(self, state: str) -> tuple[Path, Path]:
-        """gh 桩：记录调用与生效令牌；mergeStateStatus 查询按 state 应答，其余静默成功。"""
-        folder = self.tmp / f"gh-shim-{state}"
+    def write_gh_shim(self, behind_by: str, mergeable: str) -> tuple[Path, Path]:
+        """gh 桩：记录调用与生效令牌；compare 的 behind_by 与 pr view 的 mergeable 按参数应答，
+        其余静默成功。"""
+        folder = self.tmp / f"gh-shim-{next(self._shim_seq)}-{behind_by}-{mergeable}"
         folder.mkdir()
         log = folder / "calls.log"
         log.write_text("", encoding="utf-8")
@@ -519,18 +531,20 @@ class SignoffTest(unittest.TestCase):
             "#!/bin/bash\n"
             'echo "CALL $* [token=${GH_TOKEN:-none}]" >> "$GH_SHIM_LOG"\n'
             'case "$*" in\n'
-            f'  *"pr view"*"mergeStateStatus"*) echo "{state}" ;;\n'
+            '  *"compare/$DEFAULT_BRANCH..."*) echo "$BEHIND_BY" ;;\n'
+            '  *"pr view"*"mergeable"*) echo "$MERGEABLE" ;;\n'
             "esac\n", encoding="utf-8")
         script.chmod(0o755)
         return folder, log
 
-    def replay_merge_app(self, state: str, *, pr: str = "14") -> tuple[MergeReplay, str]:
+    def replay_merge_app(self, behind_by: str = "0", mergeable: str = "MERGEABLE",
+                         *, pr: str = "14") -> tuple[MergeReplay, str]:
         app, sync, merge = self.merge_app_steps()
         # 按模板里的真实顺序重放，不由测试自行排序（#126 评审：自行排序会掩盖步骤顺序变异）。
         names = [step.get("name") for step in self.template("auto-merge.yml")["jobs"]["merge-app"]["steps"]]
         ordered = sorted((app, sync, merge), key=lambda step: names.index(step.get("name")))
-        shim, log = self.write_gh_shim(state)
-        project = self.tmp / f"proj-{state}-{pr}"
+        shim, log = self.write_gh_shim(behind_by, mergeable)
+        project = self.tmp / f"proj-{behind_by}-{mergeable}-{pr}"
         project.mkdir()
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(("GIT_", "GITHUB_", "HARNESS_")) and key != "CI"}
@@ -539,10 +553,14 @@ class SignoffTest(unittest.TestCase):
         env["GITHUB_REPOSITORY"] = "owner/repo"  # Actions 运行时提供，步蹧脚本里引用
         env["RUNNER_TEMP"] = str(self.tmp / "runner-temp")
         env["GH_SHIM_LOG"] = str(log)
+        env["DEFAULT_BRANCH"] = "main"  # 同步步骤的 env 会再代入一次，这里供 gh 桩的 case 匹配
+        env["BEHIND_BY"] = behind_by
+        env["MERGEABLE"] = mergeable
         env["PATH"] = f"{shim}:{env['PATH']}"
         context = {"steps.app.outputs.token": "app-token-1",
                    "github.event.workflow_run.pull_requests[0].number": pr,
                    "github.event.workflow_run.head_sha": "a" * 40,
+                   "github.event.repository.default_branch": "main",
                    "github.token": "job-token", "github.repository": "owner/repo",
                    "needs.judge.outputs.risk": "R2", "needs.judge.outputs.class": "K5",
                    "needs.judge.outputs.audit": "false"}
@@ -551,8 +569,9 @@ class SignoffTest(unittest.TestCase):
         return replay, log.read_text(encoding="utf-8")
 
     def test_merge_app_syncs_behind_branch(self):
-        # BEHIND：用 App 令牌同步并退出，不批准、不合并，job 成功
-        replay, log = self.replay_merge_app("BEHIND")
+        # 落后（compare 的 behind_by=2；mergeable 不是 CONFLICTING（如 BLOCKED）也照样识别）：
+        # 用 App 令牌同步并退出，不批准、不合并，job 成功
+        replay, log = self.replay_merge_app(behind_by="2", mergeable="BLOCKED")
         self.assertIn("Sync behind branch before approving", replay.ran)
         self.assertNotIn("Label, approve and merge", replay.ran)  # 批准步骙被拦下
         self.assertEqual(replay.conclusion, "success")
@@ -560,23 +579,35 @@ class SignoffTest(unittest.TestCase):
         self.assertIn("[token=app-token-1]", log.split("update-branch")[1].splitlines()[0])  # App 令牌同步
         self.assertNotIn("pulls/14/reviews", log)  # 没有批准
         self.assertNotIn("pr merge", log)  # 没有合并
-        # DIRTY：打 escalation 标签并评论，同样不批准
-        _replay, log = self.replay_merge_app("DIRTY")
+        # 落后且冲突（behind_by=2、mergeable=CONFLICTING）：冲突优先于落后——打 escalation 标签
+        # 并评论，步骙成功结束，不调用 update-branch、不批准、不合并（任务书修订记录 3，#134 评审发现②）
+        replay, log = self.replay_merge_app(behind_by="2", mergeable="CONFLICTING")
+        self.assertIn("Sync behind branch before approving", replay.ran)
+        self.assertNotIn("Label, approve and merge", replay.ran)
+        self.assertEqual(replay.conclusion, "success")
+        self.assertIn("--add-label escalation", log)
+        self.assertIn("pr comment 14", log)
+        self.assertNotIn("update-branch", log)  # 没有先去同步
+        self.assertNotIn("pulls/14/reviews", log)
+        self.assertNotIn("pr merge", log)
+        # 冲突（behind_by=0、mergeable=CONFLICTING）：打 escalation 标签并评论，同样不批准、不同步
+        _replay, log = self.replay_merge_app(behind_by="0", mergeable="CONFLICTING")
         self.assertIn("--add-label escalation", log)
         self.assertIn("pr comment 14", log)
         self.assertNotIn("pulls/14/reviews", log)
         self.assertNotIn("pr merge", log)
-        # 其他状态（CLEAN）：照常批准与合并，命令与原步骙逐字相同
-        replay, log = self.replay_merge_app("CLEAN")
+        self.assertNotIn("update-branch", log)
+        # 正常（behind_by=0、mergeable=MERGEABLE）：照常批准与合并，命令与原步骙逐字相同
+        replay, log = self.replay_merge_app()
         self.assertIn("Label, approve and merge", replay.ran)
         self.assertIn("--method POST repos/owner/repo/pulls/14/reviews", log)
         self.assertIn("[token=app-token-1]", log.split("pulls/14/reviews")[1].splitlines()[0])  # App 令牌批准
         self.assertIn("pr merge 14", log)
         self.assertIn("--match-head-commit", log)
         self.assertNotIn("update-branch", log)
-        # fork PR（无关联编号）：同步步骙查不到状态、批准步骙自行跳过，都不发 gh 写调用
-        _replay, log = self.replay_merge_app("", pr="")
-        self.assertIn("Label, approve and merge", _replay.ran)  # 状态为空不拦截（原行为：步骙内自行跳过）
+        # fork PR（无关联编号）：同步步骙不查状态、批准步骙自行跳过，都不发 gh 写调用
+        _replay, log = self.replay_merge_app(pr="")
+        self.assertIn("Label, approve and merge", _replay.ran)  # 状态不拦截（原行为：步骙内自行跳过）
         self.assertEqual(log, "")
 
 
