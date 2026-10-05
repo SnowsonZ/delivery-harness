@@ -327,10 +327,12 @@ class ObservabilityTaskTest(unittest.TestCase):
         stdin: str = "",
         structured: tuple[str, ...] = (),
         env_extra: dict[str, str] | None = None,
+        reset_verify_pass: bool = False,
     ) -> dict:
-        if argv[:2] == ["guard-git", "pre-push"]:
+        if reset_verify_pass:
             # T713 修订 1：pre-push 会复用同一代码树的 verify 通过记录；三态比较要求每态都真正跑 verify，
-            # 所以每次调用前清空夹具仓库的通过记录目录（git 公共目录下的 harness/verify-pass）。
+            # 所以由需要该语义的调用点显式要求先清空夹具仓库的通过记录目录（git 公共目录下的
+            # harness/verify-pass），而不是在这里按 argv 嗅探。
             shutil.rmtree(self.repo / ".git" / "harness" / "verify-pass", ignore_errors=True)
         for rel in structured:
             target = self.repo / rel
@@ -432,11 +434,18 @@ class ObservabilityTaskTest(unittest.TestCase):
         spots: tuple[str, ...] = (),
         emit: bool = True,
         env_extra: dict[str, str] | None = None,
+        reset_verify_pass: bool = False,
     ) -> dict:
         extra = env_extra or {}
 
         def invoke(env_over: dict[str, str]) -> dict:
-            return self.run_cli(argv, stdin=stdin, structured=structured, env_extra={**extra, **env_over})
+            return self.run_cli(
+                argv,
+                stdin=stdin,
+                structured=structured,
+                env_extra={**extra, **env_over},
+                reset_verify_pass=reset_verify_pass,
+            )
 
         before = self.max_event_id()
         on = invoke({})
@@ -863,6 +872,8 @@ class ObservabilityTaskTest(unittest.TestCase):
             stdin=f"refs/heads/task/x {local} refs/heads/task/x {ZERO_SHA}\n",
             spots=("verify",),
             structured=(SUMMARY_REL,),
+            # 每态调用前清空通过记录目录（T713 修订 1）：否则第一态跑完 verify 写下的记录会让后两态跳过 verify。
+            reset_verify_pass=True,
         )
         self.assertEqual(result["code"], 0)
         self.git("checkout", "-q", "main")
