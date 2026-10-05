@@ -66,7 +66,9 @@ APPROVAL_MODES = ("app", "none")
 
 def platform_outputs() -> dict[str, str]:
     """checks.toml [platform]：自动合并工作流的批准方式与 App 变量名。approval = "app"（默认，两个账号 + 批准 App）
-    或 "none"（单账号：ruleset 不要求批准，工作流用 GITHUB_TOKEN 合并，风险见 SECURITY.md）。"""
+    或 "none"（单账号：ruleset 不要求批准，工作流用 GITHUB_TOKEN 合并，风险见 SECURITY.md）。
+    批准与分支同步用两个不同的 App（README「Platform setup」）：ruleset 要求最后一次推送由推送者以外的人
+    批准，同一个 App 先同步分支再批准会让它的批准失效；同步键未配置时工作流不同步、只评论提示。"""
     approval = setting("platform", "approval", "app")
     if approval not in APPROVAL_MODES:
         raise ConfigError(f".harness/config/checks.toml 的 [platform] approval 只能是 {' 或 '.join(APPROVAL_MODES)}，得到 {approval!r}")
@@ -74,6 +76,8 @@ def platform_outputs() -> dict[str, str]:
         "approval": approval,
         "app_client_id_var": setting("platform", "app_client_id_var", "HARNESS_APP_CLIENT_ID"),
         "app_private_key_secret": setting("platform", "app_private_key_secret", "HARNESS_APP_PRIVATE_KEY"),
+        "sync_app_client_id_var": setting("platform", "sync_app_client_id_var", "HARNESS_SYNC_APP_CLIENT_ID"),
+        "sync_app_private_key_secret": setting("platform", "sync_app_private_key_secret", "HARNESS_SYNC_APP_PRIVATE_KEY"),
         "environment": setting("platform", "environment", "harness-auto-merge"),
     }
 
