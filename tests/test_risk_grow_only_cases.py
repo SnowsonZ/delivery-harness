@@ -1,7 +1,8 @@
 """T712 回放清单只追加判级测试：[risk] grow_only_cases 命中的回放清单在只向 CASES 末尾追加全字面量
 Case(...) 时按 R2（grow_only_cases 规则，可与产品代码、测试同 PR 判 K4）；其余任何改动——修改/删除/调换
-已有用例、改 BASELINE、GUARDED、DEFERRED、非字面量参数、夹带副作用顶层语句、语法错误、新增文件、
-缺省不配置——照旧按 R3，且判级只读 PR 内容、从不执行它。
+已有用例、改 BASELINE、GUARDED、DEFERRED、非字面量参数、夹带副作用顶层语句、CASES 赋值语句本身
+（类型、目标、注解、simple 标志，修订 1）、语法错误、新增文件、缺省不配置——照旧按 R3，且判级只读
+PR 内容、从不执行它。
 
 夹具全部使用匿名临时 git 仓库，rules.toml 在夹具内配置 grow_only_cases（test_default_off 除外）；
 不碰真实库、PR 或工作流。既有测试零修改。
@@ -109,9 +110,9 @@ class GrowOnlyCasesTest(unittest.TestCase):
         return subprocess.run(["git", *args], cwd=self.repo, capture_output=True, text=True,
                               env={**env, **GIT_ENV}, check=check)
 
-    def fresh_head(self, files: dict[str, str], message: str) -> str:
-        """从 base 起独立提交（子例之间互不叠加），返回 head 提交。"""
-        self.git("checkout", "-q", "-B", "fixture-work", self.base)
+    def fresh_head(self, files: dict[str, str], message: str, ref: str | None = None) -> str:
+        """从 base（或指定 ref）起独立提交（子例之间互不叠加），返回 head 提交。"""
+        self.git("checkout", "-q", "-B", "fixture-work", ref or self.base)
         for path, content in files.items():
             target = self.repo / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -126,8 +127,8 @@ class GrowOnlyCasesTest(unittest.TestCase):
     def file_risk(self, report: risk.RiskReport, path: str = REPLAY_PATH) -> risk.FileRisk:
         return next(item for item in report.files if item.path == path)
 
-    def assert_stays_r3(self, head: str, path: str = REPLAY_PATH) -> None:
-        report = self.classify(head)
+    def assert_stays_r3(self, head: str, path: str = REPLAY_PATH, *, base: str | None = None) -> None:
+        report = risk.classify(base or self.base, head, cwd=self.repo, rules=self.rules)
         item = self.file_risk(report, path)
         self.assertEqual(item.level, 3, item.reason)
         self.assertEqual(item.reason, "命中 R3 规则 `.harness/**`")
@@ -219,6 +220,31 @@ class GrowOnlyCasesTest(unittest.TestCase):
             item = self.file_risk(report, EXTRA_PATH)
             self.assertEqual((item.status, item.level), ("A", 3))
             self.assertEqual(report.level, 3)
+
+    # ---- 验收（修订 1）：CASES 赋值语句除列表外的部分被改动 → R3 ----
+
+    def test_cases_statement_other_parts_unchanged(self):
+        appended = [CASE_ONE, CASE_TWO, NEW_CASE]
+        variants = {
+            # ① 注解换成有副作用的表达式：回放清单加载时会执行 BASELINE.clear()，清空基线（#146 评审反例）
+            "annotation_side_effect": replay(appended).replace(
+                "CASES: list[Case] = [", "CASES: (BASELINE.clear() or list[Case]) = ["),
+            # ② 带注解赋值换成普通赋值：语句类型与注解都变了
+            "ann_to_plain": replay(appended).replace("CASES: list[Case] = [", "CASES = ["),
+            # ③ 目标加括号：simple 标志从 1 变 0，赋值目标形式被改动
+            "parenthesized_target": replay(appended).replace(
+                "CASES: list[Case] = [", "(CASES): list[Case] = ["),
+        }
+        for label, text in variants.items():
+            with self.subTest(label=label):
+                self.assert_stays_r3(self.fresh_head({REPLAY_PATH: text}, f"CASES 语句改动 {label}"))
+        # ② 反向：base 是普通赋值，head 换成带注解赋值（head 须落在该 base 之上，三点 diff 才含互换）
+        with self.subTest(label="plain_to_ann"):
+            plain_base = self.fresh_head(
+                {REPLAY_PATH: replay([CASE_ONE, CASE_TWO]).replace("CASES: list[Case] = [", "CASES = [")},
+                "普通赋值基线")
+            head = self.fresh_head({REPLAY_PATH: replay(appended)}, "换成带注解赋值", ref=plain_base)
+            self.assert_stays_r3(head, base=plain_base)
 
     # ---- 验收 7：不配置 grow_only_cases 时行为与现在一致（追加也判 R3） ----
 

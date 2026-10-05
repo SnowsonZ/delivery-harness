@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import copy
 import os
 import re
 from dataclasses import dataclass, field
@@ -153,6 +154,18 @@ def _single_cases_index(stmts: list[ast.stmt]) -> int | None:
     return index[0] if len(index) == 1 else None
 
 
+def _cases_statement_unchanged(base_stmt: ast.stmt, head_stmt: ast.stmt) -> bool:
+    """``CASES`` 赋值语句除 ``value``（列表）外是否完全相同（T712 修订 1：改注解可绕过）。
+
+    语句类型（``Assign`` 与 ``AnnAssign`` 不得互换）、赋值目标、注解、``simple`` 标志都不得改动：
+    复制两条语句节点、把 ``value`` 置空后比较 ``ast.dump``，注解等位置就不可能借追加夹带可执行内容。
+    """
+    base_copy, head_copy = copy.deepcopy(base_stmt), copy.deepcopy(head_stmt)
+    base_copy.value = None
+    head_copy.value = None
+    return ast.dump(base_copy) == ast.dump(head_copy)
+
+
 def _literal_case_call(node: ast.expr) -> bool:
     """清单项是否为对名字 ``Case`` 的调用：无位置参数，只有具名关键字参数，且每个参数值都是字面量。"""
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name) or node.func.id != "Case":
@@ -173,7 +186,8 @@ def replay_cases_grew_only(base: str, head: str, path: str, cwd: Path) -> bool:
     只用 ``ast.parse`` 读 base 与 head 两个版本的文件内容，不执行 PR 内容（判级时 PR 只能当数据读，
     见 engine/core/cases.py 的说明）。其余顶层语句（``BASELINE``、``GUARDED``、``DEFERRED``、import、
     文档字符串）必须 ``ast.dump`` 完全相同——在 ``DEFERRED``、``GUARDED`` 里新增一行同样是「只增行」，
-    那是削弱护栏，必须拦下。任何一步失败（含读取或解析异常）都返回 False，不抛异常。
+    那是削弱护栏，必须拦下；``CASES`` 这条语句本身除列表外也必须逐字段相同（类型、目标、注解、``simple``）。
+    任何一步失败（含读取或解析异常）都返回 False，不抛异常。
     """
     try:
         base_stmts = ast.parse(git("show", f"{base}:{path}", cwd=cwd)).body
@@ -188,6 +202,8 @@ def replay_cases_grew_only(base: str, head: str, path: str, cwd: Path) -> bool:
                 continue
             if ast.dump(base_stmt) != ast.dump(head_stmt):
                 return False  # BASELINE、GUARDED、DEFERRED、import、文档字符串都不得改动
+        if not _cases_statement_unchanged(base_stmts[index], head_stmts[index]):
+            return False  # CASES 语句除列表外不得改动：注解、目标、语句类型都可能夹带可执行内容（修订 1）
         base_list, head_list = _cases_value(base_stmts[index]), _cases_value(head_stmts[index])
         if not isinstance(base_list, ast.List) or not isinstance(head_list, ast.List):
             return False
