@@ -147,26 +147,40 @@ jobs:
       issues: write  # 类别标签与 audit 议题
       pull-requests: write
     steps:
-      - name: App token (approve and branch sync)
+      # 批准 App 只负责批准（ruleset 要求最后一次推送由推送者以外的人批准）；分支同步由下面的同步 App 负责。
+      - name: App token (approve)
         id: app
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars[needs.judge.outputs.app_client_id_var] }}
           private-key: ${{ secrets[needs.judge.outputs.app_private_key_secret] }}
           permission-pull-requests: write
+
+      # 同步 App 专管分支同步，与批准 App 分开：同一个 App 先同步分支就成了最后推送者，它随后的批准
+      # 不再满足 ruleset「最后一次推送由推送者以外的人批准」（#147 实测，同步过的 PR 永远无法自动合并）。
+      # 未配置（仓库变量为空）时跳过此步，同步步骤退化为评论提示。
+      - name: Sync App token
+        id: sync-app
+        if: vars[needs.judge.outputs.sync_app_client_id_var] != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars[needs.judge.outputs.sync_app_client_id_var] }}
+          private-key: ${{ secrets[needs.judge.outputs.sync_app_private_key_secret] }}
           permission-contents: write
+          permission-pull-requests: write
 
       # 批准之前先查分支状态：落后用 compare 的 behind_by 判定（批准之前 ruleset 要求的审批还不满足，
       # mergeStateStatus 可能返回 BLOCKED 而非 BEHIND，落后的分支永远等不到同步）；冲突用 pr view 的
       # mergeable 判定。冲突优先于落后：落后且冲突时 update-branch 只会失败，先打 escalation 标签
-      # 交设计方处理（任务书修订记录 3，#134 评审发现②）；不冲突且落后才用 App 令牌同步
-      # （GITHUB_TOKEN 推的提交不触发 CI，重判链会断），同步触发的新一轮 harness 结束后会回到
-      # 这里的判定。两种情况都不批准、不合并，本 job 以成功结束。
+      # 交设计方处理（任务书修订记录 3，#134 评审发现②）；不冲突且落后时用同步 App 的令牌同步
+      # （GITHUB_TOKEN 推的提交不触发 CI，重判链会断；不能用批准 App 同步，见上），同步触发的新一轮
+      # harness 结束后会回到这里的判定；未配置同步 App 时不同步，只评论提示人工同步。两种情况都
+      # 不批准、不合并，本 job 以成功结束。
       - name: Sync behind branch before approving
         id: branch
         env:
-          APP_TOKEN: ${{ steps.app.outputs.token }}
           GH_TOKEN: ${{ github.token }}
+          SYNC_TOKEN: ${{ steps.sync-app.outputs.token }}
           PR: ${{ github.event.workflow_run.pull_requests[0].number }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -187,8 +201,13 @@ jobs:
             gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "与 main 冲突，需设计方处理"
             echo "与 main 冲突，已打 escalation 标签，交设计方处理"
           elif [ "$behind" = "true" ]; then
-            GH_TOKEN="$APP_TOKEN" gh pr update-branch "$PR" --repo "$GITHUB_REPOSITORY"
-            echo "分支落后，已同步，等新一轮 CI 后重判"
+            if [ -n "$SYNC_TOKEN" ]; then
+              GH_TOKEN="$SYNC_TOKEN" gh pr update-branch "$PR" --repo "$GITHUB_REPOSITORY"
+              echo "分支落后，已用同步 App 同步，等新一轮 CI 后重判"
+            else
+              gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "分支落后于 main，未配置同步 App，请手动同步后重判"
+              echo "分支落后于 main，未配置同步 App，已评论提示手动同步"
+            fi
           fi
 
       - name: Label, approve and merge
