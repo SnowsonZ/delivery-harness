@@ -166,7 +166,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         head = self.commit({
             "README.md": "# app changed\n",
             "docs/specs/thing.md": "# spec\n",
-            "engine/core/thing.py": "VALUE = 1\n",
+            "bin/thing": "#!/bin/sh\n",
             "tests/test_sample.py": "line1 = 1\nline2 = 22\nline6 = 6\n",
         }, "change\n\nRisk: R1")
         report = risk.classify(self.base, head, cwd=self.repo, trace_id="task/r1")
@@ -174,14 +174,14 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertTrue(report.claimed_r1)
         self.assertTrue(any(flag.startswith("改动已有测试") for flag in report.flags))
         self.assertEqual({item.path: item.level for item in report.files},
-                         {"README.md": 0, "docs/specs/thing.md": 2, "engine/core/thing.py": 3,
+                         {"README.md": 0, "docs/specs/thing.md": 2, "bin/thing": 3,
                           "tests/test_sample.py": 2})
 
         # 逐文件事件：路径、状态、等级、命中规则与理由逐项对应，不漏文件
         rows = self.recorded("risk.file", "task/r1")
         self.assertEqual([row["outputs"]["path"] for row in rows], [item.path for item in report.files])
         expected_rule = {"README.md": "README*.md", "docs/specs/thing.md": "docs/specs/**",
-                         "engine/core/thing.py": "engine/**", "tests/test_sample.py": "tests"}
+                         "bin/thing": "bin/**", "tests/test_sample.py": "tests"}
         for row, item in zip(rows, report.files):
             self.assertEqual(row["status"], "ok")
             self.assertEqual(row["outputs"], {"path": item.path, "status": item.status, "level": item.level})
