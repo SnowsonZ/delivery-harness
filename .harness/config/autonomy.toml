@@ -3,11 +3,17 @@
 # 降级是自动的：误差预算超支、PR 带 budget-exceeded 标签时，policy 在下一次判定即时转用户评审。
 # 停机不靠本文件：Actions → auto-merge → Disable workflow。
 # 新接入的项目全部从人审开始（L3），攒够数据后再逐类放权。
+# 2026-10 自治试验（B81，用户 2026-10-03 决定）：K1–K5 放到 L4，参数见设计第 7 节；回收条件同设计第 7 节。
 
 [size]
 # 增删行数（不计下列路径）超过阈值的 PR 不自动合并，转用户并提示拆分。
 max_lines = 400
-exclude = ["tests/golden/**", "docs/runs/**"]
+exclude = ["tests/golden/**", "docs/runs/**", "tests/**"]
+
+# R2 合同制路径（自治试验设计第 4 节）：全部改动路径都在白名单内、任务书已批、运行记录合格、
+# 独立评审与设计方复核都通过时，R2 实现 PR 自动合并。只列实现路径，其余一律转人审。
+[contract_route]
+allowed = ["engine/**", "templates/**", "tests/**", "docs/runs/**", "CHANGELOG.md"]
 
 # 机器按路径、trailer 判定的类别（policy.py machine_class），不是任务书的声明。
 # level：L4 = 门禁全绿后自动合并；L3 及以下 = 用户评审。
@@ -20,19 +26,19 @@ max_escapes = 1
 
 [classes.K1]
 name = "说明与记录"
-level = "L3"
+level = "L4"
 window = 20
 max_escapes = 1
 
 [classes.K2]
 name = "补测试"
-level = "L3"
+level = "L4"
 window = 20
 max_escapes = 1
 
 [classes.K3]
 name = "行为不变重构（R1）"
-level = "L3"
+level = "L4"
 window = 10
 max_escapes = 0
 # 抽样审计：按 PR 编号哈希每 audit_every 个抽 1 个，合并后自动开 audit 议题。
@@ -41,11 +47,17 @@ audit_every = 3
 
 [classes.K4]
 name = "缺陷修复"
-level = "L3"
+level = "L4"
+window = 20
+max_escapes = 1
+audit_every = 3
 
 [classes.K5]
 name = "功能与规格实现"
-level = "L3"
+level = "L4"
+window = 20
+max_escapes = 1
+audit_every = 3
 
 [classes.K6]
 name = "界面与组件"

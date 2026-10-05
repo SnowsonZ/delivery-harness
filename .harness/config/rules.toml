@@ -44,12 +44,13 @@ r3 = [
     ".harness/**",
     "bin/**",
     ".gitignore",
-    # 整个仓库都是护栏本身：引擎与模板按 R3 对待。
-    "engine/**",
-    "templates/**",
 ]
 # R2：产品代码与现役合同（产品代码目录见 checks.toml [sources]，未列出的路径同样按 R2）。
 r2 = [
+    # 引擎与模板是本仓库的产品代码：改动经自举升级 PR（用户审）才对本仓库生效，信任边界在升级关
+    # （自治试验设计 docs/plans/2026-10-03-autonomy-trial-design.md 第 3、4 节，用户 2026-10-03 决定 4）。
+    "engine/**",
+    "templates/**",
     "docs/specs/**",
     "AGENTS.md",
     "LICENSE",
@@ -62,12 +63,17 @@ r0 = [
     "docs/decisions/**",
     "docs/runs/**",
     "README*.md",
+    "CHANGELOG.md",
+    # 待办清单：排序与优先级由用户在对话中决定，记账本身自动合并、抽审兜底（自治试验决定 1）。
+    "docs/backlog.md",
 ]
 tests = ["tests/**"]
-# 合同：模板与待办清单须经用户审，先于 r0 判定。
+# 合同：模板、规格与设计计划类文档须经用户审，先于 r0 判定（待办清单自治试验起归 r0）。
 contracts = [
     "docs/templates/**",
-    "docs/plans/backlog.md",
+    "docs/specs/**",
+    # 设计、计划、追溯表等合同文档（日期前缀命名）。
+    "docs/plans/20*.md",
 ]
 # 任务书按头部类别判定：K7、K8 与 architecture: true 为 R2，其余为 R0（实现 PR 仍按实际改动路径判级）。
 taskbooks = ["docs/plans/task-*.md"]
@@ -88,8 +94,6 @@ guard_paths = [
     ".codex/**",
     ".harness/**",
     "bin/**",
-    "engine/**",
-    "templates/**",
 ]
 # 架构级：数据迁移、新增依赖、公共接口。
 architecture_paths = ["tests/golden/**"]
@@ -106,12 +110,17 @@ slots = 6  # 2026-09-30 并发度实验：4 → 6（用户指示；依赖结构�
 ci_workflows = ["ci", "harness"]
 stall_minutes = 15
 ci_timeout_minutes = 60
+# CI 通过后由派发进程接上独立评审（T703，B77③）；评审按 [review] chain 依次尝试，经 T708 的互斥串行执行。
+review_after_ci = true
 
 [review]
 # 独立评审：默认评审方（opencode、pi、codex、claude-code）与各评审方的模型；不填模型时沿用评审方工具自己的默认设置。
 # 不配置 reviewer 时按设计方自动选择另一家；换评审方或模型后应在校准集上重跑 TPR、TNR 再比较。
 # 默认由 OpenCode（只读的 plan 代理）评审，避开执行方 Pi；Pi、Codex 可选。本仓库没有评审校准集，首批评审结论由设计方复核后再采信。
-reviewer = "opencode"
+reviewer = "codex"
+# 评审链（T703）：前一家失败（含额度用尽）时换下一家；评审方就是设计方时按分离规则跳过。
+# 两家都用尽时落到 opencode（与执行方同家），合同制路径按降级处理并强制开 audit 议题（自治试验设计 3.1）。
+chain = ["codex", "claude-code", "opencode"]
 opencode_model = "zai-coding-plan/glm-5.3"
 pi_model = "zai-coding-cn/glm-5.3"
 codex_model = "gpt-6.1-sol"
