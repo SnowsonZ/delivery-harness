@@ -50,14 +50,21 @@ Upgrading: `python3 delivery-harness/engine/cli.py upgrade --target path/to/your
 
 `install` also writes `.github/workflows/{harness,auto-merge,quality}.yml`, `.github/rulesets/*.json` and an `escape` issue template. Project-specific checks come from `checks.toml`; edit the "Prepare project" steps in the workflows for your toolchain. Requirements come in two shapes, chosen by `[platform] approval` in `checks.toml`.
 
-**Two accounts (default, `approval = "app"`).** You (the owner), a separate GitHub account for the agent (`[identity] agent_login`, added as a collaborator with write access; `bin/as-agent` takes its token from `gh auth login`), and a GitHub App you create yourself with *Pull requests: read and write* and *Contents: read and write* (the latter only to update a behind branch before approving), installed on the repository. The App only approves changes that `policy` routes to auto-merge (R0/R1, and R2 PRs on the contract route when `[contract_route]` is configured); the ruleset requires an approval from someone other than the last pusher, so neither the agent nor the workflow can approve alone. Once per repository (the names below are the defaults; override them under `[platform]`):
+**Two accounts (default, `approval = "app"`).** You (the owner), a separate GitHub account for the agent (`[identity] agent_login`, added as a collaborator with write access; `bin/as-agent` takes its token from `gh auth login`), and two GitHub Apps you create yourself, both installed on the repository:
+
+- the **approval App** with *Pull requests: read and write*. It only approves changes that `policy` routes to auto-merge (R0/R1, and R2 PRs on the contract route when `[contract_route]` is configured).
+- the **sync App** with *Contents: read and write* and *Pull requests: read and write*. When a PR branch is behind the default branch, it updates the branch (`gh pr update-branch`) before anything is approved.
+
+The ruleset requires an approval from someone other than the last pusher, so neither the agent nor the workflow can approve alone — and the two jobs must be two separate Apps: an App that syncs the branch becomes the last pusher, and its own approval no longer satisfies that rule, so a PR that was synced could never be auto-merged. If you do not configure a sync App, a behind PR is not synced; the workflow comments on the PR asking for a manual sync, and the next run re-judges. Once per repository (the names below are the defaults; override them under `[platform]`):
 
 ```sh
 gh api repos/OWNER/REPO/rulesets --method POST --input .github/rulesets/main.json
 echo '{"deployment_branch_policy":{"protected_branches":true,"custom_branch_policies":false}}' \
   | gh api repos/OWNER/REPO/environments/harness-auto-merge --method PUT --input -
-gh variable set HARNESS_APP_CLIENT_ID --repo OWNER/REPO --body "<app client id>"
-gh secret set HARNESS_APP_PRIVATE_KEY --repo OWNER/REPO --env harness-auto-merge < app-private-key.pem
+gh variable set HARNESS_APP_CLIENT_ID --repo OWNER/REPO --body "<approval app client id>"
+gh secret set HARNESS_APP_PRIVATE_KEY --repo OWNER/REPO --env harness-auto-merge < approval-app-private-key.pem
+gh variable set HARNESS_SYNC_APP_CLIENT_ID --repo OWNER/REPO --body "<sync app client id>"
+gh secret set HARNESS_SYNC_APP_PRIVATE_KEY --repo OWNER/REPO --env harness-auto-merge < sync-app-private-key.pem
 gh api repos/OWNER/REPO/actions/permissions/workflow --method PUT \
   -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false
 ```
