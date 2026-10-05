@@ -38,7 +38,7 @@ from pathlib import Path
 from queue import Queue
 from typing import ClassVar
 
-from engine.agents import dispatch, dispatch_host, review_pack_io
+from engine.agents import dispatch, dispatch_host, review_lock, review_pack_io
 from engine.agents import dispatch_observation as observation
 
 # T707 拆分：B59 真实历史样本校准段移出到子模块，这里重新导出，engine.agents.review.X 的既有用法不变。
@@ -124,7 +124,11 @@ class CodexReviewer(Reviewer):
         # 没配置模型时沿用 Codex 自己的默认设置。
         model = ["-m", self.model] if self.model else []
         effort = ["-c", f'model_reasoning_effort="{self.effort}"'] if self.effort else []
-        return ["codex", "exec", "-s", "read-only", *model, *effort, "-C", str(workspace),
+        # B81：关闭子代理（实测每次评审另派 2 个子代理，占评审输入 token 的 53%，而 9 条严重发现
+        # 里主会话自己查到 8 条；关掉后输入从平均 3.8M 降到 0.96M，同样查出严重问题，2026-10-04）。
+        # 插在推理强度之后、-C 之前：第 0–5 位不变（消费方契约测试断言 argv[5] 是模型名）。
+        no_subagents = ["-c", "agents.enabled=false"]
+        return ["codex", "exec", "-s", "read-only", *model, *effort, *no_subagents, "-C", str(workspace),
                 "--skip-git-repo-check", "-o", str(output), prompt]
 
     def read(self, stdout, output):
@@ -403,67 +407,71 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
     trace = pr["headRefName"]  # 评审事件的显式 trace：PR 的 headRefName
     head = pr["headRefOid"]
     workspace = review_workspace(root)
-    git("fetch", "--quiet", "origin", f"pull/{number}/head", "main", cwd=workspace)
-    checkout(workspace, head)
-    base = review_base(pr, workspace)
-    designer = designer_of(base, "HEAD", pr["headRefName"], workspace)
-    name = reviewer_name or load_rules().get("review", {}).get("reviewer") or OTHER.get(designer or "")
-    if name is None:
-        print("未能判定评审方：用 --reviewer 指定（不能是设计方本身）")
-        return 2
-    if name == designer:
-        print(f"评审方 {name} 就是设计方，违反分离规则")
-        return 2
-    target = run_check.scope(base, "HEAD", pr["headRefName"], workspace)
-    task_text = (workspace / target.taskbook).read_text(encoding="utf-8") if target and target.taskbook else ""
-    taskbook_rel = target.taskbook if target and target.taskbook else ""
-    if not taskbook_rel:  # 探测未命中才回退，命中时行为逐字不变
-        taskbook_rel, task_text = taskbook_from_pr_text(base, pr["title"], pr["body"] or "", workspace)
-    write_materials(workspace, base, f"# {pr['title']}\n\n{pr['body']}", task_text, ci_summary(number, github))
-    materials = observation.review_materials(workspace, base, head, taskbook_rel or None, number)
-    executors = {record.get("gen_ai.agent.name") for record in run_check_records(workspace, base)}
-    independent = None if designer is None else name != designer
-    verdict, model, seconds = run_reviewer(make_reviewer(name), workspace, load_rules().get("review", {}).get(
-        "timeout_minutes", 30) * 60)
-    if verdict.failure:
+    # E128-R1（逃逸 #128）：所有评审入口共用这批工作区，从 checkout 到评论发布整段持锁，
+    # 并发评审串行进行（#119 补审与 #120 评审同时运行时材料被覆盖）。等待上限取评审超时的两倍。
+    timeout = load_rules().get("review", {}).get("timeout_minutes", 30) * 60 * 2
+    with review_lock.workspace_lock(root, workspace, timeout, purpose=f"review_pr #{number}"):
+        git("fetch", "--quiet", "origin", f"pull/{number}/head", "main", cwd=workspace)
+        checkout(workspace, head)
+        base = review_base(pr, workspace)
+        designer = designer_of(base, "HEAD", pr["headRefName"], workspace)
+        name = reviewer_name or load_rules().get("review", {}).get("reviewer") or OTHER.get(designer or "")
+        if name is None:
+            print("未能判定评审方：用 --reviewer 指定（不能是设计方本身）")
+            return 2
+        if name == designer:
+            print(f"评审方 {name} 就是设计方，违反分离规则")
+            return 2
+        target = run_check.scope(base, "HEAD", pr["headRefName"], workspace)
+        task_text = (workspace / target.taskbook).read_text(encoding="utf-8") if target and target.taskbook else ""
+        taskbook_rel = target.taskbook if target and target.taskbook else ""
+        if not taskbook_rel:  # 探测未命中才回退，命中时行为逐字不变
+            taskbook_rel, task_text = taskbook_from_pr_text(base, pr["title"], pr["body"] or "", workspace)
+        write_materials(workspace, base, f"# {pr['title']}\n\n{pr['body']}", task_text, ci_summary(number, github))
+        materials = observation.review_materials(workspace, base, head, taskbook_rel or None, number)
+        executors = {record.get("gen_ai.agent.name") for record in run_check_records(workspace, base)}
+        independent = None if designer is None else name != designer
+        verdict, model, seconds = run_reviewer(make_reviewer(name), workspace, load_rules().get("review", {}).get(
+            "timeout_minutes", 30) * 60)
+        if verdict.failure:
+            observation.review(trace=trace, head=head, reviewer=name, verdict=verdict.verdict,
+                               duration_ms=int(seconds * 1000), findings=verdict.findings, materials=materials,
+                               designer=designer, model=verdict.audit_model, model_basis=verdict.model_basis,
+                               parsed=verdict.parsed, independent=independent, same_host=name in executors,
+                               failure=verdict.failure, error_kind=verdict.error_kind)
+            alerts.publish(trace, "review_error", pr=number, gh=github)  # 评审方自身失败也复用发布（D067）
+            print(f"PR #{number}：评审方失败（{verdict.failure}），没有评论，保留待评审标签")
+            return 1
+        same_host = name in executors
+        audit = observation.review_audit(trace_id=trace, head=head, base=base, reviewer=name,
+                                         model=verdict.audit_model, model_basis=verdict.model_basis,
+                                         designer=designer,
+                                         implementers=sorted(item for item in executors if item),
+                                         independent=independent, same_host=same_host, parsed=verdict.parsed,
+                                         verdict=verdict.verdict, duration_ms=int(seconds * 1000),
+                                         findings=verdict.findings, materials=materials)
+        body = render_comment(verdict, name, model, designer, head, seconds, same_host, audit)
+        url = github.comment(number, body)
+        # 事件在评论实际发布后写：URL 与评论字节哈希只有此刻可知（C6：摘要不预写 URL、不含自身哈希）。
         observation.review(trace=trace, head=head, reviewer=name, verdict=verdict.verdict,
                            duration_ms=int(seconds * 1000), findings=verdict.findings, materials=materials,
                            designer=designer, model=verdict.audit_model, model_basis=verdict.model_basis,
-                           parsed=verdict.parsed, independent=independent, same_host=name in executors,
-                           failure=verdict.failure, error_kind=verdict.error_kind)
-        alerts.publish(trace, "review_error", pr=number, gh=github)  # 评审方自身失败也复用发布（D067）
-        print(f"PR #{number}：评审方失败（{verdict.failure}），没有评论，保留待评审标签")
-        return 1
-    same_host = name in executors
-    audit = observation.review_audit(trace_id=trace, head=head, base=base, reviewer=name,
-                                     model=verdict.audit_model, model_basis=verdict.model_basis,
-                                     designer=designer,
-                                     implementers=sorted(item for item in executors if item),
-                                     independent=independent, same_host=same_host, parsed=verdict.parsed,
-                                     verdict=verdict.verdict, duration_ms=int(seconds * 1000),
-                                     findings=verdict.findings, materials=materials)
-    body = render_comment(verdict, name, model, designer, head, seconds, same_host, audit)
-    url = github.comment(number, body)
-    # 事件在评论实际发布后写：URL 与评论字节哈希只有此刻可知（C6：摘要不预写 URL、不含自身哈希）。
-    observation.review(trace=trace, head=head, reviewer=name, verdict=verdict.verdict,
-                       duration_ms=int(seconds * 1000), findings=verdict.findings, materials=materials,
-                       designer=designer, model=verdict.audit_model, model_basis=verdict.model_basis,
-                       parsed=verdict.parsed, independent=independent, same_host=same_host,
-                       comment=url, comment_body=body)
-    try:
-        github._run(["gh", "pr", "edit", str(number), "--remove-label", LABEL], agent=True)
-    except RuntimeError:
-        pass  # 没有该标签
-    if verdict.verdict == "不通过":  # D067：评审否决在已有评论发布后补标签/告警，不重跑评审
-        alerts.publish(trace, "review_rejected", pr=number, gh=github)
-    if verdict.verdict == "通过" and not verdict.flagged:
-        # T702：复核先到、评审后到时由这一步触发重判（两样都齐了才轮到 auto-merge，而它只由
-        # harness 的 workflow_run 触发）。按需导入：signoff 依赖 dispatch，与本模块同层。
-        from engine.agents import signoff
+                           parsed=verdict.parsed, independent=independent, same_host=same_host,
+                           comment=url, comment_body=body)
+        try:
+            github._run(["gh", "pr", "edit", str(number), "--remove-label", LABEL], agent=True)
+        except RuntimeError:
+            pass  # 没有该标签
+        if verdict.verdict == "不通过":  # D067：评审否决在已有评论发布后补标签/告警，不重跑评审
+            alerts.publish(trace, "review_rejected", pr=number, gh=github)
+        if verdict.verdict == "通过" and not verdict.flagged:
+            # T702：复核先到、评审后到时由这一步触发重判（两样都齐了才轮到 auto-merge，而它只由
+            # harness 的 workflow_run 触发）。按需导入：signoff 依赖 dispatch，与本模块同层。
+            from engine.agents import signoff
 
-        signoff.retrigger_if_ready(number, root, github)
-    print(f"PR #{number}：{verdict.verdict}（{name}），已评论")
-    return 0
+            signoff.retrigger_if_ready(number, root, github)
+        print(f"PR #{number}：{verdict.verdict}（{name}），已评论")
+        return 0
 
 
 # ---- 后台自动评审 ----
@@ -617,18 +625,24 @@ def calibrate(reviewer_name: str, limit: int | None = None, root: Path = ROOT, r
     workspaces = Queue()
     for index in range(max(1, min(jobs, len(pending)))):
         workspaces.put(workspace if index == 0 else review_workspace(root, index))
+    # E128-R1（逃逸 #128）：按样本持锁——从占用工作区（prepare_sample）到评审方结果落盘为一段，样本之间
+    # 释放（修订记录 2）；index 0 的工作区与 review_pr 等入口互斥，index 大于 0 的并行工作区各用各的锁文件。
+    lock_timeout = load_rules().get("review", {}).get("timeout_minutes", 30) * 60 * 2
 
     def review_one(sample: dict) -> dict:
         space = workspaces.get()
         try:
-            try:
-                base, pr_text = prepare_sample(space, sample, main_ref, root)
-            except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
-                return {"kind": sample["kind"], "id": sample["id"], "error": str(error)}
-            write_materials(space, base, pr_text, "")
-            verdict, model, seconds = run_reviewer(reviewer, space, 30 * 60)
-            return {"kind": sample["kind"], "id": sample["id"], "verdict": verdict.verdict, "flagged": verdict.flagged,
-                    "parsed": verdict.parsed, "failure": verdict.failure, "seconds": round(seconds), "model": model}
+            with review_lock.workspace_lock(root, space, lock_timeout, purpose=f"calibrate {sample['id']}"):
+                try:
+                    base, pr_text = prepare_sample(space, sample, main_ref, root)
+                except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+                    return {"kind": sample["kind"], "id": sample["id"], "error": str(error)}
+                write_materials(space, base, pr_text, "")
+                verdict, model, seconds = run_reviewer(reviewer, space, 30 * 60)
+                return {"kind": sample["kind"], "id": sample["id"], "verdict": verdict.verdict,
+                        "flagged": verdict.flagged,
+                        "parsed": verdict.parsed, "failure": verdict.failure, "seconds": round(seconds),
+                        "model": model}
         finally:
             workspaces.put(space)
 

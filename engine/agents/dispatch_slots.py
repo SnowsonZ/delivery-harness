@@ -1,7 +1,8 @@
 """派发的槽位管理（T707 自 dispatch.py 逐字移出，行为不变）。
 
-调用原模块的名字（state_dir、_alive、slot_path、_now、Stop、preserved_paths）时按需在函数体内
-导入 dispatch 并以属性访问：保留测试在原模块上的 patch 语义，也避免循环导入。
+调用原模块的名字（state_dir、_alive、slot_path、_now、Stop、preserved_paths，以及原本同在
+一模块的 _registered_worktrees、_salvage_and_remove）时按需在函数体内导入 dispatch 并以
+属性访问：保留测试在原模块上的 patch 语义，也避免循环导入。
 """
 
 from __future__ import annotations
@@ -72,7 +73,9 @@ def _salvage_and_remove(root: Path, slot: Path, push) -> None:
     不是登记在案的工作树（普通残留目录）不动；推送/取远端状态失败原样抛出，由调用方决定
     停止派发（回收路径）或提示后继续（结束路径）。
     """
-    if not slot.exists() or str(slot.resolve()) not in _registered_worktrees(root):
+    from engine.agents import dispatch  # _registered_worktrees 留在原模块，按需导入（B89）
+
+    if not slot.exists() or str(slot.resolve()) not in dispatch._registered_worktrees(root):
         return
     branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=slot, check=False)
     if branch and branch != "HEAD":
@@ -110,7 +113,7 @@ def reclaim_stale_slots(root: Path, config: Config, push) -> list[str]:
         if dispatch._alive(data.get("pid", 0)):
             continue
         try:
-            _salvage_and_remove(root, dispatch.slot_path(root, config, int(lock.stem)), push)
+            dispatch._salvage_and_remove(root, dispatch.slot_path(root, config, int(lock.stem)), push)
         except (RuntimeError, subprocess.CalledProcessError) as error:
             raise dispatch.Stop(f"槽位 {lock.stem} 回收失败（分支提交保全未完成，工作树保留待人工处理）：{error}") from error
         reclaimed.append(str(data.get("branch") or ""))
@@ -135,7 +138,7 @@ def return_slot(root: Path, config: Config, index: int, push) -> None:
     with os.fdopen(fd, "w") as handle:
         json.dump({"pid": os.getpid(), "task": "return", "started_at": dispatch._now()}, handle)
     try:
-        _salvage_and_remove(root, dispatch.slot_path(root, config, index), push)
+        dispatch._salvage_and_remove(root, dispatch.slot_path(root, config, index), push)
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(f"槽位 {index} 归还未完成（工作树保留，下次派发会回收）：{error}", file=sys.stderr)
     finally:
