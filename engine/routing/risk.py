@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import argparse
 import ast
+import codecs
 import copy
 import os
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -190,18 +192,61 @@ def _literal_case_call(node: ast.expr) -> bool:
     return True
 
 
+# PEP 263 编码声明（tokenize 的 cookie 正则同款）：声明须在前两行的注释里，形如 `coding[:=] <名字>`。
+CODING_COOKIE_RE = re.compile(r"^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)", re.ASCII)
+
+
+def _blob_bytes(rev: str, path: str, cwd: Path) -> bytes:
+    """读 `rev:path` 的 git blob 原始字节（修订 2）。
+
+    不先解码成字符串：``ast.parse`` 拿到字节才会像 Python 加载模块一样遵守 PEP 263 编码声明，
+    字符串解析会忽略声明，让「藏在注释里的 `\u000a`」这样的可执行内容在结构比较里隐形（#146 二轮反例）。
+    """
+    result = subprocess.run(["git", "show", f"{rev}:{path}"], cwd=cwd, capture_output=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"git show {rev}:{path} 失败：{result.stderr.decode(errors='replace').strip()}")
+    return result.stdout
+
+
+def _coding_declaration(data: bytes) -> tuple[str, str] | None:
+    """前两行注释里的 PEP 263 编码声明，返回 (声明原文, 编码名)；没有返回 None（修订 2）。
+
+    声明原文用于「head 与 base 完全相同」的比较（写法变了同样不算相同）；编码名用于限定只能是
+    utf-8。声明行须是纯 ASCII（tokenize 对非 ASCII 行同样不认声明），解码失败按没有声明处理。
+    """
+    for line in data.split(b"\n")[:2]:
+        try:
+            text = line.decode("ascii")
+        except UnicodeDecodeError:
+            return None
+        match = CODING_COOKIE_RE.match(text)
+        if match:
+            return match.group(0), match.group(1)
+    return None
+
+
 def replay_cases_grew_only(base: str, head: str, path: str, cwd: Path) -> bool:
     """回放清单是否只向 ``CASES`` 末尾追加了全字面量的 ``Case(...)``（rules.toml [risk] grow_only_cases）。
 
-    只用 ``ast.parse`` 读 base 与 head 两个版本的文件内容，不执行 PR 内容（判级时 PR 只能当数据读，
-    见 engine/core/cases.py 的说明）。其余顶层语句（``BASELINE``、``GUARDED``、``DEFERRED``、import、
-    文档字符串）必须 ``ast.dump`` 完全相同——在 ``DEFERRED``、``GUARDED`` 里新增一行同样是「只增行」，
-    那是削弱护栏，必须拦下；``CASES`` 这条语句本身除列表外也必须逐字段相同（类型、目标、注解、``simple``）。
-    任何一步失败（含读取或解析异常）都返回 False，不抛异常。
+    只用 ``ast.parse`` 读 base 与 head 两个版本的 git blob 原始字节，不执行 PR 内容（判级时 PR 只能当数据读，
+    见 engine/core/cases.py 的说明）；以字节解析使结果遵守 PEP 263 编码声明，与 Python 加载时一致，
+    head 前两行的编码声明必须与 base 完全相同且只能是 utf-8（utf8、UTF-8 等写法等价，修订 2）。其余顶层
+    语句（``BASELINE``、``GUARDED``、``DEFERRED``、import、文档字符串）必须 ``ast.dump`` 完全相同——在
+    ``DEFERRED``、``GUARDED`` 里新增一行同样是「只增行」，那是削弱护栏，必须拦下；``CASES`` 这条语句本身
+    除列表外也必须逐字段相同（类型、目标、注解、``simple``，修订 1）。任何一步失败（含读取或解析异常）
+    都返回 False，不抛异常。
     """
     try:
-        base_stmts = ast.parse(git("show", f"{base}:{path}", cwd=cwd)).body
-        head_stmts = ast.parse(git("show", f"{head}:{path}", cwd=cwd)).body
+        base_bytes = _blob_bytes(base, path, cwd)
+        head_bytes = _blob_bytes(head, path, cwd)
+        head_cookie = _coding_declaration(head_bytes)
+        if head_cookie is not None:
+            if head_cookie != _coding_declaration(base_bytes):
+                return False  # head 引入或改动了编码声明（含 base 未声明、utf-8 改写 utf8）
+            if codecs.lookup(head_cookie[1]).name != "utf-8":
+                return False  # 只接受 utf-8 家族的声明
+        base_stmts = ast.parse(base_bytes).body
+        head_stmts = ast.parse(head_bytes).body
         if len(base_stmts) != len(head_stmts):
             return False
         index = _single_cases_index(base_stmts)

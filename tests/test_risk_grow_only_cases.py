@@ -1,7 +1,8 @@
 """T712 回放清单只追加判级测试：[risk] grow_only_cases 命中的回放清单在只向 CASES 末尾追加全字面量
 Case(...) 时按 R2（grow_only_cases 规则，可与产品代码、测试同 PR 判 K4）；其余任何改动——修改/删除/调换
 已有用例、改 BASELINE、GUARDED、DEFERRED、非字面量参数、夹带副作用顶层语句、CASES 赋值语句本身
-（类型、目标、注解、simple 标志，修订 1）、语法错误、新增文件、缺省不配置——照旧按 R3，且判级只读
+（类型、目标、注解、simple 标志，修订 1）、引入或改动 PEP 263 编码声明（修订 2，只
+接受与 base 完全相同的 utf-8 声明）、语法错误、新增文件、缺省不配置——照旧按 R3，且判级只读
 PR 内容、从不执行它。
 
 夹具全部使用匿名临时 git 仓库，rules.toml 在夹具内配置 grow_only_cases（test_default_off 除外）；
@@ -62,6 +63,31 @@ NEW_CASE = '''    Case(
         replace="new3",
         tests=("test_z.TestZ.test_three",),
     )'''
+# 纯 ASCII 版夹具（修订 2）：utf-8 与 latin-1 解码下 AST 逐字相同，判 R3 只能归因于编码声明检查。
+ASCII_CASE_ONE = '''    Case(
+        defect="X1-1",
+        title="first defect",
+        file="engine/x.py",
+        find="old1",
+        replace="new1",
+        tests=("test_x.TestX.test_one",),
+    )'''
+ASCII_CASE_TWO = '''    Case(
+        defect="X1-2",
+        title="second defect",
+        file="engine/y.py",
+        find="old2",
+        replace="new2",
+        tests=("test_y.TestY.test_two",),
+    )'''
+ASCII_NEW_CASE = '''    Case(
+        defect="X1-3",
+        title="third defect",
+        file="engine/z.py",
+        find="old3",
+        replace="new3",
+        tests=("test_z.TestZ.test_three",),
+    )'''
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
@@ -78,6 +104,18 @@ def replay(cases: list[str], *, baseline: str = "[]", guarded: str = "{}", defer
         f"CASES: list[Case] = [\n{body},\n]\n"
         f"GUARDED: dict[str, tuple[str, ...]] = {guarded}\n"
         f"DEFERRED: dict[str, str] = {deferred}\n"
+    )
+
+
+def replay_ascii(cases: list[str]) -> str:
+    """纯 ASCII 版回放清单夹具（编码声明测试用，修订 2）。"""
+    body = ",\n".join(cases)
+    return (
+        '"""ASCII fixture replay list."""\n\nfrom engine.core.cases import Case\n\n'
+        "BASELINE: list[str] = []\n"
+        f"CASES: list[Case] = [\n{body},\n]\n"
+        "GUARDED: dict[str, tuple[str, ...]] = {}\n"
+        "DEFERRED: dict[str, str] = {}\n"
     )
 
 
@@ -199,10 +237,12 @@ class GrowOnlyCasesTest(unittest.TestCase):
     # ---- 验收 5：夹带副作用顶层语句 → R3，且判级过程不执行 PR 内容 ----
 
     def test_never_executes_pr_content(self):
-        marker = self.repo / ".harness/project/touched-by-pr"
+        # 标记文件用绝对路径（夹具临时目录下，修订 2）：无论 PR 内容被写到哪里执行——仓库里、
+        # 临时目录、被 import 的临时副本——都会落到这个固定位置，不再依赖 `__file__` 所在目录。
+        marker = self.tmp / "pr-content-executed"
         side_effect = (
-            'import pathlib as _p\n'
-            '_p.Path(__file__).with_name("touched-by-pr").write_text("executed")\n\n'
+            "import pathlib as _p\n"
+            f"_p.Path({str(marker)!r}).write_text('executed')\n\n"
             + replay([CASE_ONE, CASE_TWO, NEW_CASE])
         )
         self.assert_stays_r3(self.fresh_head({REPLAY_PATH: side_effect}, "夹带副作用"))
@@ -245,6 +285,36 @@ class GrowOnlyCasesTest(unittest.TestCase):
                 "普通赋值基线")
             head = self.fresh_head({REPLAY_PATH: replay(appended)}, "换成带注解赋值", ref=plain_base)
             self.assert_stays_r3(head, base=plain_base)
+
+    # ---- 验收（修订 2）：引入或改动 PEP 263 编码声明 → R3；不带声明的正常追加仍 R2 ----
+
+    def test_encoding_declaration_stays_r3(self):
+        # 纯 ASCII 夹具：两种解码下 AST 完全相同，判 R3 的唯一原因只能是编码声明本身。
+        # base 从 ASCII 版起建，否则与 self.base（中文夹具）的文档字符串比较就会先失败。
+        ascii_base = self.fresh_head(
+            {REPLAY_PATH: replay_ascii([ASCII_CASE_ONE, ASCII_CASE_TWO])}, "ASCII 基线")
+        appended = replay_ascii([ASCII_CASE_ONE, ASCII_CASE_TWO, ASCII_NEW_CASE])
+        variants = {
+            # unicode_escape 声明 + 注释里藏 `\u000aBASELINE.clear()`：加载时 \u000a 即换行，
+            # BASELINE.clear() 成为可执行语句，基线被清空（#146 二轮评审反例）。
+            "unicode_escape_hidden_code": (
+                "# -*- coding: unicode_escape -*-\n"
+                "# \\u000aBASELINE.clear()\n"
+                + appended
+            ),
+            # 非 utf-8 声明（latin-1）、内容无害：同样不允许。
+            "latin1_harmless": "# -*- coding: latin-1 -*-\n" + appended,
+        }
+        for label, text in variants.items():
+            with self.subTest(label=label):
+                head = self.fresh_head({REPLAY_PATH: text}, f"编码声明 {label}", ref=ascii_base)
+                self.assert_stays_r3(head, base=ascii_base)
+        # 不带编码声明的正常追加仍判 R2。
+        head = self.fresh_head({REPLAY_PATH: appended}, "无声明追加", ref=ascii_base)
+        report = risk.classify(ascii_base, head, cwd=self.repo, rules=self.rules)
+        item = self.file_risk(report)
+        self.assertEqual((item.status, item.level, item.reason), ("M", 2, "回放清单只追加新用例"))
+        self.assertEqual(report.level, 2)
 
     # ---- 验收 7：不配置 grow_only_cases 时行为与现在一致（追加也判 R3） ----
 
