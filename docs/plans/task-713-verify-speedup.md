@@ -49,6 +49,7 @@ rollback: git revert（仅在用户授权后）
 - `engine/guards/git_guard.py`（只改 `cmd_pre_push` 是否跑 verify 的判断，及其辅助函数）
 - `tests/test_test_runner.py`（新增）
 - `tests/test_prepush_reuse.py`（新增）
+- `tests/test_events_equivalence.py`（修订记录 1：只在 pre-push 各状态调用前清空通过记录目录）
 - `CHANGELOG.md`
 
 消费方扫描（检查单第 2 项）：
@@ -111,3 +112,15 @@ rollback: git revert（仅在用户授权后）
 - pre-push 不检查工作区是否干净。
 
 同一失败连续三轮没有新证据时，停止这条路径。不得自行扩大白名单、修改任务书、实现非目标。
+
+## 修订记录 1（2026-10-05，设计方裁决执行方升级：等价测试与复用语义冲突）
+
+执行方第 1 次派发完成了步骤 1–3（`36c5d5b`、`13aaeb0`），新增测试全过。步骤 2 的实测：`run-tests -s tests` 连续 3 次都是 `Ran 282`、全部通过、结果一致，耗时 108、117、127 秒；`unittest discover -s tests` 同样 `Ran 282`，耗时 471 秒。
+
+执行方停在步骤 3 的验证命令：`tests/test_events_equivalence.py` 在同一个装有引擎的夹具仓库里，用三种事件开关状态各调用一次 pre-push，比较结果是否等价。第一次调用跑完 verify 后按本任务的规格写下通过记录，第二次调用就按规格跳过 verify，而夹具预置的 `summary.json` 为空，测试读取时崩溃。这是新行为的正确结果，问题在于测试没有隔离各状态；该文件不在白名单，执行方按规则停下，判断正确。
+
+裁决（采纳执行方推荐的方案 A）：
+
+- 白名单加入 `tests/test_events_equivalence.py`，**只改一处**：pre-push 各状态调用之前，清空夹具仓库 git 公共目录下的 `harness/verify-pass/`，使每个状态都真正跑 verify，等价比较的对象不变。其余断言不动。
+- 消费方扫描补一行：`tests/test_events_equivalence.py` 的 pre-push 三态比较依赖「每次 pre-push 都跑 verify」，需按上条隔离。
+- 其余目标终态、验收、变异清单不变；已完成的提交保留，在此基础上续跑步骤 3 的验证与步骤 4。
