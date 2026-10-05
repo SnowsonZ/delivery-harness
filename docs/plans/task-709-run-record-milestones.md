@@ -42,6 +42,7 @@ rollback: git revert（仅在用户授权后）
 
 - `engine/agents/run_timeline.py`
 - `tests/test_run_record_milestones.py`（新增）
+- `tests/test_audit_reconstruction.py`（修订记录 1：只把 `run_record_summary` 的 step 集合断言同步为 `{"admit"}`）
 - `tests/test_audit_ledger.py`（**只在必要时**：如果它的断言依赖记录 stages 里含有非 dispatch 的事件，就只同步这处口径，不删断言；不依赖则不改）
 
 消费方扫描（检查单第 2 项）：
@@ -53,6 +54,7 @@ rollback: git revert（仅在用户授权后）
 | `engine/reports/trace.py` 第 180 行起（stages 末项的 `head_hash` 兜底） | 无需 | T125 之后记录 stages 已经没有 `head_hash`，这个兜底本来就用不上 |
 | `engine/core/alerts.py` 的阶段摘要（`stage_lines`） | 无需改代码，验收覆盖 | 它调用的正是 `run_timeline.record_fields`，与写记录同一路径，过滤对它同样生效；按目标终态 1 保留失败事件后，告警仍列出评审、verify、CI 的失败，只是去掉了成百行重复的 ok 事件（#134 告警刷屏即由此而来）。由验收第 5 行断言 |
 | `tests/test_run_timeline.py`、`tests/test_dispatch_robustness.py`、`tests/test_run_record_privacy.py` | 无需 | 夹具里的事件都是 `stage: dispatch` |
+| `tests/test_audit_reconstruction.py` | 需要（修订记录 1） | 断言记录摘要的 step 集合含夹具里的 `verify.tests` ok 事件，口径随本任务同步为 `{"admit"}` |
 | `tests/test_audit_ledger.py` | 实现前核对 | 夹具里另有一条 `emit("verify", …)`；见白名单的条件说明 |
 
 CHANGELOG 由设计方在 D1 统一写入，本任务不改。
@@ -102,3 +104,13 @@ CHANGELOG 由设计方在 D1 统一写入，本任务不改。
 （attempt 编号的那条验收，防的是实现时把噪声事件也计入 round；由于边界本来都是派发层的步骤，「先过滤再编号」与「先编号再过滤」结果相同，所以不作为变异项。）
 
 同一失败连续三轮没有新证据时，停止这条路径。不得自行扩大白名单、修改任务书、实现非目标。
+
+## 修订记录 1（2026-10-05，设计方裁决执行方升级：消费方扫描遗漏）
+
+执行方第 1 次派发实现与新增测试都已完成（`5f76a60`），`bin/verify --full` 只剩 1 个失败：`tests/test_audit_reconstruction.py` 的 `test_rebuild_input_output_decisions_by_source` 断言账本里 `run_record_summary` 的 step 集合为 `{"admit", "verify.tests"}`。它的夹具在写记录前发了一条 `verify/verify.tests ok`，按本任务的口径这条正该被过滤。设计方写消费方扫描时漏了这个文件，执行方按规则停下，判断正确。
+
+裁决（采纳执行方推荐的方案 A）：
+
+- 白名单加入 `tests/test_audit_reconstruction.py`，**只改这一处断言**：`run_record_summary` 的 step 集合改为 `{"admit"}`。同一测试里按事件库复原 `verify/verify.tests`（`evidence == "event"`）的断言不动，它证明被过滤的事件仍可从本机事件库复原。
+- 消费方扫描补一行：`tests/test_audit_reconstruction.py` 断言记录摘要的 step 集合，口径随本任务同步。
+- 其余目标终态、验收、变异清单不变。已完成的提交保留，在此基础上续跑。
