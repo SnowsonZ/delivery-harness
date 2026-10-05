@@ -328,6 +328,10 @@ class ObservabilityTaskTest(unittest.TestCase):
         structured: tuple[str, ...] = (),
         env_extra: dict[str, str] | None = None,
     ) -> dict:
+        if argv[:2] == ["guard-git", "pre-push"]:
+            # T713 修订 1：pre-push 会复用同一代码树的 verify 通过记录；三态比较要求每态都真正跑 verify，
+            # 所以每次调用前清空夹具仓库的通过记录目录（git 公共目录下的 harness/verify-pass）。
+            shutil.rmtree(self.repo / ".git" / "harness" / "verify-pass", ignore_errors=True)
         for rel in structured:
             target = self.repo / rel
             target.parent.mkdir(parents=True, exist_ok=True)
