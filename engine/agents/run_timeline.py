@@ -6,11 +6,15 @@
 尚未发生的 push_pr/ci_wait，也不为补时间线追加推送。本模块不判定退出/预算/推送，读取或组装失败一律
 退化为空摘要（锚点为空），不改变派发的判定、返回码与 gh 调用序列。
 
-stages 是记录的索引而非事件流（B77 收敛）：只含本次 attempt 窗口的事件（按链内 ci_wait/escalate 边界
-推导 attempt，最后一次边界之后为本窗口），每项只保留 stage/step/status/ts/duration_ms/attempt/round
-七个标量；inputs/outputs/decision/actor/source/head_hash 等细节留在事件库。更早 attempt 已发生的
+stages 是记录的索引而非事件流（B77 收敛；B92 第 1 部分再收敛为只留派发里程碑）：先过滤整条本机链，只保留
+stage == dispatch 的事件与任何阶段的失败事件（槽位里单测调用引擎函数写下的 ci/route/verify 等 ok 噪声
+不入记录；失败事件保留——告警的「已发生的阶段」同走 record_fields，丢掉它会让 review/verify/ci 的关键
+失败行消失），再按链内 ci_wait/escalate 边界推导 attempt（最后一次边界之后为本窗口），每项只保留
+stage/step/status/ts/duration_ms/attempt/round 七个标量；inputs/outputs/decision/actor/source/head_hash
+等细节留在事件库。更早 attempt 已发生的
 push_pr/ci_wait 各保留一条指针行（stage/step/status="prior"/attempt），标记链上有过衔接而不重复携带
-历史（resume 多轮曾膨胀至 1.1MB 被卫生守卫拦下）。anchors 不变；保底：组装后 stages 超 256KB 从尾部
+历史（resume 多轮曾膨胀至 1.1MB 被卫生守卫拦下）。anchors 不变：链头仍取过滤前整条链的最后一个事件，
+被过滤的事件仍在事件库里，靠锚点哈希防篡改；保底：组装后 stages 超 256KB 从尾部
 截断并标注 stages_truncated/stages_total（记录 JSON 的 512KB 自检在 dispatch.write_record）。
 """
 
@@ -26,6 +30,8 @@ from engine.core.common import load_rules
 
 _SOURCE = "local"  # 记录时间线只取本机来源链；CI/GitHub 事实由各自来源记录
 _ANCHOR_STAGE = "dispatch"  # 锚点在派发写记录时固定
+# B92 第 1 部分：stages 只保留派发里程碑（与 _ANCHOR_STAGE 同阶段、各自命名）与任意阶段的失败事件。
+_MILESTONE_STAGE = "dispatch"
 _FIXED_IN = "run_record"
 _EVENT_COLUMNS = ("hash", "ts", "stage", "step", "status", "duration_ms")
 # 单条摘要瘦身（B77）：只保留七个标量字段，记录是索引，细节留在事件库。
@@ -120,9 +126,11 @@ def _home_path_re() -> re.Pattern[str]:
 def _read_stages(trace_id: str) -> tuple[list[dict], str | None]:
     """读取本机链并组装本次 attempt 窗口的安全摘要；任何失败返回空摘要与 None 链头（观察旁路）。
 
-    attempt 按链内边界推导（ci_wait/escalate 之后进入下一次尝试，边界事件本身属于它结束的尝试）；
-    记录只含本次 attempt 的事件，更早 attempt 已发生的 push_pr/ci_wait 按链序各留一条指针行。
-    链头仍取整条链的最后一个事件（anchors 语义不变）。
+    先按里程碑过滤（B92 第 1 部分）：只保留 stage == _MILESTONE_STAGE 的事件与任何阶段的失败事件；
+    attempt 按链内边界推导（ci_wait/escalate 之后进入下一次尝试，边界事件本身属于它结束的尝试），
+    编号只依赖派发层 step，过滤前后推导结果相同（噪声事件不影响编号）。记录只含本次 attempt 的事件，
+    更早 attempt 已发生的 push_pr/ci_wait 按链序各留一条指针行。链头仍取过滤前整条链的最后一个事件
+    （anchors 语义不变），被过滤的事件仍在事件库里，靠锚点哈希防篡改。
     """
     try:
         rows = _read_events(trace_id)
@@ -130,9 +138,14 @@ def _read_stages(trace_id: str) -> tuple[list[dict], str | None]:
         return [], None
     if not rows:
         return [], None
+    head = rows[-1]["hash"]
+    milestones = [row for row in rows
+                  if row["stage"] == _MILESTONE_STAGE or row["status"] == "fail"]
+    if not milestones:
+        return [], head
     attempt, round_no = 1, 0
     numbered: list[tuple[dict, int, int]] = []
-    for row in rows:
+    for row in milestones:
         if row["step"] == "executor_round":
             round_no += 1
         numbered.append((row, attempt, round_no if row["step"] in _ROUND_STEPS else 0))
@@ -148,7 +161,7 @@ def _read_stages(trace_id: str) -> tuple[list[dict], str | None]:
             items.append({"stage": row["stage"], "step": row["step"], "status": _POINTER_STATUS,
                           "ts": row["ts"], "duration_ms": row["duration_ms"],
                           "attempt": no, "round": rnd})
-    return items, rows[-1]["hash"]
+    return items, head
 
 
 def _read_events(trace_id: str) -> list[dict]:
