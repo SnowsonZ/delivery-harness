@@ -21,9 +21,11 @@ import argparse
 import ast
 import codecs
 import copy
+import io
 import os
 import re
 import subprocess
+import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -192,10 +194,6 @@ def _literal_case_call(node: ast.expr) -> bool:
     return True
 
 
-# PEP 263 编码声明（tokenize 的 cookie 正则同款）：声明须在前两行的注释里，形如 `coding[:=] <名字>`。
-CODING_COOKIE_RE = re.compile(r"^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)", re.ASCII)
-
-
 def _blob_bytes(rev: str, path: str, cwd: Path) -> bytes:
     """读 `rev:path` 的 git blob 原始字节（修订 2）。
 
@@ -208,46 +206,43 @@ def _blob_bytes(rev: str, path: str, cwd: Path) -> bytes:
     return result.stdout
 
 
-def _coding_declaration(data: bytes) -> tuple[str, str] | None:
-    """前两行注释里的 PEP 263 编码声明，返回 (声明原文, 编码名)；没有返回 None（修订 2）。
+def _blob_encoding(data: bytes) -> tuple[str, bytes | None]:
+    """文件实际采用的编码与声明行的原始字节（无声明为 None）；``detect_encoding`` 的异常交给调用方。
 
-    声明原文用于「head 与 base 完全相同」的比较（写法变了同样不算相同）；编码名用于限定只能是
-    utf-8。声明行须是纯 ASCII（tokenize 对非 ASCII 行同样不认声明），解码失败按没有声明处理。
+    识别完全交给 ``tokenize.detect_encoding``（T712 修订 3），与 Python 加载源文件一致：第 1 行
+    是注释时即使含非 ASCII 字符，也会继续看第 2 行的声明。它找到声明时恰好在声明行停止读取，
+    返回的已读行以声明行结尾；没有声明时任何已读行都匹配不了 ``cookie_re``（能匹配就等于找到
+    了声明），所以用 tokenize 自己的 ``cookie_re`` 认定最后一行是否声明行，不自写声明正则。
     """
-    for line in data.split(b"\n")[:2]:
-        try:
-            text = line.decode("ascii")
-        except UnicodeDecodeError:
-            return None
-        match = CODING_COOKIE_RE.match(text)
-        if match:
-            return match.group(0), match.group(1)
-    return None
+    encoding, lines = tokenize.detect_encoding(io.BytesIO(data).readline)
+    declaration = lines[-1] if lines and tokenize.cookie_re.match(lines[-1].decode("utf-8")) else None
+    return encoding, declaration
 
 
 def _encoding_allowed(base_bytes: bytes, head_bytes: bytes) -> bool:
-    """head 前两行的编码声明必须与 base 完全相同且只能是 utf-8（修订 2）。
+    """head 实际编码归一后必须是 utf-8（utf-8-sig 亦可），声明行须与 base 逐字节相同（T712 修订 3）。
 
-    head 没有声明（常规情况）直接通过；有声明时须与 base 的逐字相同，且名字归一后是
-    utf-8（utf8、UTF-8 等写法等价）；未知编码名按不通过处理。
+    head 没有声明（常规情况）直接通过；有声明时须与 base 的声明行逐字节相同（引入声明、换一种
+    写法都不算相同），且实际编码经 ``codecs.lookup`` 归一后只能是 utf-8。声明了未知编码等
+    ``detect_encoding`` 抛异常的情况按不通过处理。
     """
-    head_cookie = _coding_declaration(head_bytes)
-    if head_cookie is None:
-        return True
-    if head_cookie != _coding_declaration(base_bytes):
-        return False  # head 引入或改动了编码声明（含 base 未声明、utf-8 改写 utf8）
     try:
-        return codecs.lookup(head_cookie[1]).name == "utf-8"
-    except LookupError:
+        head_encoding, head_cookie = _blob_encoding(head_bytes)
+        base_cookie = _blob_encoding(base_bytes)[1]
+    except Exception:  # noqa: BLE001  声明了未知编码等检测异常一律按不成立处理
         return False
+    if codecs.lookup(head_encoding).name not in ("utf-8", "utf-8-sig"):
+        return False
+    return head_cookie is None or head_cookie == base_cookie
 
 
 def replay_cases_grew_only(base: str, head: str, path: str, cwd: Path) -> bool:
     """回放清单是否只向 ``CASES`` 末尾追加了全字面量的 ``Case(...)``（rules.toml [risk] grow_only_cases）。
 
     只用 ``ast.parse`` 读 base 与 head 两个版本的 git blob 原始字节，不执行 PR 内容（判级时 PR 只能当数据读，
-    见 engine/core/cases.py 的说明）；以字节解析使结果遵守 PEP 263 编码声明，与 Python 加载时一致，
-    head 前两行的编码声明必须与 base 完全相同且只能是 utf-8（utf8、UTF-8 等写法等价，修订 2）。其余顶层
+    见 engine/core/cases.py 的说明）；以字节解析使结果遵守 PEP 263 编码声明，与 Python 加载时一致，编码
+    声明的识别也交给 ``tokenize.detect_encoding``（修订 3）：head 实际编码归一后必须是 utf-8（utf-8-sig
+    亦可），head 若有声明，声明行必须与 base 逐字节相同。其余顶层
     语句（``BASELINE``、``GUARDED``、``DEFERRED``、import、文档字符串）必须 ``ast.dump`` 完全相同——在
     ``DEFERRED``、``GUARDED`` 里新增一行同样是「只增行」，那是削弱护栏，必须拦下；``CASES`` 这条语句本身
     除列表外也必须逐字段相同（类型、目标、注解、``simple``，修订 1）。任何一步失败（含读取或解析异常）
@@ -257,7 +252,7 @@ def replay_cases_grew_only(base: str, head: str, path: str, cwd: Path) -> bool:
         base_bytes = _blob_bytes(base, path, cwd)
         head_bytes = _blob_bytes(head, path, cwd)
         if not _encoding_allowed(base_bytes, head_bytes):
-            return False  # head 引入或改动编码声明，或声明不是 utf-8（修订 2）
+            return False  # head 的实际编码不是 utf-8，或引入/改动了编码声明（修订 3）
         base_stmts = ast.parse(base_bytes).body
         head_stmts = ast.parse(head_bytes).body
         if len(base_stmts) != len(head_stmts):

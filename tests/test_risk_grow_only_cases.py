@@ -1,8 +1,9 @@
 """T712 回放清单只追加判级测试：[risk] grow_only_cases 命中的回放清单在只向 CASES 末尾追加全字面量
 Case(...) 时按 R2（grow_only_cases 规则，可与产品代码、测试同 PR 判 K4）；其余任何改动——修改/删除/调换
 已有用例、改 BASELINE、GUARDED、DEFERRED、非字面量参数、夹带副作用顶层语句、CASES 赋值语句本身
-（类型、目标、注解、simple 标志，修订 1）、引入或改动 PEP 263 编码声明（修订 2，只
-接受与 base 完全相同的 utf-8 声明）、语法错误、新增文件、缺省不配置——照旧按 R3，且判级只读
+（类型、目标、注解、simple 标志，修订 1）、引入或改动 PEP 263 编码声明（修订 2/3，识别交给
+tokenize.detect_encoding，与 Python 加载一致，只接受与 base 声明行逐字节相同的 utf-8）、语法错误、新增
+文件、缺省不配置——照旧按 R3，且判级只读
 PR 内容、从不执行它。
 
 夹具全部使用匿名临时 git 仓库，rules.toml 在夹具内配置 grow_only_cases（test_default_off 除外）；
@@ -315,6 +316,42 @@ class GrowOnlyCasesTest(unittest.TestCase):
         item = self.file_risk(report)
         self.assertEqual((item.status, item.level, item.reason), ("M", 2, "回放清单只追加新用例"))
         self.assertEqual(report.level, 2)
+
+    # ---- 验收（修订 3）：编码声明识别与 Python 一致（tokenize.detect_encoding） ----
+
+    def test_encoding_detection_matches_python(self):
+        # 旧实现逐行按 ASCII 解码扫描前两行，遇到非 ASCII 行就当成没有声明，而 Python（tokenize.
+        # detect_encoding）的规则是：第 1 行是注释（可以含非 ASCII 字符）时继续看第 2 行的声明。
+        # 两个变体都断言经由真实判级入口 risk.classify（assert_stays_r3）判 R3。
+        ascii_base = self.fresh_head(
+            {REPLAY_PATH: replay_ascii([ASCII_CASE_ONE, ASCII_CASE_TWO])}, "ASCII 基线")
+        appended = replay_ascii([ASCII_CASE_ONE, ASCII_CASE_TWO, ASCII_NEW_CASE])
+        variants = {
+            # ① 第 1 行为含中文的注释、第 2 行新增 latin-1 声明：Python 会继续看第 2 行，
+            # 判级同样不得放行非 utf-8 声明。
+            "chinese_comment_then_latin1": (
+                "# 首行是含中文的注释，Python 仍会看第二行\n"
+                "# -*- coding: latin-1 -*-\n"
+                + appended
+            ),
+            # ② 声明行本身含非 ASCII 字符（如 `# 编码 -*- coding: latin-1 -*-`）：按行内容
+            # 照样是合法声明，不得因非 ASCII 而当成没有声明。
+            "non_ascii_declaration_line": "# 编码 -*- coding: latin-1 -*-\n" + appended,
+        }
+        for label, text in variants.items():
+            with self.subTest(label=label):
+                head = self.fresh_head({REPLAY_PATH: text}, f"声明识别 {label}", ref=ascii_base)
+                self.assert_stays_r3(head, base=ascii_base)
+        # ③ base 与 head 带逐字节相同的 latin-1 声明（声明行没变）：实际编码不是 utf-8，
+        # 同样必须拒；没有这条断言，「实际编码归一后必须是 utf-8」的检查就无用例覆盖。
+        with self.subTest(label="non_utf8_base_declaration"):
+            prefix = "# -*- coding: latin-1 -*-\n"
+            latin_base = self.fresh_head(
+                {REPLAY_PATH: prefix + replay_ascii([ASCII_CASE_ONE, ASCII_CASE_TWO])}, "latin-1 声明基线")
+            head = self.fresh_head(
+                {REPLAY_PATH: prefix + replay_ascii([ASCII_CASE_ONE, ASCII_CASE_TWO, ASCII_NEW_CASE])},
+                "保持 latin-1 声明追加", ref=latin_base)
+            self.assert_stays_r3(head, base=latin_base)
 
     # ---- 验收 7：不配置 grow_only_cases 时行为与现在一致（追加也判 R3） ----
 
