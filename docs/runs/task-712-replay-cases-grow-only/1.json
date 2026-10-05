@@ -1,0 +1,91 @@
+{
+  "task": "T712",
+  "class": "K5",
+  "attempt": 1,
+  "branch": "task/712-replay-cases-grow-only",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3",
+  "prompt_sha256": "cebcabd79baace057a261410a8220e3a0058f36797472e0d8ca38961c9722b22",
+  "prompt_path": "docs/runs/task-712-replay-cases-grow-only/1.prompt.md",
+  "guard_ref": "af45e85315b3e1d4f6c50f671f8efc1668a49036",
+  "started_at": "2026-10-05T05:05:19+00:00",
+  "ended_at": "2026-10-05T05:33:03+00:00",
+  "executor_seconds": 1301.0,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 2090874,
+  "gen_ai.usage.output_tokens": 33145,
+  "cost": 0.775916,
+  "escalation": null,
+  "trace_id": "task/712-replay-cases-grow-only",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-05T05:01:00.290Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-05T05:01:01.765Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-05T05:01:03.509Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "claim",
+      "status": "ok",
+      "ts": "2026-10-05T05:05:19.307Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-05T05:27:00.967Z",
+      "duration_ms": 1301047,
+      "attempt": 1,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-05T05:33:03.098Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 1
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "4bdbd40ea43309652280532ff1210559b02734527e7c33feee9a6c32b678c500",
+      "fixed_in": "run_record"
+    }
+  ]
+}

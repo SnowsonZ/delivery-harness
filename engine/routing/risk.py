@@ -18,8 +18,14 @@ R1 需要同时满足：范围内每个提交都带 `Risk: R1` trailer；最高�
 from __future__ import annotations
 
 import argparse
+import ast
+import codecs
+import copy
+import io
 import os
 import re
+import subprocess
+import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -111,6 +117,13 @@ def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd
     )
     if shrinking:
         return record("shrink_only", FileRisk(path, status, 0, "只能缩减的清单被缩减"), None)
+    growing = (
+        status == "M"
+        and path_matches(path, risk.get("grow_only_cases", []))
+        and replay_cases_grew_only(base, head, path, cwd)
+    )
+    if growing:
+        return record("grow_only_cases", FileRisk(path, status, 2, "回放清单只追加新用例"), None)
     pattern = path_matches(path, risk["r3"])
     if pattern:
         return record(pattern, FileRisk(path, status, 3, f"命中 R3 规则 `{pattern}`"), None)
@@ -126,6 +139,140 @@ def classify_file(status: str, path: str, base: str, head: str, rules: dict, cwd
     if pattern:
         return record(pattern, FileRisk(path, status, 2, f"命中 R2 规则 `{pattern}`"), None)
     return record("unclassified", FileRisk(path, status, 2, "未归类路径按 R2"), None)
+
+
+def _cases_value(stmt: ast.stmt) -> ast.expr | None:
+    """顶层语句是给名字 ``CASES`` 的赋值（含带注解赋值）时返回值表达式，其余返回 None。"""
+    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+        name = stmt.targets[0].id
+    elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+        name = stmt.target.id
+    else:
+        return None
+    return stmt.value if name == "CASES" else None
+
+
+def _single_cases_index(stmts: list[ast.stmt]) -> int | None:
+    """``CASES`` 赋值语句在顶层语句里的下标；不存在或出现多次返回 None。"""
+    index = [i for i, stmt in enumerate(stmts) if _cases_value(stmt) is not None]
+    return index[0] if len(index) == 1 else None
+
+
+def _cases_statement_unchanged(base_stmt: ast.stmt, head_stmt: ast.stmt) -> bool:
+    """``CASES`` 赋值语句除 ``value``（列表）外是否完全相同（T712 修订 1：改注解可绕过）。
+
+    语句类型（``Assign`` 与 ``AnnAssign`` 不得互换）、赋值目标、注解、``simple`` 标志都不得改动：
+    复制两条语句节点、把 ``value`` 置空后比较 ``ast.dump``，注解等位置就不可能借追加夹带可执行内容。
+    """
+    base_copy, head_copy = copy.deepcopy(base_stmt), copy.deepcopy(head_stmt)
+    base_copy.value = None
+    head_copy.value = None
+    return ast.dump(base_copy) == ast.dump(head_copy)
+
+
+def _top_level_unchanged(base_stmts: list[ast.stmt], head_stmts: list[ast.stmt], index: int) -> bool:
+    """除 ``CASES`` 赋值外的顶层语句逐条 ``ast.dump`` 相同，且 ``CASES`` 语句除列表外也完全相同。"""
+    for offset, (base_stmt, head_stmt) in enumerate(zip(base_stmts, head_stmts)):
+        if offset == index:
+            continue
+        if ast.dump(base_stmt) != ast.dump(head_stmt):
+            return False  # BASELINE、GUARDED、DEFERRED、import、文档字符串都不得改动
+    return _cases_statement_unchanged(base_stmts[index], head_stmts[index])
+
+
+def _literal_case_call(node: ast.expr) -> bool:
+    """清单项是否为对名字 ``Case`` 的调用：无位置参数，只有具名关键字参数，且每个参数值都是字面量。"""
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name) or node.func.id != "Case":
+        return False
+    if node.args or any(keyword.arg is None for keyword in node.keywords):
+        return False  # 位置参数或 ** 解包不算「只有关键字参数」
+    for keyword in node.keywords:
+        try:
+            ast.literal_eval(keyword.value)
+        except Exception:  # noqa: BLE001  函数调用、f 字符串、名字引用等非字面量一律判不成立
+            return False
+    return True
+
+
+def _blob_bytes(rev: str, path: str, cwd: Path) -> bytes:
+    """读 `rev:path` 的 git blob 原始字节（修订 2）。
+
+    不先解码成字符串：``ast.parse`` 拿到字节才会像 Python 加载模块一样遵守 PEP 263 编码声明，
+    字符串解析会忽略声明，让「藏在注释里的 `\u000a`」这样的可执行内容在结构比较里隐形（#146 二轮反例）。
+    """
+    result = subprocess.run(["git", "show", f"{rev}:{path}"], cwd=cwd, capture_output=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"git show {rev}:{path} 失败：{result.stderr.decode(errors='replace').strip()}")
+    return result.stdout
+
+
+def _blob_encoding(data: bytes) -> tuple[str, bytes | None]:
+    """文件实际采用的编码与声明行的原始字节（无声明为 None）；``detect_encoding`` 的异常交给调用方。
+
+    识别完全交给 ``tokenize.detect_encoding``（T712 修订 3），与 Python 加载源文件一致：第 1 行
+    是注释时即使含非 ASCII 字符，也会继续看第 2 行的声明。它找到声明时恰好在声明行停止读取，
+    返回的已读行以声明行结尾；没有声明时任何已读行都匹配不了 ``cookie_re``（能匹配就等于找到
+    了声明），所以用 tokenize 自己的 ``cookie_re`` 认定最后一行是否声明行，不自写声明正则。
+    """
+    encoding, lines = tokenize.detect_encoding(io.BytesIO(data).readline)
+    declaration = lines[-1] if lines and tokenize.cookie_re.match(lines[-1].decode("utf-8")) else None
+    return encoding, declaration
+
+
+def _encoding_allowed(base_bytes: bytes, head_bytes: bytes) -> bool:
+    """head 实际编码归一后必须是 utf-8（utf-8-sig 亦可），声明行须与 base 逐字节相同（T712 修订 3）。
+
+    head 没有声明（常规情况）直接通过；有声明时须与 base 的声明行逐字节相同（引入声明、换一种
+    写法都不算相同），且实际编码经 ``codecs.lookup`` 归一后只能是 utf-8。声明了未知编码等
+    ``detect_encoding`` 抛异常的情况按不通过处理。
+    """
+    try:
+        head_encoding, head_cookie = _blob_encoding(head_bytes)
+        base_cookie = _blob_encoding(base_bytes)[1]
+    except Exception:  # noqa: BLE001  声明了未知编码等检测异常一律按不成立处理
+        return False
+    if codecs.lookup(head_encoding).name not in ("utf-8", "utf-8-sig"):
+        return False
+    return head_cookie is None or head_cookie == base_cookie
+
+
+def replay_cases_grew_only(base: str, head: str, path: str, cwd: Path) -> bool:
+    """回放清单是否只向 ``CASES`` 末尾追加了全字面量的 ``Case(...)``（rules.toml [risk] grow_only_cases）。
+
+    只用 ``ast.parse`` 读 base 与 head 两个版本的 git blob 原始字节，不执行 PR 内容（判级时 PR 只能当数据读，
+    见 engine/core/cases.py 的说明）；以字节解析使结果遵守 PEP 263 编码声明，与 Python 加载时一致，编码
+    声明的识别也交给 ``tokenize.detect_encoding``（修订 3）：head 实际编码归一后必须是 utf-8（utf-8-sig
+    亦可），head 若有声明，声明行必须与 base 逐字节相同。其余顶层
+    语句（``BASELINE``、``GUARDED``、``DEFERRED``、import、文档字符串）必须 ``ast.dump`` 完全相同——在
+    ``DEFERRED``、``GUARDED`` 里新增一行同样是「只增行」，那是削弱护栏，必须拦下；``CASES`` 这条语句本身
+    除列表外也必须逐字段相同（类型、目标、注解、``simple``，修订 1）。任何一步失败（含读取或解析异常）
+    都返回 False，不抛异常。
+    """
+    try:
+        base_bytes = _blob_bytes(base, path, cwd)
+        head_bytes = _blob_bytes(head, path, cwd)
+        if not _encoding_allowed(base_bytes, head_bytes):
+            return False  # head 的实际编码不是 utf-8，或引入/改动了编码声明（修订 3）
+        base_stmts = ast.parse(base_bytes).body
+        head_stmts = ast.parse(head_bytes).body
+        if len(base_stmts) != len(head_stmts):
+            return False
+        index = _single_cases_index(base_stmts)
+        if index is None or index != _single_cases_index(head_stmts):
+            return False
+        if not _top_level_unchanged(base_stmts, head_stmts, index):
+            return False  # 其余顶层语句逐条不变，CASES 语句除列表外也不得改动（修订 1）
+        base_list, head_list = _cases_value(base_stmts[index]), _cases_value(head_stmts[index])
+        if not isinstance(base_list, ast.List) or not isinstance(head_list, ast.List):
+            return False
+        if len(head_list.elts) <= len(base_list.elts):
+            return False
+        kept = len(base_list.elts)
+        if [ast.dump(item) for item in base_list.elts] != [ast.dump(item) for item in head_list.elts[:kept]]:
+            return False  # 已有用例被修改、删除或调换顺序
+        return all(_literal_case_call(item) for item in head_list.elts[kept:])
+    except Exception:  # noqa: BLE001  base 没有该文件、语法错误等读取与解析失败一律按不成立处理
+        return False
 
 
 def classify_taskbook(status: str, path: str, head: str, cwd: Path) -> FileRisk:

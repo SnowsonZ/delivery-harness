@@ -71,6 +71,9 @@ contracts = [
 taskbooks = ["docs/plans/task-*.md"]
 # 只能缩减的清单：只删不增时按 R0。
 shrink_only = [".harness/state/acceptance-gaps.txt", ".harness/state/taskbook-exempt.txt"]
+# 只追加的回放清单（可选，缺省关闭）：状态为 M 且结构比较确认只向 CASES 末尾追加全字面量 Case(...) 时按 R2，
+# 其余任何改动（含在 BASELINE、GUARDED、DEFERRED 里新增豁免条目）仍按 r3 规则判级；消费方自行决定是否放宽，如：
+# grow_only_cases = [".harness/project/replay_cases.py"]
 # 黄金快照：任何改动都意味着行为变化，不能算 R1。
 golden = ["tests/golden/**"]
 
