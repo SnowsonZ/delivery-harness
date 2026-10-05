@@ -114,10 +114,26 @@ APPROVE_REASON = "批准 PR：合并前须由非推送者批准；R0/R1 由 auto
 COMMAND_RULES.append((r"\bgh\s+pr\s+review\b[^;&|]*\s(-a|--approve)(\s|=|$)", "approve_pr", APPROVE_REASON))
 # 执行者另外不能关闭、重开、改动议题（含改标签）：逃逸与抽审由设计评审方处理（设计 14.3）。
 ISSUE_REASON = shell_structure.ISSUE_IMPLEMENTER
+# 执行者不能写评审与复核结论（自治试验设计 6，T704）：命令兑底与工具规则共用这一理由。
+REVIEW_SIGNAL_REASON = shell_structure.REVIEW_SIGNAL
 IMPLEMENTER_COMMAND_RULES: list[tuple[str, str, str]] = [
     (r"\bgh\s+issue\s+(close|reopen|edit|transfer|lock|unlock|pin|unpin|delete)\b", "issue_write", ISSUE_REASON),
     (r"\bgh\s+pr\s+edit\b[^;&|]*--(add|remove)-label\b", "issue_write", ISSUE_REASON),
     (r"\bgh\s+label\b(?!\s+list\b)", "issue_write", ISSUE_REASON),
+    # 执行者不能写评审与复核结论（自治试验设计 6）：自动合并读取这些结论，只能由评审方与设计方写。
+    # 结构化解析失败时的兑底：可解析命令由 shell_structure 的结构化规则拦（gh 的 comment/review 与 dispatch 子命令）。
+    (r"\bgh\s+(pr|issue)\s+comment\b", "review_signal", REVIEW_SIGNAL_REASON),
+    (r"\bgh\s+pr\s+review\b", "review_signal", REVIEW_SIGNAL_REASON),
+    # 去锚定（T706）：命令名前只要求不是字母、数字或下划线，引号内、经管道交给 shell 执行的写法同样命中。
+    (r"(?<!\w)(\S*/)?dispatch\s+(review|review-calibrate|signoff)\b", "review_signal", REVIEW_SIGNAL_REASON),
+    # harness / cli.py 的评审与复核入口（T706）：dispatch 的评审复核子命令，或顶层 review 命令；
+    # review-pack、review-plan 只写本地文件，放行。
+    (
+        (r"(?<!\w)(\S*/)?(?:harness|cli\.py)\s+dispatch\s+(?:review|review-calibrate|signoff)\b"
+         r"|(?<!\w)(\S*/)?(?:harness|cli\.py)\s+review\b(?!-(?:pack|plan))"),
+        "review_signal",
+        REVIEW_SIGNAL_REASON,
+    ),
 ]
 # 按工具名拒绝的 MCP 等非命令工具（如 GitHub MCP 的 merge_pull_request、enable_pr_auto_merge）。
 TOOL_RULES: list[tuple[str, str, str]] = [
@@ -165,6 +181,11 @@ IMPLEMENTER_TOOL_RULES: list[tuple[str, str, str]] = [
         "tool_issue_write",
         ISSUE_REASON,
     ),
+    (
+        r"(?i)(^|[_.])(add_issue_comment|create_issue_comment|add_pull_request_comment|add_comment_to_pending_review)$",
+        "tool_review_signal",
+        REVIEW_SIGNAL_REASON,
+    ),
 ]
 
 _COMPILED = [(re.compile(pattern), key, reason) for pattern, key, reason in COMMAND_RULES]
@@ -193,6 +214,7 @@ _COMMAND_REASON_KEYS: dict[str, str] = {
     shell_structure.ISSUE_DELETE: "issue_delete",
     shell_structure.LABEL_ERASE: "label_erase",
     shell_structure.ISSUE_IMPLEMENTER: "issue_write",
+    shell_structure.REVIEW_SIGNAL: "review_signal",
     shell_structure.DELETE_REMOTE: "delete_remote",
     shell_structure.API_WRITE: "api_write",
     shell_structure.MERGE: "merge_pr",

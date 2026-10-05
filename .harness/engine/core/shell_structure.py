@@ -38,10 +38,15 @@ RELEASE = "gh release（list、view 以外）：发版由用户执行"
 ISSUE_DELETE = "删除议题会销毁逃逸、抽审与升级登记；已关闭的议题照样计数"
 LABEL_ERASE = "撤下或删改 escape、audit、escalation、budget-exceeded、class:K* 标签会让误差预算与升级登记失真"
 ISSUE_IMPLEMENTER = "执行者不能关闭、重开或改动议题（含标签）：逃逸、抽审与升级登记由设计评审方处理"
+REVIEW_SIGNAL = "执行者不能发表 PR 或议题评论、提交评审、运行独立评审或设计方复核：这些是自动合并读取的结论，由评审方与设计方写"
 # 登记用的标签（设计 14.3）：任何 Agent 都不能撤下或删改。
 PROTECTED_LABELS = re.compile(r"(^|,)\s*(escape|audit|escalation|budget-exceeded|class:K\d)\s*(,|$)")
 READ_ONLY_RELEASE = {"list", "view"}
 IMPLEMENTER_ISSUE_ACTIONS = {"close", "reopen", "edit", "transfer", "lock", "unlock", "pin", "unpin", "delete"}
+# 派发脚本里写评审与复核结论的子命令（自治试验设计 6）：执行者与评审账号同体，不能自己运行。
+IMPLEMENTER_DISPATCH_ACTIONS = {"review", "review-calibrate", "signoff"}
+# 执行者与评审账号同体：这些 gh 子命令写的是自动合并读取的结论（自治试验设计 6），执行者不能写。
+IMPLEMENTER_REVIEW_ACTIONS = {("issue", "comment"), ("pr", "comment"), ("pr", "review")}
 DELETE_REMOTE = "删除 CI 记录或远端资源会销毁证据"
 API_WRITE = "GitHub API 写操作（改 ref、写文件、删资源）会绕过分支保护与评审；需要时交给用户"
 MERGE = "合并 PR：R0/R1 由仓库 auto-merge 合并，R2 及以上由用户合并，Agent 不自行合并（方案 §13 D4）"
@@ -202,6 +207,12 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
     if index >= len(words):
         return reasons, False
     program, args = os.path.basename(words[index]), words[index + 1 :]
+    if program == "dispatch" and role == "implementer":
+        positional = [arg for arg in args if not arg.startswith("-")]
+        if positional and positional[0] in IMPLEMENTER_DISPATCH_ACTIONS:
+            return reasons + [REVIEW_SIGNAL], False
+    if program in ("harness", "cli.py") and role == "implementer" and _review_entrypoint(args):
+        return reasons + [REVIEW_SIGNAL], False
     if program in DECLARERS:
         return reasons + _check_assignments([arg for arg in args if not arg.startswith("-")]), False
     if program == "eval":
@@ -212,7 +223,16 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
             return reasons + check(code, text_rules, role), False
         return reasons, _reads_stdin(args)
     if program in INTERPRETERS or re.fullmatch(r"python3(\.\d+)?", program):
-        code = _option_value(args, "c") if program.startswith("python") else _option_value(args, "e")
+        if program.startswith("python"):
+            # 按 Python 的参数语法统一解析（#123）：-c 代码、-m 模块、脚本文件三者择一，-W/-X 的值不是脚本。
+            kind, value, rest = _python_args(args)
+            if kind == "code":
+                return reasons + text_rules(value), False
+            if role == "implementer" and kind in ("module", "script") and value in ("cli.py", "engine.cli") \
+                    and _review_entrypoint(rest):  # cli.py 脚本或 -m engine.cli 模块，同 harness 入口
+                reasons.append(REVIEW_SIGNAL)
+            return reasons, _reads_stdin(args)
+        code = _option_value(args, "e")
         if code is not None:
             return reasons + text_rules(code), False
         return reasons, _reads_stdin(args)
@@ -227,6 +247,57 @@ def _check_simple(words: list[str], text_rules: TextRules, role: str = "designer
     if program == "curl":
         return reasons + _curl(args), False
     return reasons, False
+
+
+# Python 解释器带值的短选项字母（#123）：c 代码、m 模块、W 警告、X 实现选项。可以与无值开关合写
+# （-uW x、-uWx、-Bc code），值或者紧跟在同一参数里，或者是下一个参数。
+PYTHON_VALUE_LETTERS = "cmWX"
+# 带值的长选项（其余长选项不带值）。
+PYTHON_VALUE_LONG = ("--check-hash-based-pycs",)
+
+
+def _python_args(args: list[str]) -> tuple[str | None, str, list[str]]:
+    """按 Python 的参数语法解析解释器参数：("code", 代码, []) / ("module", 模块名, 其后参数) /
+    ("script", 脚本文件名, 其后参数) / (None, "", [])。-W/-X 的值、无值开关一律跳过，不会被误认成脚本。"""
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            rest = args[index + 1:]
+            return ("script", os.path.basename(rest[0]), rest[1:]) if rest else (None, "", [])
+        if arg.startswith("--"):
+            index += 2 if arg in PYTHON_VALUE_LONG else 1
+            continue
+        if arg.startswith("-") and len(arg) > 1:
+            index += 1
+            for position, letter in enumerate(arg[1:], 1):
+                if letter not in PYTHON_VALUE_LETTERS:
+                    continue  # 无值开关（-u、-B、-I……），继续看同一参数里的下一个字母
+                value = arg[position + 1:]
+                if not value:
+                    value = args[index] if index < len(args) else ""
+                    index += 1
+                if letter == "c":
+                    return "code", value, []
+                if letter == "m":
+                    return "module", value, args[index:]
+                break  # -W / -X 的值已消费
+            continue
+        return "script", os.path.basename(arg), args[index + 1:]
+    return None, "", []
+
+
+def _review_entrypoint(args: list[str]) -> str | None:
+    """harness / cli.py 的评审与复核入口（自治试验设计 6，T706）：dispatch 的 review|review-calibrate|signoff
+    子命令，或顶层 review 命令。review-pack、review-plan 只写本地文件，不是入口。"""
+    positional = [arg for arg in args if not arg.startswith("-")]
+    if not positional:
+        return None
+    if positional[0] == "review" or (
+        positional[0] == "dispatch" and len(positional) > 1 and positional[1] in IMPLEMENTER_DISPATCH_ACTIONS
+    ):
+        return REVIEW_SIGNAL
+    return None
 
 
 def _option_value(args: list[str], letter: str) -> str | None:
@@ -383,7 +454,8 @@ def _label_values(args: list[str], option: str) -> list[str]:
 
 
 def _gh_issue_and_label(sub: str, action: str, positional: list[str], args: list[str], role: str) -> list[str]:
-    """议题与标签是逃逸、抽审、升级的登记（设计 14.3）：任何 Agent 不删议题、不撤登记标签；执行者不改议题。"""
+    """议题与标签是逃逸、抽审、升级的登记（设计 14.3）：任何 Agent 不删议题、不撤登记标签；执行者不改议题，
+    也不写评论与评审（自治试验设计 6）。"""
     reasons = []
     if sub == "issue" and action == "delete":
         reasons.append(ISSUE_DELETE)
@@ -398,10 +470,43 @@ def _gh_issue_and_label(sub: str, action: str, positional: list[str], args: list
         if (sub == "issue" and action in IMPLEMENTER_ISSUE_ACTIONS) or (sub == "pr" and action == "edit" and touches_labels) \
                 or (sub == "label" and action != "list"):
             reasons.append(ISSUE_IMPLEMENTER)
+        if (sub, action) in IMPLEMENTER_REVIEW_ACTIONS:
+            # 评论与评审标记是自动合并读取的结论（自治试验设计 6）：执行者与评审账号同体，不能自己写。
+            reasons.append(REVIEW_SIGNAL)
     return reasons
 
 
+# gh 的带值全局选项（T706）：分开写（-R o/r、--repo o/r）与连写（--repo=o/r、-Ro/r）都要连值一起先消费，
+# 否则选项的值会被当成子命令，带这些选项的写法绕过全部子命令规则。
+GH_VALUE_OPTIONS = ("-R", "--repo", "--hostname")
+
+
+def _gh_value_options_consumed(args: list[str]) -> list[str]:
+    rest: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in GH_VALUE_OPTIONS:
+            index += 2  # 选项与其值
+        elif arg.startswith(("--repo=", "--hostname=")) or re.fullmatch(r"-R\S+", arg):
+            index += 1
+        else:
+            rest.append(arg)
+            index += 1
+    return rest
+
+
 def _gh(args: list[str], role: str = "designer") -> list[str]:
+    """按原参数与剥掉 -R/--repo/--hostname 后的参数各判一次，取拒绝理由的并集：剥离只为识别被选项值
+    挤偏的子命令，不能放宽原解析已拒绝的写法（如 --description -R 中的 -R 是描述内容，T706 二轮评审）。"""
+    reasons = _gh_rules(args, role)
+    consumed = _gh_value_options_consumed(args)
+    if consumed != args:
+        reasons += [reason for reason in _gh_rules(consumed, role) if reason not in reasons]
+    return reasons
+
+
+def _gh_rules(args: list[str], role: str = "designer") -> list[str]:
     positional = [arg for arg in args if not arg.startswith("-")]
     sub = positional[0] if positional else ""
     action = positional[1] if len(positional) > 1 else ""

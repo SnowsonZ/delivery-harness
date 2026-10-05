@@ -38,11 +38,22 @@ from pathlib import Path
 from queue import Queue
 from typing import ClassVar
 
-from engine.agents import dispatch, dispatch_host, review_pack_io
+from engine.agents import dispatch, dispatch_host, review_lock, review_pack_io
 from engine.agents import dispatch_observation as observation
+
+# T707 拆分：B59 真实历史样本校准段移出到子模块，这里重新导出，engine.agents.review.X 的既有用法不变。
+from engine.agents.review_calibration import (  # noqa: F401  重新导出（T707）
+    _cell,
+    load_samples,
+    prepare_head_sample,
+    render_calibration_report,
+    review_calibrate,
+    sample_deviates,
+    score_samples,
+)
 from engine.core import alerts
-from engine.core.common import ENGINE_DIR, ROOT, changed_files, commit_field, git, load_rules
-from engine.routing import run_check
+from engine.core.common import ENGINE_DIR, ROOT, changed_files, commit_field, git, load_rules, setting
+from engine.routing import run_check, signals
 
 PROMPT = ENGINE_DIR / "prompts" / "review_prompt.md"
 EVALS = ROOT / "evals" / "review"
@@ -113,7 +124,11 @@ class CodexReviewer(Reviewer):
         # 没配置模型时沿用 Codex 自己的默认设置。
         model = ["-m", self.model] if self.model else []
         effort = ["-c", f'model_reasoning_effort="{self.effort}"'] if self.effort else []
-        return ["codex", "exec", "-s", "read-only", *model, *effort, "-C", str(workspace),
+        # B81：关闭子代理（实测每次评审另派 2 个子代理，占评审输入 token 的 53%，而 9 条严重发现
+        # 里主会话自己查到 8 条；关掉后输入从平均 3.8M 降到 0.96M，同样查出严重问题，2026-10-04）。
+        # 插在推理强度之后、-C 之前：第 0–5 位不变（消费方契约测试断言 argv[5] 是模型名）。
+        no_subagents = ["-c", "agents.enabled=false"]
+        return ["codex", "exec", "-s", "read-only", *model, *effort, *no_subagents, "-C", str(workspace),
                 "--skip-git-repo-check", "-o", str(output), prompt]
 
     def read(self, stdout, output):
@@ -352,6 +367,13 @@ def run_check_records(workspace: Path, base: str) -> list[dict]:
     return records
 
 
+def _escape(text) -> str:
+    """评审方输出的纵深防御（T702）：`<!--` 一律转义成 `&lt;!--`，模型输出不能在评论里写出 HTML
+    注释。T701 的防混入（标记合计恰好一次、独占一行、位置固定）是第一道防线，这里是第二道；
+    引擎自己生成的两个标记行不经这里，原样保留。"""
+    return str(text).replace("<!--", "&lt;!--")
+
+
 def render_comment(verdict: Verdict, reviewer: str, model: str, designer: str | None, head: str, seconds: float,
                    same_host: bool = False, audit: dict | None = None) -> str:
     lines = [
@@ -361,11 +383,12 @@ def render_comment(verdict: Verdict, reviewer: str, model: str, designer: str | 
     ]
     if same_host:
         lines.append(f"- ⚠️ 评审方与本 PR 的执行方同为 {reviewer}：独立性较弱，请结合自己的判断。")
-    lines += ["", f"**结论**：{verdict.summary or '（无）'}", ""]
+    lines += ["", f"**结论**：{_escape(verdict.summary) or '（无）'}", ""]
     if verdict.findings:
         lines += ["| 严重度 | 位置 | 问题 | 修复要求 |", "|---|---|---|---|"]
-        lines += [f"| {item.get('severity', '')} | {item.get('location', '')} | {item.get('problem', '')} | "
-                  f"{item.get('fix', '')} |" for item in verdict.findings]
+        lines += [f"| {_escape(item.get('severity'))} | {_escape(item.get('location'))} | "
+                  f"{_escape(item.get('problem'))} | "
+                  f"{_escape(item.get('fix'))} |" for item in verdict.findings]
     else:
         lines.append("没有发现。")
     data = {"verdict": verdict.verdict, "reviewer": reviewer, "model": model, "head": head,
@@ -384,61 +407,71 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
     trace = pr["headRefName"]  # 评审事件的显式 trace：PR 的 headRefName
     head = pr["headRefOid"]
     workspace = review_workspace(root)
-    git("fetch", "--quiet", "origin", f"pull/{number}/head", "main", cwd=workspace)
-    checkout(workspace, head)
-    base = review_base(pr, workspace)
-    designer = designer_of(base, "HEAD", pr["headRefName"], workspace)
-    name = reviewer_name or load_rules().get("review", {}).get("reviewer") or OTHER.get(designer or "")
-    if name is None:
-        print("未能判定评审方：用 --reviewer 指定（不能是设计方本身）")
-        return 2
-    if name == designer:
-        print(f"评审方 {name} 就是设计方，违反分离规则")
-        return 2
-    target = run_check.scope(base, "HEAD", pr["headRefName"], workspace)
-    task_text = (workspace / target.taskbook).read_text(encoding="utf-8") if target and target.taskbook else ""
-    taskbook_rel = target.taskbook if target and target.taskbook else ""
-    if not taskbook_rel:  # 探测未命中才回退，命中时行为逐字不变
-        taskbook_rel, task_text = taskbook_from_pr_text(base, pr["title"], pr["body"] or "", workspace)
-    write_materials(workspace, base, f"# {pr['title']}\n\n{pr['body']}", task_text, ci_summary(number, github))
-    materials = observation.review_materials(workspace, base, head, taskbook_rel or None, number)
-    executors = {record.get("gen_ai.agent.name") for record in run_check_records(workspace, base)}
-    independent = None if designer is None else name != designer
-    verdict, model, seconds = run_reviewer(make_reviewer(name), workspace, load_rules().get("review", {}).get(
-        "timeout_minutes", 30) * 60)
-    if verdict.failure:
+    # E128-R1（逃逸 #128）：所有评审入口共用这批工作区，从 checkout 到评论发布整段持锁，
+    # 并发评审串行进行（#119 补审与 #120 评审同时运行时材料被覆盖）。等待上限取评审超时的两倍。
+    timeout = load_rules().get("review", {}).get("timeout_minutes", 30) * 60 * 2
+    with review_lock.workspace_lock(root, workspace, timeout, purpose=f"review_pr #{number}"):
+        git("fetch", "--quiet", "origin", f"pull/{number}/head", "main", cwd=workspace)
+        checkout(workspace, head)
+        base = review_base(pr, workspace)
+        designer = designer_of(base, "HEAD", pr["headRefName"], workspace)
+        name = reviewer_name or load_rules().get("review", {}).get("reviewer") or OTHER.get(designer or "")
+        if name is None:
+            print("未能判定评审方：用 --reviewer 指定（不能是设计方本身）")
+            return 2
+        if name == designer:
+            print(f"评审方 {name} 就是设计方，违反分离规则")
+            return 2
+        target = run_check.scope(base, "HEAD", pr["headRefName"], workspace)
+        task_text = (workspace / target.taskbook).read_text(encoding="utf-8") if target and target.taskbook else ""
+        taskbook_rel = target.taskbook if target and target.taskbook else ""
+        if not taskbook_rel:  # 探测未命中才回退，命中时行为逐字不变
+            taskbook_rel, task_text = taskbook_from_pr_text(base, pr["title"], pr["body"] or "", workspace)
+        write_materials(workspace, base, f"# {pr['title']}\n\n{pr['body']}", task_text, ci_summary(number, github))
+        materials = observation.review_materials(workspace, base, head, taskbook_rel or None, number)
+        executors = {record.get("gen_ai.agent.name") for record in run_check_records(workspace, base)}
+        independent = None if designer is None else name != designer
+        verdict, model, seconds = run_reviewer(make_reviewer(name), workspace, load_rules().get("review", {}).get(
+            "timeout_minutes", 30) * 60)
+        if verdict.failure:
+            observation.review(trace=trace, head=head, reviewer=name, verdict=verdict.verdict,
+                               duration_ms=int(seconds * 1000), findings=verdict.findings, materials=materials,
+                               designer=designer, model=verdict.audit_model, model_basis=verdict.model_basis,
+                               parsed=verdict.parsed, independent=independent, same_host=name in executors,
+                               failure=verdict.failure, error_kind=verdict.error_kind)
+            alerts.publish(trace, "review_error", pr=number, gh=github)  # 评审方自身失败也复用发布（D067）
+            print(f"PR #{number}：评审方失败（{verdict.failure}），没有评论，保留待评审标签")
+            return 1
+        same_host = name in executors
+        audit = observation.review_audit(trace_id=trace, head=head, base=base, reviewer=name,
+                                         model=verdict.audit_model, model_basis=verdict.model_basis,
+                                         designer=designer,
+                                         implementers=sorted(item for item in executors if item),
+                                         independent=independent, same_host=same_host, parsed=verdict.parsed,
+                                         verdict=verdict.verdict, duration_ms=int(seconds * 1000),
+                                         findings=verdict.findings, materials=materials)
+        body = render_comment(verdict, name, model, designer, head, seconds, same_host, audit)
+        url = github.comment(number, body)
+        # 事件在评论实际发布后写：URL 与评论字节哈希只有此刻可知（C6：摘要不预写 URL、不含自身哈希）。
         observation.review(trace=trace, head=head, reviewer=name, verdict=verdict.verdict,
                            duration_ms=int(seconds * 1000), findings=verdict.findings, materials=materials,
                            designer=designer, model=verdict.audit_model, model_basis=verdict.model_basis,
-                           parsed=verdict.parsed, independent=independent, same_host=name in executors,
-                           failure=verdict.failure, error_kind=verdict.error_kind)
-        alerts.publish(trace, "review_error", pr=number, gh=github)  # 评审方自身失败也复用发布（D067）
-        print(f"PR #{number}：评审方失败（{verdict.failure}），没有评论，保留待评审标签")
-        return 1
-    same_host = name in executors
-    audit = observation.review_audit(trace_id=trace, head=head, base=base, reviewer=name,
-                                     model=verdict.audit_model, model_basis=verdict.model_basis,
-                                     designer=designer,
-                                     implementers=sorted(item for item in executors if item),
-                                     independent=independent, same_host=same_host, parsed=verdict.parsed,
-                                     verdict=verdict.verdict, duration_ms=int(seconds * 1000),
-                                     findings=verdict.findings, materials=materials)
-    body = render_comment(verdict, name, model, designer, head, seconds, same_host, audit)
-    url = github.comment(number, body)
-    # 事件在评论实际发布后写：URL 与评论字节哈希只有此刻可知（C6：摘要不预写 URL、不含自身哈希）。
-    observation.review(trace=trace, head=head, reviewer=name, verdict=verdict.verdict,
-                       duration_ms=int(seconds * 1000), findings=verdict.findings, materials=materials,
-                       designer=designer, model=verdict.audit_model, model_basis=verdict.model_basis,
-                       parsed=verdict.parsed, independent=independent, same_host=same_host,
-                       comment=url, comment_body=body)
-    try:
-        github._run(["gh", "pr", "edit", str(number), "--remove-label", LABEL], agent=True)
-    except RuntimeError:
-        pass  # 没有该标签
-    if verdict.verdict == "不通过":  # D067：评审否决在已有评论发布后补标签/告警，不重跑评审
-        alerts.publish(trace, "review_rejected", pr=number, gh=github)
-    print(f"PR #{number}：{verdict.verdict}（{name}），已评论")
-    return 0
+                           parsed=verdict.parsed, independent=independent, same_host=same_host,
+                           comment=url, comment_body=body)
+        try:
+            github._run(["gh", "pr", "edit", str(number), "--remove-label", LABEL], agent=True)
+        except RuntimeError:
+            pass  # 没有该标签
+        if verdict.verdict == "不通过":  # D067：评审否决在已有评论发布后补标签/告警，不重跑评审
+            alerts.publish(trace, "review_rejected", pr=number, gh=github)
+        if verdict.verdict == "通过" and not verdict.flagged:
+            # T702：复核先到、评审后到时由这一步触发重判（两样都齐了才轮到 auto-merge，而它只由
+            # harness 的 workflow_run 触发）。按需导入：signoff 依赖 dispatch，与本模块同层。
+            from engine.agents import signoff
+
+            signoff.retrigger_if_ready(number, root, github)
+        print(f"PR #{number}：{verdict.verdict}（{name}），已评论")
+        return 0
 
 
 # ---- 后台自动评审 ----
@@ -459,13 +492,19 @@ def reviewed_heads(comments: list[dict]) -> set[str]:
     return heads
 
 
-def pending_prs(github) -> list[int]:
-    """待评审：开着、带 needs-independent-review、CI 已全部完成且通过、当前 head 还没有独立评审结论。"""
+def pending_prs(github, root: Path = ROOT) -> list[int]:
+    """待评审：开着、带 needs-independent-review、CI 已全部完成且通过、当前 head 还没有可信的独立评审结论。
+
+    「已评审」用 signals.review_status 判，只认 checks.toml [identity] agent_login 写的标记（T702）；
+    reviewed_heads 不核对作者，第三方贴一条标记就会让 PR 永远不被评审（拆分评审严重项 4），不再用它判。
+    """
+    login = setting("identity", "agent_login")
     found = json.loads(github._run(["gh", "pr", "list", "--state", "open", "--label", LABEL, "--limit", "50",
                                     "--json", "number,headRefOid,comments"]))
     pending = []
     for pr in sorted(found, key=lambda item: item["number"]):
-        if pr["headRefOid"] in reviewed_heads(pr.get("comments", [])):
+        if signals.review_status(pr.get("comments") or [], login, pr["headRefOid"],
+                                 "origin/main", root)[0] != "missing":
             continue
         try:
             checks = json.loads(github._run(["gh", "pr", "checks", str(pr["number"]), "--json", "state"]))
@@ -477,13 +516,27 @@ def pending_prs(github) -> list[int]:
 
 
 def review_pending(reviewer_name: str | None = None, root: Path = ROOT, github=None, review=None) -> list[int]:
-    """逐个评审（多个 OpenCode 同时运行会互相冲突，2026-09-28 实测）。返回评审过的 PR。"""
+    """逐个评审（多个 OpenCode 同时运行会互相冲突，2026-09-28 实测）。返回评审完成的 PR。
+
+    注入 review（现有测试）时行为逐字不变。生产路径上没有指定评审方时走 dispatch.review_with_chain
+    （T702，与派发用同一条评审链）；指定了评审方就只用该评审方。只有返回 0 的 PR 才算「已评审」，
+    评审没成的 PR 另起一行打印「评审未完成：#<PR>」，不再被报告成已评审（拆分评审第五轮一般项 3）。
+    """
     github = github or dispatch.GitHub(root)
+    injected = review is not None
     review = review or review_pr
     done = []
-    for number in pending_prs(github):
-        review(number, reviewer_name, root, github)
-        done.append(number)
+    for number in pending_prs(github, root):
+        if injected:
+            review(number, reviewer_name, root, github)
+            done.append(number)
+            continue
+        code = (dispatch.review_with_chain(number, root, github) if reviewer_name is None
+                else review_pr(number, reviewer_name, root, github))
+        if code == 0:
+            done.append(number)
+        else:
+            print(f"评审未完成：#{number}", flush=True)
     return done
 
 
@@ -572,18 +625,24 @@ def calibrate(reviewer_name: str, limit: int | None = None, root: Path = ROOT, r
     workspaces = Queue()
     for index in range(max(1, min(jobs, len(pending)))):
         workspaces.put(workspace if index == 0 else review_workspace(root, index))
+    # E128-R1（逃逸 #128）：按样本持锁——从占用工作区（prepare_sample）到评审方结果落盘为一段，样本之间
+    # 释放（修订记录 2）；index 0 的工作区与 review_pr 等入口互斥，index 大于 0 的并行工作区各用各的锁文件。
+    lock_timeout = load_rules().get("review", {}).get("timeout_minutes", 30) * 60 * 2
 
     def review_one(sample: dict) -> dict:
         space = workspaces.get()
         try:
-            try:
-                base, pr_text = prepare_sample(space, sample, main_ref, root)
-            except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
-                return {"kind": sample["kind"], "id": sample["id"], "error": str(error)}
-            write_materials(space, base, pr_text, "")
-            verdict, model, seconds = run_reviewer(reviewer, space, 30 * 60)
-            return {"kind": sample["kind"], "id": sample["id"], "verdict": verdict.verdict, "flagged": verdict.flagged,
-                    "parsed": verdict.parsed, "failure": verdict.failure, "seconds": round(seconds), "model": model}
+            with review_lock.workspace_lock(root, space, lock_timeout, purpose=f"calibrate {sample['id']}"):
+                try:
+                    base, pr_text = prepare_sample(space, sample, main_ref, root)
+                except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+                    return {"kind": sample["kind"], "id": sample["id"], "error": str(error)}
+                write_materials(space, base, pr_text, "")
+                verdict, model, seconds = run_reviewer(reviewer, space, 30 * 60)
+                return {"kind": sample["kind"], "id": sample["id"], "verdict": verdict.verdict,
+                        "flagged": verdict.flagged,
+                        "parsed": verdict.parsed, "failure": verdict.failure, "seconds": round(seconds),
+                        "model": model}
         finally:
             workspaces.put(space)
 
@@ -625,157 +684,6 @@ def score(results: list[dict]) -> dict:
         "unparsed": sum(not item.get("parsed", True) for item in results if "error" not in item),
         "total": len(results),
     }
-
-
-# ---- 评审校准（B59：真实历史样本） ----
-
-def load_samples(samples_path: Path) -> list[dict]:
-    """装载校准样本清单：每条必须有 pr（正整数）、head（40 位提交号）、expected（合法结论）与一句 reason。"""
-    try:
-        entries = json.loads(samples_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError(f"校准样本清单读不到或不是合法 JSON：{samples_path}（{error}）") from error
-    if not isinstance(entries, list) or not entries:
-        raise ValueError(f"校准样本清单须是非空的样本数组：{samples_path}")
-    for index, entry in enumerate(entries, 1):
-        where = f"校准样本第 {index} 条"
-        if not isinstance(entry, dict):
-            raise TypeError(f"{where} 不是对象")
-        pr, head = entry.get("pr"), entry.get("head")
-        expected, reason = entry.get("expected"), entry.get("reason")
-        if isinstance(pr, bool) or not isinstance(pr, int) or pr <= 0:
-            raise ValueError(f"{where} 缺少合法的 pr 号（正整数），得到 {pr!r}")
-        if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{40}", head):
-            raise ValueError(f"{where}（PR #{pr}）的 head 必须是 40 位十六进制提交号，得到 {head!r}")
-        if expected not in VERDICTS:
-            raise ValueError(f"{where}（PR #{pr}）的 expected 只能是 {'、'.join(VERDICTS)}，得到 {expected!r}")
-        if not isinstance(reason, str) or not reason.strip():
-            raise ValueError(f"{where}（PR #{pr}）缺少一句裁决依据（reason）")
-    return entries
-
-
-def prepare_head_sample(workspace: Path, sample: dict) -> tuple[str, str]:
-    """把评审工作区检出到样本 head，返回 (base, PR 文本)，材料组装与 review_pr 同一套（write_materials）。
-
-    样本 head 不在 main 上时（中间轮次的 head）从 pull/<pr>/head 取，对象不可得即报错（该样本进 errors）。
-    base 与 review_base 同口径：已合并的样本用合并提交的第一父提交，未合并的退回与 origin/main 的合并基。
-    """
-    pr, head = sample["pr"], sample["head"]
-    git("fetch", "--quiet", "origin", f"pull/{pr}/head", cwd=workspace, check=False)
-    if not git("rev-parse", "--verify", "--quiet", f"{head}^{{commit}}", cwd=workspace, check=False):
-        raise ValueError(f"样本 head {head[:12]} 检出失败：origin/main 与 pull/{pr}/head 里都没有这个提交")
-    checkout(workspace, head)
-    merge = git("log", "--merges", "--first-parent", "--format=%H %s", "origin/main", cwd=workspace)
-    sha = next((line.split()[0] for line in merge.splitlines() if f"#{pr} " in f"{line} "), None)
-    if sha:
-        base = git("rev-parse", f"{sha}^1", cwd=workspace)
-        body = git("log", "-1", "--format=%B", sha, cwd=workspace)
-    else:
-        base = git("merge-base", "origin/main", "HEAD", cwd=workspace)
-        body = git("log", "-1", "--format=%B", head, cwd=workspace)
-    return base, f"# PR #{pr}\n\n{body}\n"
-
-
-def sample_deviates(item: dict) -> bool:
-    """与期望不一致：期望不通过却放行、期望通过却抓中；期望需用户验收时，给了无阻断/严重发现的明确通过也算偏差。"""
-    if item["expected"] == "不通过":
-        return not item["flagged"]
-    if item["expected"] == "通过":
-        return item["flagged"]
-    return item["verdict"] != "需用户验收" and not item["flagged"]
-
-
-def score_samples(results: list[dict]) -> dict:
-    """TPR＝期望不通过的样本里抓中的比例，TNR＝期望通过的样本里放行的比例。样本检出失败（error）与评审方
-    失败（failure）都进 errors、不进分母；有输出但没有可用结论（unparsed）同样不进分母，单独计数。"""
-    scored = [item for item in results if "error" not in item and not item.get("failure") and item.get("parsed", True)]
-    bad = [item for item in scored if item["expected"] == "不通过"]
-    good = [item for item in scored if item["expected"] == "通过"]
-    return {
-        "total": len(results), "bad": len(bad), "good": len(good),
-        "caught": sum(item["flagged"] for item in bad),
-        "released": sum(not item["flagged"] for item in good),
-        "deviations": sum(sample_deviates(item) for item in scored),
-        "errors": sum(1 for item in results if "error" in item or item.get("failure")),
-        "unparsed": sum("error" not in item and not item.get("failure") and not item.get("parsed", True)
-                        for item in results),
-        "tpr": round(sum(item["flagged"] for item in bad) / len(bad), 3) if bad else None,
-        "tnr": round(sum(not item["flagged"] for item in good) / len(good), 3) if good else None,
-    }
-
-
-def _cell(text: str) -> str:
-    """表格单元格转义：竖线与换行会破坏 markdown 表格。"""
-    return text.replace("|", "\\|").replace("\n", " ")
-
-
-def render_calibration_report(samples_path: Path, results: list[dict], summary: dict, reviewer: str,
-                              model: str) -> str:
-    def ratio(part: int, whole: int) -> str:
-        return f"{part / whole:.3f}（{part}/{whole}）" if whole else "n/a（分母 0）"
-
-    lines = [
-        "# 评审校准报告", "",
-        f"- 样本清单：{samples_path}",
-        f"- 评审方：{reviewer}{'（' + model + '）' if model else ''}；日期：{dt.date.today().isoformat()}",
-        f"- TPR（期望不通过的抓中率）：{ratio(summary['caught'], summary['bad'])}",
-        f"- TNR（期望通过的放行率）：{ratio(summary['released'], summary['good'])}",
-        f"- 偏差 {summary['deviations']} 条；errors {summary['errors']} 条、unparsed {summary['unparsed']} 条不进分母",
-        "", "## 逐样本结果", "",
-        "| PR | head | 期望 | 实际结论 | 偏差 | 裁决依据 |", "|---|---|---|---|---|---|",
-    ]
-    for item in results:
-        if "error" in item:
-            actual, deviation = f"样本错误：{_cell(item['error'])}", "未计分"
-        elif item.get("failure"):
-            actual, deviation = f"评审方失败：{_cell(item['failure'])}", "未计分"
-        else:
-            actual = _cell(item["verdict"]) + ("（抓住）" if item["flagged"] else "")
-            deviation = "是" if sample_deviates(item) else "—"
-        lines.append(f"| #{item['pr']} | {item['head'][:12]} | {item['expected']} | {actual} | {deviation} | "
-                     f"{_cell(item['reason'])} |")
-    lines += ["", "## 结论", "",
-              ("- 校准是测量工具：本报告只给出 TPR/TNR 与逐样本偏差，不改原判定、不评论任何 PR；"
-               "换评审方或模型后应在同一清单上重跑再比较。")]
-    return "\n".join(lines) + "\n"
-
-
-def review_calibrate(review_name: str | None, samples_path: Path, output: Path, *, root: Path = ROOT,
-                     reviewer: Reviewer | None = None) -> int:
-    """B59 评审校准：对真实历史样本（pr + head + 期望结论）逐个重跑独立评审，统计 TPR/TNR 与逐样本偏差，
-    报告写本地 markdown（不评论到任何 GitHub PR）。样本检出失败与评审方失败进 errors，不进 TPR/TNR 分母。"""
-    samples = load_samples(samples_path)
-    name = review_name or load_rules().get("review", {}).get("reviewer")
-    runner = reviewer or (make_reviewer(name) if name else None)
-    if runner is None:
-        print("未能判定评审方：用 --reviewer 指定，或在 rules.toml [review] 配置 reviewer")
-        return 2
-    workspace = review_workspace(root)
-    git("fetch", "--quiet", "origin", "main", cwd=workspace)
-    results = []
-    for sample in samples:
-        item = {"pr": sample["pr"], "head": sample["head"], "expected": sample["expected"],
-                "reason": sample["reason"]}
-        try:
-            base, pr_text = prepare_head_sample(workspace, sample)
-            write_materials(workspace, base, pr_text, "")
-        except (ValueError, RuntimeError, subprocess.CalledProcessError) as error:
-            results.append({**item, "error": str(error)})
-            print(f"PR #{sample['pr']} @ {sample['head'][:12]}：样本错误（{error}）", flush=True)
-            continue
-        verdict, model, seconds = run_reviewer(runner, workspace, load_rules().get("review", {}).get(
-            "timeout_minutes", 30) * 60)
-        results.append({**item, "verdict": verdict.verdict, "flagged": verdict.flagged, "parsed": verdict.parsed,
-                        "failure": verdict.failure, "model": model, "seconds": round(seconds)})
-        print(f"PR #{sample['pr']} @ {sample['head'][:12]}：{verdict.verdict}{'（抓住）' if verdict.flagged else ''}"
-              f"{'：' + verdict.failure if verdict.failure else ''}", flush=True)
-    summary = score_samples(results)
-    model = next((item["model"] for item in results if item.get("model")), "")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(render_calibration_report(samples_path, results, summary, runner.name, model), encoding="utf-8")
-    print(f"校准完成：TPR {summary['tpr']}、TNR {summary['tnr']}、偏差 {summary['deviations']} 条、"
-          f"errors {summary['errors']} 条；报告已写入 {output}")
-    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
