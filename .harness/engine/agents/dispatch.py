@@ -24,6 +24,7 @@
     bin/dispatch review <PR> [--reviewer opencode|pi|codex|claude-code]   独立评审（engine/agents/review.py）
     bin/dispatch review --pending | --watch [--interval 5]   评审全部待评审的 PR（后台常驻用 --watch）
     bin/dispatch review-calibrate [--reviewer 名称] [--output 路径]   评审校准打分（不评论 PR）
+    bin/dispatch signoff <PR> --verdict 通过|不通过 --mutations N --caught M --body-file <md> [--designer 席位]   设计方复核（engine/agents/signoff.py）
 """
 
 from __future__ import annotations
@@ -43,10 +44,30 @@ from pathlib import Path
 
 from engine.agents import dispatch_host, run_timeline
 from engine.agents import dispatch_observation as observation
+
+# T707 拆分：槽位管理与 PR/升级文本移出到子模块，这里重新导出，engine.agents.dispatch.X 的既有用法不变。
+from engine.agents.dispatch_slots import (  # noqa: F401  重新导出（T707）
+    _registered_worktrees,
+    _salvage_and_remove,
+    acquire_slot,
+    prepare_slot,
+    reclaim_stale_slots,
+    release_slot,
+    return_slot,
+    update_slot,
+)
+from engine.agents.dispatch_text import (  # noqa: F401  重新导出（T707）
+    _manual_section,
+    _pr_title,
+    _title,
+    escalation_body,
+    pr_body,
+)
 from engine.agents.github import GitHub
-from engine.checks import acceptance, taskbook
+from engine.checks import taskbook
 from engine.core import alerts
 from engine.core.common import ENGINE_DIR, ROOT, git, load_rules, setting
+from engine.routing import signals
 
 PROMPT_TEMPLATE = ENGINE_DIR / "prompts" / "dispatch_prompt.md"
 ESCALATION_FILE = "build/dispatch/escalation.md"
@@ -76,6 +97,7 @@ class Config:
     poll_seconds: float = 5
     ci_timeout_seconds: float = 3600
     verify: list[str] = field(default_factory=lambda: ["bin/verify"])
+    review_after_ci: bool = False  # B77③：CI 通过后由本进程接上独立评审（评审链见 review_with_chain）
 
     @classmethod
     def load(cls, rules: dict | None = None) -> Config:
@@ -84,6 +106,7 @@ class Config:
             slots=raw.get("slots", 3),
             stall_seconds=raw.get("stall_minutes", 15) * 60,
             ci_timeout_seconds=raw.get("ci_timeout_minutes", 60) * 60,
+            review_after_ci=raw.get("review_after_ci", False),
         )
 
 
@@ -171,133 +194,6 @@ def _alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
-
-
-def acquire_slot(root: Path, config: Config, task: Task) -> tuple[int, Path]:
-    locks = state_dir(root) / "slots"
-    locks.mkdir(parents=True, exist_ok=True)
-    for index in range(1, config.slots + 1):
-        lock = locks / f"{index}.json"
-        if lock.exists():
-            held = json.loads(lock.read_text() or "{}")
-            if _alive(held.get("pid", 0)):
-                continue
-            lock.unlink()  # 持有者已退出：回收
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            continue
-        with os.fdopen(fd, "w") as handle:
-            json.dump({"pid": os.getpid(), "task": task.id, "branch": task.branch,
-                       "started_at": _now()}, handle)
-        return index, slot_path(root, config, index)
-    observation.slot(task.branch, None, problem=f"{config.slots} 个槽位都在使用中")
-    raise Stop(f"{config.slots} 个槽位都在使用中：稍后再派发，或用 bin/dispatch status 查看")
-
-
-def update_slot(root: Path, index: int, **fields) -> None:
-    lock = state_dir(root) / "slots" / f"{index}.json"
-    data = json.loads(lock.read_text() or "{}")
-    data.update(fields)
-    lock.write_text(json.dumps(data))
-
-
-def release_slot(root: Path, index: int) -> None:
-    (state_dir(root) / "slots" / f"{index}.json").unlink(missing_ok=True)
-
-
-def _registered_worktrees(root: Path) -> set[str]:
-    """登记在案的工作树绝对路径（porcelain 输出是规范化路径，按 resolve 后比对，免符号路径误差）。"""
-    out = git("worktree", "list", "--porcelain", cwd=root)
-    return {str(Path(line[len("worktree "):]).resolve())
-            for line in out.splitlines() if line.startswith("worktree ")}
-
-
-def _salvage_and_remove(root: Path, slot: Path, push) -> None:
-    """归还一个槽位工作树（B77）：分支有未推提交先推送保全，再 worktree remove。
-
-    不是登记在案的工作树（普通残留目录）不动；推送/取远端状态失败原样抛出，由调用方决定
-    停止派发（回收路径）或提示后继续（结束路径）。
-    """
-    if not slot.exists() or str(slot.resolve()) not in _registered_worktrees(root):
-        return
-    branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=slot, check=False)
-    if branch and branch != "HEAD":
-        # fetch 失败（远端无该分支——认领推送前崩溃/推送静默失败）不拦回收：直接尝试推送保全
-        try:
-            git("fetch", "--quiet", "origin", branch, cwd=slot)
-        except RuntimeError:
-            pass
-        pushed = git("rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}",
-                     cwd=slot, check=False)
-        if not pushed or git("rev-list", f"origin/{branch}..{branch}", cwd=slot).split():
-            push(slot, branch)
-    git("worktree", "remove", "--force", str(slot), cwd=root)
-
-
-def reclaim_stale_slots(root: Path, config: Config, push) -> list[str]:
-    """崩溃路径无法归还时的槽位回收（B77）：锁文件 pid 不存活的槽在下次派发前强制回收。
-
-    槽内分支有未推提交先推送保全再删工作树；推送失败停止派发（保数据优先，不静默丢提交），
-    现场保留待人工处理。返回被回收槽位曾认领的分支名（链路自愈提示用）。
-    """
-    locks = state_dir(root) / "slots"
-    if not locks.is_dir():
-        return []
-    reclaimed: list[str] = []
-    for lock in sorted(locks.glob("*.json"), key=lambda path: int(path.stem) if path.stem.isdigit() else 0):
-        if not lock.stem.isdigit():
-            continue
-        try:
-            data = json.loads(lock.read_text() or "{}")
-        except ValueError:
-            data = {}
-        if _alive(data.get("pid", 0)):
-            continue
-        try:
-            _salvage_and_remove(root, slot_path(root, config, int(lock.stem)), push)
-        except (RuntimeError, subprocess.CalledProcessError) as error:
-            raise Stop(f"槽位 {lock.stem} 回收失败（分支提交保全未完成，工作树保留待人工处理）：{error}") from error
-        reclaimed.append(str(data.get("branch") or ""))
-        lock.unlink(missing_ok=True)
-    return reclaimed
-
-
-def return_slot(root: Path, config: Config, index: int, push) -> None:
-    """派发结束路径统一归还槽位（B77）：worktree remove + 锁清理。
-
-    run 结束时锁已先释放；归还前先重新独占槽位锁——拿不到说明已有下一次派发认领该槽，
-    不删它正准备使用的工作树。删除失败只提示，残留交给下次派发的回收路径。
-    """
-    lock = state_dir(root) / "slots" / f"{index}.json"
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        return
-    with os.fdopen(fd, "w") as handle:
-        json.dump({"pid": os.getpid(), "task": "return", "started_at": _now()}, handle)
-    try:
-        _salvage_and_remove(root, slot_path(root, config, index), push)
-    except (RuntimeError, subprocess.CalledProcessError) as error:
-        print(f"槽位 {index} 归还未完成（工作树保留，下次派发会回收）：{error}", file=sys.stderr)
-    finally:
-        release_slot(root, index)
-
-
-def prepare_slot(root: Path, slot: Path, branch: str, resume: bool) -> None:
-    if not slot.exists():
-        git("worktree", "add", "--detach", str(slot), "origin/main", cwd=root)
-    git("fetch", "--quiet", "origin", cwd=slot)
-    start = f"origin/{branch}" if resume else "origin/main"
-    git("checkout", "--quiet", "--force", "-B", branch, start, cwd=slot)
-    keep = preserved_paths()
-    git("clean", "-ffdxq", *[arg for path in keep for arg in ("-e", path)], cwd=slot)
-    for path in keep:
-        source = root / path
-        if source.exists() and not (slot / path).exists():
-            (slot / path).parent.mkdir(parents=True, exist_ok=True)
-            (slot / path).symlink_to(source)
 
 
 # ---- 4 守卫 ----
@@ -392,6 +288,8 @@ class Dispatcher:
         self.identity = identity
         self.used_seconds = 0.0
         self.acquired: int | None = None  # 已认领的槽位号；归还（return_slot）由派发进程结束路径统一做（B77）
+        # CI 通过时记下 (PR, head)：开关 review_after_ci 打开时，run 在归还槽位后接上独立评审（B77③）。
+        self.review_target: tuple[int, str] | None = None
 
     def run_executor(self, task: Task, slot: Path, guard: Path, prompt: str, events: Path) -> dispatch_host.RunResult:
         budget_seconds = task.budget["wall_clock_min"] * 60
@@ -540,9 +438,14 @@ class Dispatcher:
             if not resume:
                 self.github.push(slot, task.branch)  # 分支即认领
                 observation.claim(task.branch, True)
-            return self._loop(task, index, slot, guard, guard_ref)
+            code = self._loop(task, index, slot, guard, guard_ref)
         finally:
             release_slot(self.root, index)
+        # B77③：CI 已通过（_loop 因 CI 通过返回 0）且开关打开时接上独立评审——上面的 finally 已先归还
+        # 槽位，评审不占槽位；升级、预算耗尽、本地未完成都返回非 0，不触发评审。
+        if code == 0 and self.config.review_after_ci and self.review_target is not None:
+            self._review_after_ci()
+        return code
 
     def _chain_hint(self, branch: str) -> None:
         """等待链自愈提示（B77）：上一轮派发进程异常退出（槽位锁 pid 不存活）、分支 head 已保全到远端时，
@@ -550,6 +453,40 @@ class Dispatcher:
         print(f"链路自检：上一轮派发异常退出，分支 {branch} 的 head 已在远端；若该 head 没有 CI 结论或"
               "独立评审结论，请设计方手动接链（重跑 CI 或 bin/dispatch review <PR>），评审不会自动重跑。",
               file=sys.stderr)
+
+    def _reviewed(self, pr: int, head: str) -> bool:
+        """已有本 Agent 账号写的、指向当前 head 的独立评审结论时为真（B77③，跳过自动评审）。
+
+        用 T701 的 signals.review_status：它核对标记作者（agent_login）。不能用
+        review.reviewed_heads——它不核对作者，其他账号贴一条标记就会让派发误以为已评审而漏评
+        （拆分评审严重项 4）。评论读取失败按 missing 处理：宁可重复评审，不漏评。
+        """
+        login = setting("identity", "agent_login")
+        try:
+            comments = json.loads(self.github._run(["gh", "pr", "view", str(pr), "--json", "comments"]))["comments"]
+        except (RuntimeError, ValueError, KeyError):
+            comments = []
+        status, _reason = signals.review_status(comments, login, head, "origin/main", self.root)
+        if status != "missing":
+            print(f"PR #{pr}：已有评审结论（{status}），跳过")
+            return True
+        return False
+
+    def _review_after_ci(self) -> None:
+        """CI 通过后由派发进程接上独立评审（B77③）：调用方 run 已先归还槽位，评审不占槽位。
+
+        失败只提示不改变退出码：CI 已通过，任务本身已完成；缺链必须让设计方看见，不沉默。
+        """
+        pr, head = self.review_target
+        try:
+            if self._reviewed(pr, head):
+                return
+            code = review_with_chain(pr, self.root, self.github)
+            reason = "" if code == 0 else "评审链全部失败（各评审方结果见上方汇总）"
+        except Exception as error:  # noqa: BLE001  评审衔接失败不改变派发判定与退出码
+            reason = f"{type(error).__name__}: {error}"
+        if reason:
+            print(f"评审未能自动接上：{reason}；请设计方运行 bin/dispatch review {pr}", file=sys.stderr)
 
     def _loop(self, task: Task, index: int, slot: Path, guard: Path, guard_ref: str) -> int:
         runs = state_dir(self.root) / "runs" / task.id
@@ -584,6 +521,7 @@ class Dispatcher:
             observation.ci_wait(task.branch, pr, head, ci_rounds, ok, summary, detail.get("run_ids"))
             if ok:
                 print(f"{task.id}：PR #{pr} 的 CI 通过，合并由 auto-merge 判定")
+                self.review_target = (pr, head)  # B77③：开关打开时由 run 在归还槽位后接上评审
                 return 0
             if ci_rounds >= task.budget["ci_rounds"]:
                 self.github.add_label(pr, "budget-exceeded")
@@ -614,69 +552,34 @@ EXIT_TEXT = {
 }
 
 
-def _title(root: Path, task: Task) -> str:
-    first = (root / task.path).read_text(encoding="utf-8").split("\n# ", 1)
-    return first[1].splitlines()[0].removeprefix("任务：").strip() if len(first) > 1 else task.path
+def review_with_chain(pr: int, root: Path = ROOT, github=None, review=None) -> int:
+    """按 rules.toml [review] chain 依次评审 PR，直到一家给出结论（B77③；T702 的 watch 复用）。
 
-
-def _pr_title(root: Path, task: Task) -> str:
-    """PR 标题：任务书标题已带「TXXX：」前缀时不再重复拼接（B65）。"""
-    title = _title(root, task)
-    return title if title.startswith(f"{task.id}：") else f"{task.id}：{title}"
-
-
-def _manual_section(root: Path, task: Task) -> str:
-    """人工验收一节正文：验收表存在「人工」类证据行时给指引，否则写「无」（B57）。
-
-    判定与 `bin/harness acceptance --manual` 同源（acceptance.Item.manual）。
+    chain 缺省为 [reviewer]，即原来的单一评审方。review_pr 返回 0（通过或否决都算评审完成）即停；
+    返回 1（评审方失败，如额度用尽，已发 review_error 告警）、返回 2（配置不可用，如该家就是设计方，
+    无告警）或抛异常（如评审程序不存在的 FileNotFoundError）都换下一家。全部失败返回 1，
+    stderr 汇总每一家的结果。review 参数供调用方注入评审模块（测试与 T702）。
     """
-    items = acceptance.parse_spec(root / task.path, root)
-    if any(item.manual for item in items):
-        return "见任务书验收表中的人工条目（`bin/harness acceptance --manual`）。"
-    return "无"
-
-
-def pr_body(task: Task, attempt: Attempt, number: int, prompt_sha: str, root: Path = ROOT) -> str:
-    usage = attempt.usage
-    return "\n".join([
-        "## 任务", "",
-        f"- 任务书：`{task.path}`（{task.id}，类别 {task.klass}，预期风险 {task.risk}）",
-        f"- 对应验收编号：{'、'.join(task.spec_refs) or '不挂规格（见任务书）'}",
-        "- 派发：`bin/dispatch`，执行方与模型见下表", "",
-        "## 运行记录摘要", "",
-        "| 项 | 值 |", "|---|---|",
-        f"| 记录 | `docs/runs/{task.path.split('/')[-1].removesuffix('.md')}/{number}.json` |",
-        f"| 模型 | {attempt.model or '未报告'} |",
-        f"| 执行时长 | {round(attempt.executor_seconds / 60, 1)} 分钟，本地重试 {attempt.retries} 次 |",
-        f"| token | 输入 {usage.get('input_tokens', '—')}，输出 {usage.get('output_tokens', '—')} |",
-        f"| 守卫拒绝 | {sum(attempt.guard_denials.values())} 次 |",
-        f"| 提示词 sha256 | `{prompt_sha[:16]}` |", "",
-        "本地 `bin/verify` 由派发脚本在执行方进程之外运行并通过；以本 PR 的 CI 为准。", "",
-        "## 证据", "",
-        "- CI 运行（当前 head）：见本 PR checks",
-        "- 风险等级与修复证据：见 harness job summary（机器生成）", "",
-        "## 需要人工验收的部分", "",
-        _manual_section(root, task), "",
-        "🤖 Dispatched by bin/dispatch",
-    ]) + "\n"
-
-
-def escalation_body(task: Task, attempt: Attempt, reason: str, pr: int | None = None) -> str:
-    lines = [
-        f"### 升级：{task.id}（{reason}）", "",
-        f"- **当前状态与目标差距**：任务书 `{task.path}`，分支 `{task.branch}`；退出方式：{EXIT_TEXT.get(attempt.exit, attempt.exit)}。",
-        f"- **已尝试的方案与结果**：执行方运行 {attempt.retries + 1} 轮，失败签名："
-        + ("、".join(f"`{sig}`" for sig in attempt.signatures) or "无"),
-        "- **证据**：", "",
-        attempt.verify_summary or "（无 verify 输出）", "",
-    ]
-    if attempt.executor_note:
-        lines += ["#### 执行方的说明（`build/dispatch/escalation.md`）", "", attempt.executor_note, ""]
-    else:
-        lines += ["- **可选方案与推荐**、**需要决定的问题**：执行方未提供，由设计方判断。", ""]
-    lines += alerts.timeline_lines(task.branch, pr)  # T205：trace、安全阶段摘要与时间线入口
-    lines += ["完整事件流在派发机器本地（git 公共目录下 `dispatch/runs/`），不入库。"]
-    return "\n".join(lines) + "\n"
+    if review is None:
+        from engine.agents import review as review_module  # review 依赖本模块，按需导入，沿用 main 的写法
+        review = review_module
+    review_config = load_rules().get("review", {})
+    reviewers = review_config.get("chain") or [review_config.get("reviewer")]
+    outcomes: list[str] = []
+    for name in reviewers:
+        try:
+            code = review.review_pr(pr, name, root, github)
+        except Exception as error:  # noqa: BLE001  单家异常换下一家，不让链断在这里
+            print(f"评审链：{name} 异常（{error}），换下一家", file=sys.stderr)
+            outcomes.append(f"{name}：异常 {error}")
+            continue
+        if code == 0:
+            return 0
+        if code == 2:
+            print(f"评审链：{name} 配置不可用（如该家就是设计方），换下一家", file=sys.stderr)
+        outcomes.append(f"{name}：{'评审方失败' if code == 1 else f'返回 {code}'}")
+    print(f"PR #{pr}：评审链全部失败（{'；'.join(outcomes) or '没有配置评审方'}）", file=sys.stderr)
+    return 1
 
 
 def _now() -> str:
@@ -744,6 +647,11 @@ def main(argv: list[str] | None = None) -> int:
     cal.add_argument("--reviewer", choices=["opencode", "pi", "codex", "claude-code"])
     cal.add_argument("--output", type=Path, default=Path("build/review/calibration-report.md"),
                      help="报告路径（相对仓库根，缺省 build/review/calibration-report.md）")
+    from engine.agents import signoff  # T702：按需导入（signoff 依赖本模块，顶层导入会循环）
+
+    # 参数定义只有 signoff.build_parser 一份，这里注册进子命令后原样转给 signoff.main。
+    sub.add_parser("signoff", help="设计方复核：发布复核评论，评审复核齐备后重跑判定（engine/agents/signoff.py）",
+                   parents=[signoff.build_parser(add_help=False)])
     sub.add_parser("status", help="查看槽位")
     stop = sub.add_parser("stop", help="停机：终止所有正在运行的执行方")
     stop.add_argument("--all", action="store_true", required=True)
@@ -764,6 +672,9 @@ def main(argv: list[str] | None = None) -> int:
         return review_module.review_pr(args.pr, args.reviewer)
     if args.command == "review-calibrate":
         return review_calibrate_command(args)
+    if args.command == "signoff":
+        rest = sys.argv[1:] if argv is None else argv
+        return signoff.main(rest[1:])
     if args.command == "stop":
         return stop_all()
     if (state_dir() / "stop").exists():
