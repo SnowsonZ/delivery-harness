@@ -48,6 +48,7 @@ rollback: git revert（仅在用户授权后）
 - `engine/checks/verify.py`
 - `tests/test_events_test_isolation.py`（新增）
 - `tests/test_install.py`（修订记录 1：只改 `env()`，清洗环境时保留 `HARNESS_EVENTS_REDIRECT`）
+- `tests/test_alert_cli.py`、`tests/test_ci_events_workflows.py`、`tests/test_github_events.py`（修订记录 2：只改启动本仓库引擎 install 子进程时的环境清洗，保留 `HARNESS_EVENTS_REDIRECT`）
 
 消费方扫描（检查单第 2 项）：
 
@@ -125,3 +126,26 @@ CHANGELOG 由设计方在 D1 统一写入，本任务不改。
 - 不改变量名。换成不以 `HARNESS_` 开头的名字虽然能避开清洗，但会失去守卫对 `HARNESS_*` 命令行设置的拦截：执行方可以借这个变量把自己的事件导走，逃过审计。
 - 实测中只有这一个文件漏出事件；其他会清洗 `HARNESS_` 变量的测试都在夹具仓库里运行，事件本来就写进夹具库。
 - 验收第 6 行不变，修复后由设计方重新实测。其余目标终态、验收、变异清单都不变，已完成的提交保留，在此基础上续跑。
+
+## 修订记录 2（2026-10-05，设计方裁决执行方第 3 次升级：修订 1 的前提不成立）
+
+执行方第 3 次派发完成了修订 1 的修复（`459009a`），并做了精确对照，发现修订 1 的判断「实测中只有这一个文件漏出事件」不成立。这条判断是设计方没有逐个核实就写下的。对照数据（真实库中本分支追踪链的事件增量）：
+
+| 运行 | `cli.install` | `cli.upgrade` |
+|---|---|---|
+| 旧引擎编排（不设重定向变量） | +25 | +1 |
+| 本任务引擎，含修订 1 的修复 | +14 | +0 |
+
+剩下的 14 条，与三个文件里的调用点数一一吻合：
+
+- `tests/test_alert_cli.py` 的 `install_engine()`：8 处；
+- `tests/test_ci_events_workflows.py` 的 `install()`：5 处；
+- `tests/test_github_events.py` 的 `test_installed_entry_with_fake_gh`：1 处（`CLEAN_PREFIXES` 清洗）。
+
+这三处都是清洗环境时去掉了所有 `HARNESS_` 变量，再以仓库根为工作目录启动真实的 `engine/cli.py install`，所以公共目录与当前仓库相同。在夹具仓库里运行的其他调用写的是夹具库，不受影响。
+
+裁决：
+
+- 采纳执行方推荐的方案 A。白名单加入上述三个文件，**只改这三处 install 子进程的环境清洗**：保留 `HARNESS_EVENTS_REDIRECT`，其余 `HARNESS_` 变量照旧去掉，写法与修订 1 相同。夹具侧的其他清洗不动。
+- 执行方还报告了一个偶发现象：全量运行时出现过一次事件临时目录残留，单跑 6 次未复现，疑似与 SQLite WAL 清理竞态。处理如下：`_ProjectEventsSink.close()` 删除临时目录改为最多重试 3 次，每次间隔 0.2 秒；仍有残留时向 stderr 打印一行提示，不改变 verify 的结论，因为事件只是观察数据。这样能避免验收第 4 行的「临时目录已删除」断言偶发失败。
+- 验收第 6 行不变：修复后由设计方在槽位重新实测，`cli.install`、`cli.upgrade` 的增量必须为 0。其余目标终态、验收、变异清单不变，已完成的提交保留，在此基础上续跑。
