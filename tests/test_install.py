@@ -25,7 +25,10 @@ OWN_VALUES = ("Snowson", "snowsonz", "glm-", "zai-coding", "gpt-6", "iterm-probe
 
 
 def env() -> dict[str, str]:
-    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and not k.startswith("HARNESS_")}
+    # HARNESS_ 覆盖开关不混进测试；HARNESS_EVENTS_REDIRECT 除外——verify 跑项目检查时带着它，
+    # 安装/升级子进程运行的是本仓库引擎（公共目录相同），清洗掉它会把测试事件写回真实库（B92 修订 1）。
+    clean = {k: v for k, v in os.environ.items()
+             if not k.startswith("GIT_") and (not k.startswith("HARNESS_") or k == "HARNESS_EVENTS_REDIRECT")}
     return {**clean, **GIT_ENV, "PYTHONDONTWRITEBYTECODE": "1"}
 
 

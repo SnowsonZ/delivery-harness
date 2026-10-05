@@ -233,6 +233,20 @@ class TestEventsIsolation(unittest.TestCase):
                          ["integrity", "cli.integrity", "verify.integrity", "verify.demo",
                           "verify.summary", "cli.verify"])
 
+    # ---------- 修订记录 1：test_install 的 env() 清洗时保留重定向变量 ----------
+
+    def test_install_env_keeps_redirect(self):
+        """安装/升级子进程跑本仓库引擎（公共目录相同），env() 去掉重定向变量会把测试事件写回真实库。"""
+        from tests import test_install
+
+        redirect = json.dumps({"dir": str(self.tmp / "holder"), "for_common_dir": str(events_db.common_dir())})
+        with mock.patch.dict(os.environ, {"HARNESS_EVENTS_REDIRECT": redirect,
+                                          "HARNESS_EVENTS": "0", "HARNESS_ALLOW_REWRITE": "1"}):
+            cleaned = test_install.env()
+        self.assertEqual(cleaned.get("HARNESS_EVENTS_REDIRECT"), redirect)
+        self.assertNotIn("HARNESS_EVENTS", cleaned)  # 其余 HARNESS_ 覆盖开关照旧去掉
+        self.assertNotIn("HARNESS_ALLOW_REWRITE", cleaned)
+
 
 if __name__ == "__main__":
     unittest.main()
