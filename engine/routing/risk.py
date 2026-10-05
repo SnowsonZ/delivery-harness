@@ -166,6 +166,16 @@ def _cases_statement_unchanged(base_stmt: ast.stmt, head_stmt: ast.stmt) -> bool
     return ast.dump(base_copy) == ast.dump(head_copy)
 
 
+def _top_level_unchanged(base_stmts: list[ast.stmt], head_stmts: list[ast.stmt], index: int) -> bool:
+    """除 ``CASES`` 赋值外的顶层语句逐条 ``ast.dump`` 相同，且 ``CASES`` 语句除列表外也完全相同。"""
+    for offset, (base_stmt, head_stmt) in enumerate(zip(base_stmts, head_stmts)):
+        if offset == index:
+            continue
+        if ast.dump(base_stmt) != ast.dump(head_stmt):
+            return False  # BASELINE、GUARDED、DEFERRED、import、文档字符串都不得改动
+    return _cases_statement_unchanged(base_stmts[index], head_stmts[index])
+
+
 def _literal_case_call(node: ast.expr) -> bool:
     """清单项是否为对名字 ``Case`` 的调用：无位置参数，只有具名关键字参数，且每个参数值都是字面量。"""
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name) or node.func.id != "Case":
@@ -197,13 +207,8 @@ def replay_cases_grew_only(base: str, head: str, path: str, cwd: Path) -> bool:
         index = _single_cases_index(base_stmts)
         if index is None or index != _single_cases_index(head_stmts):
             return False
-        for offset, (base_stmt, head_stmt) in enumerate(zip(base_stmts, head_stmts)):
-            if offset == index:
-                continue
-            if ast.dump(base_stmt) != ast.dump(head_stmt):
-                return False  # BASELINE、GUARDED、DEFERRED、import、文档字符串都不得改动
-        if not _cases_statement_unchanged(base_stmts[index], head_stmts[index]):
-            return False  # CASES 语句除列表外不得改动：注解、目标、语句类型都可能夹带可执行内容（修订 1）
+        if not _top_level_unchanged(base_stmts, head_stmts, index):
+            return False  # 其余顶层语句逐条不变，CASES 语句除列表外也不得改动（修订 1）
         base_list, head_list = _cases_value(base_stmts[index]), _cases_value(head_stmts[index])
         if not isinstance(base_list, ast.List) or not isinstance(head_list, ast.List):
             return False
