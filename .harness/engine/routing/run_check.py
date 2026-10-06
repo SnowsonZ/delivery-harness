@@ -554,6 +554,28 @@ def ci_rounds(runs: list[dict]) -> int:
                 if run.get("status") == "completed" and (run.get("headSha") or run.get("head_sha"))})
 
 
+def is_sync_merge(sha: str, mainline: str, cwd: Path = ROOT) -> bool:
+    """同步合并提交（T715，B104）：提交有 ≥ 2 个父提交，且除第一个父提交外，其余**所有**父提交都是
+    mainline 的祖先（或等于它）——同步 App 的 update-branch 在分支上产生的提交形状；其余**任一**
+    父提交不在主线上（普通合并、多亲合并）都不是。提交取不到、git 出错时返回假（照常计入）：
+    预算是成本控制不是安全边界，宁可多计不少计。已接受的风险：执行方可以把修复改动夹带进同步
+    合并提交让这一轮不计入预算——改动仍完整出现在 diff 中，照常经过评审与复核（写进 CHANGELOG）。"""
+    try:
+        parents = git("rev-list", "--parents", "-n", "1", sha, cwd=cwd).split()[1:]
+    except (RuntimeError, IndexError):
+        return False
+    if len(parents) < 2:
+        return False
+    for parent in parents[1:]:
+        try:
+            # merge-base(parent, mainline) == parent 当且仅当 parent 是 mainline 的祖先（或等于它）。
+            if git("merge-base", parent, mainline, cwd=cwd) != parent:
+                return False
+        except RuntimeError:
+            return False
+    return True
+
+
 def check_ci(rounds: int | None, header: dict) -> Finding:
     limit = (header.get("budget") or {}).get("ci_rounds")
     if rounds is None:

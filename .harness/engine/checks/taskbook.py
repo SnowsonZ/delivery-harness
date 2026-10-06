@@ -419,19 +419,25 @@ def _admission_inputs(path: str, root: Path, rev: str) -> list[dict]:
 
 
 def _record_admission(reports: list[Report], root: Path = ROOT) -> None:
-    """观察旁路：taskbook.admit 每份任务书一条事件（通过与问题规则计数），失败不影响原判定。"""
+    """观察旁路：不合格的任务书各一条 taskbook.admit（问题规则计数），加一条 taskbook.summary 汇总（B94）。"""
     try:
         rev = git("rev-parse", "HEAD", cwd=root, check=False)
         for report in reports:
+            if not report.errors:
+                continue
             counts: dict[str, int] = {}
             for error in report.errors:
                 rule = _problem_rule(error)
                 counts[rule] = counts.get(rule, 0) + 1
-            events.emit(stage="ci", step="taskbook.admit", status="ok" if not report.errors else "fail",
+            events.emit(stage="ci", step="taskbook.admit", status="fail",
                         inputs=_admission_inputs(report.path, root, rev),
                         outputs={"problems": len(report.errors), **counts},
-                        decision={"by": "taskbook", "rule": "admit",
-                                  "reason": report.errors[0] if report.errors else "合格"})
+                        decision={"by": "taskbook", "rule": "admit", "reason": report.errors[0]})
+        failed = sum(1 for report in reports if report.errors)
+        events.emit(stage="ci", step="taskbook.summary", status="fail" if failed else "ok",
+                    outputs={"total": len(reports), "failed": failed},
+                    decision={"by": "taskbook", "rule": "admit",
+                              "reason": f"{failed} 份不合格" if failed else "合格"})
     except Exception:  # noqa: BLE001  设计要求：事件失败不得影响调用方
         return
 
@@ -457,7 +463,7 @@ def main(argv: list[str] | None = None) -> int:
     for report in failed:
         for error in report.errors:
             print(f"✗ {report.path}：{error}")
-    _record_admission(reports, ROOT)  # 观察：引用、通过与问题规则计数
+    _record_admission(reports, ROOT)  # 观察：不合格逐份引用与计数，另加一条汇总
     return 1 if failed else 0
 
 

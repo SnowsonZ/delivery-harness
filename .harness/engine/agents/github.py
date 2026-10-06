@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -66,6 +67,17 @@ class GitHub:
     def add_label(self, pr: int, label: str) -> None:
         self._ensure_label(label)
         self._run(["gh", "pr", "edit", str(pr), "--add-label", label], agent=True)
+
+    def disable_auto_merge(self, pr: int) -> bool:
+        """关闭 PR 已开启的自动合并（T715 否决信号）：成功返回真；PR 本来就没开或调用失败时只打印、
+        返回假，不抛异常——否决本体已经完成，这里的失败不改变调用方的结论与退出码。"""
+        try:
+            self._run(["gh", "pr", "merge", str(pr), "--disable-auto"], agent=True)
+            return True
+        except (RuntimeError, OSError) as error:
+            print(f"关闭 PR #{pr} 的自动合并未成功（{error}）；若它已开启自动合并，"
+                  f"请手动 gh pr merge {pr} --disable-auto", file=sys.stderr)
+            return False
 
     def create_issue(self, title: str, body: str, labels: list[str]) -> None:
         for label in labels:
