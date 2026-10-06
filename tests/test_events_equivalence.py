@@ -510,9 +510,11 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertEqual(result["code"], 1)
         self.git("reset", "-q", "--hard", self.base)
 
-        self.three_states("taskbook 通过", ["taskbook"], ("cli.taskbook", "taskbook.admit"))
+        self.three_states("taskbook 通过", ["taskbook"], ("cli.taskbook", "taskbook.summary"))
         self.commit({"docs/plans/task-902-bad.md": taskbook_text("T902", ci_rounds=9, acceptance="ZZ99")}, "坏任务书")
-        result = self.three_states("taskbook 失败", ["taskbook"], ("cli.taskbook", "taskbook.admit"))
+        result = self.three_states(
+            "taskbook 失败", ["taskbook"], ("cli.taskbook", "taskbook.summary", "taskbook.admit")
+        )
         self.assertEqual(result["code"], 1)
         self.git("reset", "-q", "--hard", self.base)
 
