@@ -272,8 +272,10 @@ def escapes_in_window(klass: str, window: int, gh=_gh) -> tuple[int, int]:
     return len(numbers & blamed), len(numbers)
 
 
-def branch_rounds(branch: str, gh=_gh) -> int | None:
-    """该分支已完成的 CI 轮次：ci_workflows 各工作流的 pull_request 运行，按不同的 head 提交合计。"""
+def branch_rounds(branch: str, gh=_gh, cwd: Path = ROOT, mainline: str | None = None) -> int | None:
+    """该分支已完成的 CI 轮次：ci_workflows 各工作流的 pull_request 运行，按不同的 head 提交合计。
+    mainline 给出时排除同步合并的 head（同步 App 的 update-branch，B104）——同步不算执行方的轮次；
+    为 None 时与排除前完全相同。取不到运行时返回 None（按超预算处理，宁可转人审）。"""
     try:
         runs = []
         for workflow in ci_workflows():
@@ -281,7 +283,12 @@ def branch_rounds(branch: str, gh=_gh) -> int | None:
                                   "--json", "headSha,status,event"))
     except (RuntimeError, json.JSONDecodeError, OSError):
         return None
-    return run_check.ci_rounds([run for run in runs if run.get("event") == "pull_request"])
+    pulls = [run for run in runs if run.get("event") == "pull_request"]
+    if mainline is None:
+        return run_check.ci_rounds(pulls)
+    pulls = [run for run in pulls
+             if not run_check.is_sync_merge(run.get("headSha") or run.get("head_sha") or "", mainline, cwd)]
+    return run_check.ci_rounds(pulls)
 
 
 def _contract_candidate(facts: Facts, target: run_check.Scope | None, pr: int | None, autonomy: dict) -> bool:
@@ -366,7 +373,8 @@ def gather(base: str, head: str, pr: int | None, cwd: Path = ROOT, autonomy: dic
         facts.labels, facts.escapes = None, None
     target = run_check.scope(base, head, branch, cwd)
     if target is not None:
-        facts.run_findings = run_check.check(base, head, branch, cwd, rounds=branch_rounds(branch, gh))
+        facts.run_findings = run_check.check(base, head, branch, cwd,
+                                             rounds=branch_rounds(branch, gh, cwd=cwd, mainline=base))
     facts.contract = _contract_candidate(facts, target, pr, autonomy)
     if facts.contract:
         facts.review, facts.signoff, facts.degraded = _contract_signals(base, head, pr, cwd, gh)
