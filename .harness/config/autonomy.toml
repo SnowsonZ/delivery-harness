@@ -13,7 +13,8 @@ exclude = ["tests/golden/**", "docs/runs/**", "tests/**"]
 # R2 合同制路径（自治试验设计第 4 节）：全部改动路径都在白名单内、任务书已批、运行记录合格、
 # 独立评审与设计方复核都通过时，R2 实现 PR 自动合并。只列实现路径，其余一律转人审。
 [contract_route]
-allowed = ["engine/**", "templates/**", "tests/**", "docs/runs/**", "CHANGELOG.md"]
+# 回放清单只在 rules.toml grow_only_cases 判为 R2（只追加用例）时才可能落在这条路径上（T712）。
+allowed = ["engine/**", "templates/**", "tests/**", "docs/runs/**", "CHANGELOG.md", ".harness/project/replay_cases.py"]
 
 # 机器按路径、trailer 判定的类别（policy.py machine_class），不是任务书的声明。
 # level：L4 = 门禁全绿后自动合并；L3 及以下 = 用户评审。

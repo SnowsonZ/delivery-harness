@@ -1,0 +1,100 @@
+{
+  "task": "T713",
+  "class": "K5",
+  "attempt": 3,
+  "branch": "task/713-verify-speedup",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3",
+  "prompt_sha256": "2cf78c36d874110c6afceae4f0f9b1cf8aad9d35deed56bf9173a4f63feb63a9",
+  "prompt_path": "docs/runs/task-713-verify-speedup/3.prompt.md",
+  "guard_ref": "7d744f895c0ea5d68f43f0f35a600ad9821cde6b",
+  "started_at": "2026-10-05T15:28:11+00:00",
+  "ended_at": "2026-10-05T16:05:51+00:00",
+  "executor_seconds": 1777.2,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 1,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 1197157,
+  "gen_ai.usage.output_tokens": 22751,
+  "cost": 0.465544,
+  "escalation": null,
+  "trace_id": "task/713-verify-speedup",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "push_pr",
+      "status": "prior",
+      "ts": "2026-10-05T15:21:37.822Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "ci_wait",
+      "status": "prior",
+      "ts": "2026-10-05T15:28:11.203Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "base_tests",
+      "status": "fail",
+      "ts": "2026-10-05T15:34:54.753Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.base-tests",
+      "status": "fail",
+      "ts": "2026-10-05T15:34:54.784Z",
+      "duration_ms": 363753,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "base_tests",
+      "status": "fail",
+      "ts": "2026-10-05T15:49:17.421Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-05T15:57:48.958Z",
+      "duration_ms": 1777208,
+      "attempt": 2,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-05T16:05:51.161Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 1
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "88a838e8f56c0f6b4a5ef5f45190a78e8a310bb40da114f5eebb443fc46f819a",
+      "fixed_in": "run_record"
+    }
+  ]
+}

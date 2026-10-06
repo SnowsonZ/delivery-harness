@@ -1,0 +1,271 @@
+{
+  "task": "T712",
+  "class": "K5",
+  "attempt": 3,
+  "branch": "task/712-replay-cases-grow-only",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3",
+  "prompt_sha256": "cebcabd79baace057a261410a8220e3a0058f36797472e0d8ca38961c9722b22",
+  "prompt_path": "docs/runs/task-712-replay-cases-grow-only/3.prompt.md",
+  "guard_ref": "a0122a302ad78f25acbd3fc169af806ffe3a338c",
+  "started_at": "2026-10-05T07:33:02+00:00",
+  "ended_at": "2026-10-05T08:05:09+00:00",
+  "executor_seconds": 1461.1,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 1658399,
+  "gen_ai.usage.output_tokens": 35058,
+  "cost": 0.666971,
+  "escalation": null,
+  "trace_id": "task/712-replay-cases-grow-only",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "push_pr",
+      "status": "prior",
+      "ts": "2026-10-05T05:37:23.802Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "ci_wait",
+      "status": "prior",
+      "ts": "2026-10-05T05:43:45.777Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "review",
+      "step": "review",
+      "status": "fail",
+      "ts": "2026-10-05T05:46:33.517Z",
+      "duration_ms": 158831,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-05T06:15:59.178Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-05T06:16:00.776Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-05T06:16:04.061Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-05T06:25:06.727Z",
+      "duration_ms": 542354,
+      "attempt": 2,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "fail",
+      "ts": "2026-10-05T06:25:06.784Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 1
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "fail",
+      "ts": "2026-10-05T06:30:09.307Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.quality",
+      "status": "fail",
+      "ts": "2026-10-05T06:30:09.533Z",
+      "duration_ms": 299,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.quality",
+      "status": "fail",
+      "ts": "2026-10-05T06:30:09.600Z",
+      "duration_ms": 362,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "fail",
+      "ts": "2026-10-05T06:37:43.415Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "fail",
+      "ts": "2026-10-05T06:37:43.452Z",
+      "duration_ms": 455094,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-05T06:46:58.297Z",
+      "duration_ms": 1311012,
+      "attempt": 2,
+      "round": 2
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-05T06:54:25.091Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 2
+    },
+    {
+      "stage": "review",
+      "step": "review",
+      "status": "fail",
+      "ts": "2026-10-05T07:17:26.633Z",
+      "duration_ms": 220739,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-05T07:32:55.708Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-05T07:32:56.963Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-05T07:33:02.493Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "fail",
+      "ts": "2026-10-05T07:40:36.469Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.quality",
+      "status": "fail",
+      "ts": "2026-10-05T07:40:36.679Z",
+      "duration_ms": 281,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.quality",
+      "status": "fail",
+      "ts": "2026-10-05T07:40:36.739Z",
+      "duration_ms": 338,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "fail",
+      "ts": "2026-10-05T07:48:00.452Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "fail",
+      "ts": "2026-10-05T07:48:00.494Z",
+      "duration_ms": 444987,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-05T07:57:24.235Z",
+      "duration_ms": 1461089,
+      "attempt": 2,
+      "round": 3
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-05T08:05:09.609Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 3
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "0352dfc6ddd9fde7694125f8f7660f2ec3ec980d8b932cb95e69cf4e729b8e1b",
+      "fixed_in": "run_record"
+    }
+  ]
+}

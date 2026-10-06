@@ -1,0 +1,208 @@
+{
+  "task": "T713",
+  "class": "K5",
+  "attempt": 2,
+  "branch": "task/713-verify-speedup",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3",
+  "prompt_sha256": "5322c246bfad56b2fef7b5192ce732ba299f0db615c7b8fb22d82cd88267bd4f",
+  "prompt_path": "docs/runs/task-713-verify-speedup/2.prompt.md",
+  "guard_ref": "7d744f895c0ea5d68f43f0f35a600ad9821cde6b",
+  "started_at": "2026-10-05T14:45:11+00:00",
+  "ended_at": "2026-10-05T15:17:40+00:00",
+  "executor_seconds": 1602.1,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 827741,
+  "gen_ai.usage.output_tokens": 9509,
+  "cost": 0.302466,
+  "escalation": null,
+  "trace_id": "task/713-verify-speedup",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-05T07:09:19.113Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-05T07:09:21.269Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-05T07:09:23.264Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "claim",
+      "status": "ok",
+      "ts": "2026-10-05T07:13:23.935Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.run-tests",
+      "status": "fail",
+      "ts": "2026-10-05T07:45:08.557Z",
+      "duration_ms": 108505,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.run-tests",
+      "status": "fail",
+      "ts": "2026-10-05T07:48:05.242Z",
+      "duration_ms": 170110,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-05T07:48:58.582Z",
+      "duration_ms": 2133792,
+      "attempt": 1,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "clarify",
+      "status": "ok",
+      "ts": "2026-10-05T07:48:58.609Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tests",
+      "status": "fail",
+      "ts": "2026-10-05T07:54:14.989Z",
+      "duration_ms": 307708,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "fail",
+      "ts": "2026-10-05T07:54:15.011Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "fail",
+      "ts": "2026-10-05T07:54:15.035Z",
+      "duration_ms": 310508,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tests",
+      "status": "fail",
+      "ts": "2026-10-05T07:59:11.881Z",
+      "duration_ms": 288564,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "fail",
+      "ts": "2026-10-05T07:59:11.900Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "fail",
+      "ts": "2026-10-05T07:59:11.918Z",
+      "duration_ms": 291302,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-05T14:45:04.038Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-05T14:45:08.207Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-05T14:45:11.583Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-05T15:11:54.077Z",
+      "duration_ms": 1602145,
+      "attempt": 1,
+      "round": 2
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-05T15:17:40.018Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 2
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "512c58b2cc4b089ca6909ed5837e104a28d541c0bea1c436d578bd19dc530739",
+      "fixed_in": "run_record"
+    }
+  ]
+}
