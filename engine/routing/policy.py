@@ -225,11 +225,11 @@ def render(rules: list[Rule], facts: Facts, audit: bool) -> str:
     if facts.risk.r1_violations:
         lines += ["", "R1 加强判定未通过："] + [f"- {reason}" for reason in facts.risk.r1_violations]
     if audit:
-        lines += ["", f"本 PR 被抽中审计（{facts.machine_class}），合并后开 audit 议题。"]
+        lines += ["", f"本 PR 被抽中审计（{facts.machine_class}），合并前登记 audit 议题。"]
     pending = pending_marker(rules, facts)
     if pending:
         lines += ["", f"等待：{'独立评审' if pending == 'review' else '设计方复核'}"]
-    lines += ["", "停机：Actions → auto-merge → Disable workflow。"]
+    lines += ["", "停机：Disable workflow 后再运行 automerge-off 撤销已开启的自动合并。"]
     return "\n".join(lines) + "\n"
 
 
