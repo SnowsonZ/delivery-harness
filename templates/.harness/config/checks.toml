@@ -17,6 +17,11 @@ schema = 1
 # 批准 App 的仓库变量名（App 的 client id）、密钥名与放密钥的 environment 名；缺省如下，仅在与现有命名冲突时改。
 # app_client_id_var = "HARNESS_APP_CLIENT_ID"
 # app_private_key_secret = "HARNESS_APP_PRIVATE_KEY"
+# 同步 App（专管落后分支的同步，与批准 App 分开：ruleset 要求最后一次推送由推送者以外的人批准，
+# 批准 App 不能既同步又批准）。它需要 Contents 写与 Pull requests 写权限；变量与密钥缺省名如下。
+# 未配置时工作流不同步落后分支，只在 PR 上评论提示人工同步。
+# sync_app_client_id_var = "HARNESS_SYNC_APP_CLIENT_ID"
+# sync_app_private_key_secret = "HARNESS_SYNC_APP_PRIVATE_KEY"
 # environment = "harness-auto-merge"
 
 [runtime]
