@@ -37,12 +37,12 @@ rollback: git revert（仅在用户授权后）
 ### B102：原生自动合并
 
 1. **merge-app（approval = app）**，步骤顺序：
-   1. **再判定**（新增，最先执行）：检出默认分支、setup-python、`git fetch` 评估过的 head（只当数据），执行与 judge 完全相同的命令（`python .harness/engine/cli.py policy --base "origin/$BASE_BRANCH" --head "$HEAD_SHA" ${PR:+--pr "$PR"} --branch "$HEAD_BRANCH" --github`，id `recheck`）；该步骤的环境里只有 `GITHUB_TOKEN`，**不含任何 App 令牌**（令牌步骤放在它之后）。`recheck.outputs.auto_merge != 'true'` 时，之后的批准、开启一律跳过（job 仍以成功结束，打印原因）。
+   1. **再判定**（新增，最先执行）：检出默认分支、setup-python、`git fetch` 评估过的 head（只当数据），执行与 judge 完全相同的命令（`python .harness/engine/cli.py policy --base "origin/$BASE_BRANCH" --head "$HEAD_SHA" ${PR:+--pr "$PR"} --branch "$HEAD_BRANCH" --github`，id `recheck`）；该步骤的环境里只有 `GITHUB_TOKEN`，**不含任何 App 令牌**（令牌步骤放在它之后）。merge-app 的权限补 `actions: read`（再判定经 `gather → branch_rounds` 调用 `gh run list`，缺该权限会查询失败并被判超预算，使合格 PR 无法通过再判定；静态断言删除该权限即失败）。`recheck.outputs.auto_merge != 'true'` 时：先用工作流令牌 `gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --disable-auto || true` 撤销可能已存在的请求（旧运行已开启、新近出现的否决使再判定拒绝，而 request-review 依据旧 judge 不会关闭），再跳过批准与开启（job 仍以成功结束，打印原因）。
    2. 两个 App 令牌（批准、同步）、落后与冲突预检查：保持原样（含条件与注释）。
-   3. **登记抽审**（`AUDIT=true` 时，在任何可能合并的命令之前）：幂等开 audit 议题——先 `gh issue list --label audit --state all --search 'in:title "Audit: PR #N"'` 并用 jq 精确比对标题，已存在则不再开。议题正文沿用原文，另加一句「登记于开启合并时；若该 PR 最终未合并，关闭本议题并注明」。
+   3. **登记抽审**（`AUDIT=true` 时，在任何可能合并的命令之前）：幂等开 audit 议题；merge-app 与 merge-direct 两个 job 都加 job 级 `concurrency: {group: auto-merge-pr-<PR 号>, cancel-in-progress: false}`，使同一 PR 的两个运行串行；查询议题失败按失败处理（不得当作「不存在」，job 失败即不合并，等重判）。先 `gh issue list --label audit --state all --search 'in:title "Audit: PR #N"'` 并用 jq 精确比对标题，已存在则不再开。议题正文沿用原文，另加一句「登记于开启合并时；若该 PR 最终未合并，关闭本议题并注明」。
    4. **批准**：命令逐字不变。
-   5. **开启**：令牌 = 配置了同步 App 时用**同步令牌**，否则用批准令牌；命令 `gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --merge --match-head-commit "$HEAD_SHA"`。命令失败时先查 `gh pr view --json autoMergeRequest`，非空视为成功（已开启过）；仍为空才退回：
-   6. **退回立即合并**：命令 `gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$HEAD_SHA"` 逐字不变，**令牌与开启一致**（配置了同步 App 时用同步令牌，使退回合并也触发 main 的 `push` 工作流）；并在 PR 评论一次开启失败的原因与「请打开仓库设置 Allow auto-merge」。
+   5. **开启**：令牌 = 配置了同步 App 时用**同步令牌**，否则用**工作流令牌**（批准 App 只申请 Pull requests 写权限、无 Contents 写权限，保持「只批准」的分工，不用它开启或合并）；命令 `gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --merge --match-head-commit "$HEAD_SHA"`。命令失败时先查 `gh pr view --json autoMergeRequest`，非空视为成功（已开启过）；仍为空才退回：
+   6. **退回立即合并**：命令 `gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$HEAD_SHA"` 逐字不变，**令牌与开启一致**（配置了同步 App 时用同步令牌，使退回合并也触发 main 的 `push` 工作流；未配置时用工作流令牌，不触发 main push，写进 CHANGELOG）；并在 PR 评论一次开启失败的原因与「请打开仓库设置 Allow auto-merge」。
 2. **merge-direct（approval = none）**：登记抽审（同上）→ 工作流令牌开启 → 失败按同样规则退回立即合并并评论。单账号用工作流令牌合并，不会触发 main 的 `push`，第 3 条同步链在该模式下不生效，写进 CHANGELOG 与 SECURITY.md 单账号一节。
 3. **main 前进时同步等待中的 PR**：auto-merge 工作流新增 `push`（默认分支）触发：
    - `platform` job（只在 `push` 事件运行）：检出默认分支，`python .harness/engine/cli.py automerge platform` 把 environment 名与同步 App 的变量名、密钥名写入 job 输出（取自 `policy` 已用的 `setting("platform", …)`，不另造配置读取）。
@@ -54,11 +54,12 @@ rollback: git revert（仅在用户授权后）
    - `signoff.py`：发布复核评论之后，条件与 `signals.signoff_status` 判 fail 一致（结论不是「通过」、mutations 缺失或 < 1、caught ≠ mutations）；
    - `dispatch.py`：打 `budget-exceeded` 标签之后；
    - 为避免判据复制，把 `review_status` 与 `signoff_status` 里对标记数据的判定抽成纯函数（`signals.py` 白名单内，只抽出、不改行为），引擎调用点与状态函数共用。
-   - 工作流：request-review job（judge 判定为「不自动合并」）里，用工作流令牌对该 PR `gh pr merge --disable-auto`（`|| true`）；这一路覆盖 flagged、escalation、预算、新 head 等一切判定不合格的情形。
+   - 工作流：request-review job（judge 判定为「不自动合并」）里，用工作流令牌对该 PR `gh pr merge --disable-auto`（`|| true`）；这一路覆盖 `policy` 判不合格的全部情形（flagged、预算、新 head 等）；仅带 `escalation` 标签不是 `policy` 的拒绝条件，不在此覆盖，冲突导致的 escalation 由第 3 条 `sync-waiting` 自带的关闭负责，本任务不改判定条件。
 5. **停机与类别回收撤销存量请求**：禁用 auto-merge 工作流不会撤销 GitHub 上已开启的自动合并，类别改回 L3 或逃逸预算超限同样不会。新增命令 `python .harness/engine/cli.py automerge-off [--dry-run]`（新模块 `engine/agents/automerge.py`，同模块提供第 3 条的 `platform` 子命令；`automerge` 与 `automerge-off` 在 `cli.py` 的 COMMANDS 注册）：
-   1. 列出 `auto-merge.yml` 中 `queued`/`in_progress` 的运行（它们可能还在开启自动合并），打印并提示先取消或等它们结束；
+   1. **分页**列出 `auto-merge.yml` 全部未完成的运行（状态 `queued`、`in_progress`、`waiting`、`pending`、`requested`），它们可能还在开启自动合并；
    2. 列出全部 `autoMergeRequest` 非空的打开 PR，逐个关闭；
-   3. 关闭后重新查询，仍有开启的就列出并以非零退出，不得假装成功；`--dry-run` 只列出不改。
+   3. 关闭后重新查询请求与未完成运行。**只有「未完成运行为零且请求为零」才以 0 退出**；仍有未完成运行（须先取消或等其结束再重跑本命令）、仍有请求、或任一查询失败，都列出并以非零退出，不得假装成功；`--dry-run` 只列出不改。
+   - 停机顺序写进文档：先 Disable workflow，再取消或等待在途运行，再运行 `automerge-off` 至 0 退出。
    - 同步修改：`engine/routing/policy.py` 的停机提示（原 `停机：Actions → auto-merge → Disable workflow。`改为「停机：Disable workflow 后再运行 `automerge-off` 撤销已开启的自动合并」，只改这一行文案）、`templates/.github/workflows/auto-merge.yml` 与 `templates/.harness/config/autonomy.toml` 文件头注释的停机说明、README「Platform setup」与 SECURITY.md。
 6. **触发**：`workflow_run` 仍只监听 harness（原生自动合并会等 `ci` 等其余必需检查）。**不新增 `pull_request_target`**：GitHub 不会因冲突自行关闭自动合并（由第 3 条在 main 前进时处理），抽审已在合并前登记，合并后无需再处理。
 
@@ -81,12 +82,12 @@ rollback: git revert（仅在用户授权后）
 - `engine/agents/review.py`、`engine/agents/signoff.py`、`engine/agents/dispatch.py`（只在上面列出的三处调用 `disable_auto_merge`）
 - `engine/routing/signals.py`（只把标记数据的判定抽成纯函数，行为不变）
 - `engine/routing/run_check.py`（只加同步合并判定）
-- `engine/routing/policy.py`（只改 `branch_rounds`、`gather` 对它的调用、一行停机文案）
+- `engine/routing/policy.py`（只改 `branch_rounds`、`gather` 对它的调用、停机文案、`render` 里「合并后开 audit 议题」改为「合并前登记 audit 议题」）
 - `tests/test_native_automerge.py`、`tests/test_automerge_rounds.py`、`tests/test_automerge_off.py`（新增）
 - 因新增 `disable_auto_merge` 直接调用而需补桩方法的测试适配器（只加该方法，记录调用，不改既有断言）：`tests/test_review_lock.py`、`tests/test_alert_cli.py`、`tests/test_review_pack_taskbook.py`、`tests/test_harness_contract_dispatch.py`、`tests/test_events_agents.py`、`tests/test_dispatch_alerts.py`、`tests/test_review_after_ci.py`、`tests/test_run_timeline.py`、`tests/test_ci_workflows.py`、`tests/test_signoff.py`（后两者与下一条合并同一口径，补桩同样限定为只加方法）
 - `tests/test_signoff.py`、`tests/test_sync_app.py`、`tests/test_ci_events_workflows.py`、`tests/test_alert_cli.py`、`tests/test_install.py`（只同步因合并步骤与触发变化而失效的断言口径，原有安全断言——权限、可信代码、ruleset 一致性——保留）
 - `tests/test_ci_workflows.py`（只补断言）
-- `README.md`、`SECURITY.md`、`CHANGELOG.md`
+- `README.md`、`README.zh-CN.md`（只改停机与 auto-merge 流程说明）、`SECURITY.md`、`CHANGELOG.md`
 
 ## 消费方扫描（命令与输出，设计方 2026-10-06 执行）
 
@@ -141,7 +142,7 @@ test_ci_workflows(1)  test_run_timeline(1)
 | 退回路径身份不触发 main push（一般 4） | 退回用与开启相同的令牌；验收第 2 行 |
 | 立即合并时抽审议题丢失、工作流令牌路径无 closed 事件（一般 5） | 抽审在任何合并命令之前幂等登记，不依赖 `closed`；验收第 2 行 |
 | 测试桩缺方法、静默跳过（一般 6） | 适配器扫描与白名单；桩记录调用并断言次数；验收第 5 行 |
-| 端到端没有走真正的「等待」路径（一般 7） | 平台验收 P1–P4（设计方在真实仓库执行，见「交付与升级」）；回放桩对未登记的 gh 子命令**直接失败**，不静默成功 |
+| 端到端没有走真正的「等待」路径（一般 7） | 平台验收 P1–P4（设计方在真实仓库执行，见「交付与升级」）；回放桩对未登记的 gh 子命令**直接失败**；抽审并发：两个运行同时登记只产生一个议题（用锁或串行桩证明 concurrency 配置存在且议题查询失败不创建），不静默成功 |
 | 仓库没打开 Allow auto-merge | 开启失败退回立即合并并评论；验收第 2 行 |
 | 同步了不该同步的 PR | 只处理已开启自动合并、默认分支、同仓库、落后且不冲突的；验收第 3 行 |
 | push 事件误跑 `alert` | 补事件条件；验收第 3 行静态断言 |
@@ -170,9 +171,10 @@ test_ci_workflows(1)  test_run_timeline(1)
 | 不挂规格：B102 | 回放 merge-app：再判定在两个 App 令牌步骤**之前**，其环境不含 App 令牌；再判定结果为不合并时批准与开启都不执行；通过时批准之后用**同步令牌**执行 `gh pr merge … --auto --merge --match-head-commit <HEAD_SHA>`（未配置同步 App 时用批准令牌）；开启成功时不出现不带 `--auto` 的合并；落后、冲突预处理与批准命令逐字不变 | 夹具 | `tests.test_native_automerge.NativeAutomergeTest.test_merge_app_rechecks_then_enables` | 仍是一次性立即合并，或否决后仍开启 |
 | 不挂规格：B102 | 回放：开启失败且 `autoMergeRequest` 为空时退回立即合并（命令逐字不变，令牌与开启一致，配置同步 App 时为同步令牌）并评论一次；开启失败但 `autoMergeRequest` 已非空视为成功不退回；merge-direct 同样先开启、失败再退回；抽审议题在**任何**合并命令之前登记，重复运行不重复开题，被抽中的 PR 无论走开启还是退回都有议题 | 夹具 | `…test_fallback_and_audit_registration` | 未开设置的仓库无法合并；抽审丢失或重复 |
 | 不挂规格：B102 | 回放 main 的 `push`：已开启自动合并、目标默认分支、同仓库、落后且不冲突的 PR 用同步令牌 `update-branch`；冲突的评论、打 escalation 并 `--disable-auto`；`mergeable` 为 UNKNOWN 时重试后仍未知则跳过；未开自动合并的、目标非默认分支的、来自 fork 的都不动；未配置同步 App 时整体跳过；静态断言 `alert` 带 `workflow_run` 事件条件、`push` 事件下 judge 等 job 不运行、新增 job 不检出 PR head、不执行 PR 代码 | 夹具 | `…test_push_syncs_waiting_prs` | 落后的 PR 无人同步，同步了不该同步的，或 push 时误跑告警 |
-| 不挂规格：B102 | 引擎：评审结论为「不通过」「需用户验收」或「通过」但 `flagged`（带严重发现）、复核判 fail（结论不通过、mutations < 1、caught ≠ mutations）、打 `budget-exceeded`，各调用一次 `disable_auto_merge`，次数与先后（评论/标签之后）可由桩断言；评审与复核全部通过时不调用；调用失败只打印、不改变原返回值；判据与 `signals` 的状态函数共用同一纯函数 | 夹具 | `…test_negative_signals_disable_auto_merge` | 否决后 GitHub 仍自动合并，或「通过＋严重发现」漏掉 |
+| 不挂规格：B102 | 引擎：评审结论为「不通过」「需用户验收」或「通过」但 `flagged`（带严重发现）、复核发布「不通过」、打 `budget-exceeded`，各调用一次 `disable_auto_merge`，次数与先后（评论/标签之后）可由桩断言；判据纯函数单独覆盖全部非法标记（结论不通过、mutations 缺失或 < 1、caught ≠ mutations、flagged 非 false）；`signoff.main` 对「通过＋非法计数」仍拒绝发布且零评论、零 GitHub 调用（既有 `test_inconsistent_pass_refused` 不变）；评审与复核全部通过时不调用；调用失败只打印、不改变原返回值；判据与 `signals` 的状态函数共用同一纯函数 | 夹具 | `…test_negative_signals_disable_auto_merge` | 否决后 GitHub 仍自动合并，或「通过＋严重发现」漏掉 |
 | 不挂规格：B102 | 回放：judge 判「不自动合并」时 request-review 对该 PR `--disable-auto`；判合并时不调用 | 夹具 | `…test_judge_reject_disables_auto_merge` | 新 head 不合格时自动合并仍开着 |
-| 不挂规格：B102 | `automerge-off`：列出在途 `auto-merge.yml` 运行；逐个关闭存量请求；关闭后复查，仍有则非零退出；`--dry-run` 不改；`platform` 子命令输出 environment 与变量名，取自 `setting("platform", …)` | 夹具 | `tests.test_automerge_off.AutomergeOffTest.*` | 停机后存量请求仍会合并 |
+| 不挂规格：B102 | 回放：初始 `autoMergeRequest` 非空、judge 通过、recheck 拒绝（如逃逸预算新近超限）时，断言先 `--disable-auto`，且不批准、不开启；merge-app 权限含 `actions: read`（删除即失败）；未配置同步 App 时开启与退回都用工作流令牌，批准令牌只出现在批准步骤 | 夹具 | `…test_recheck_reject_revokes_existing_request` | 再判定拒绝却留着旧请求，或再判定因缺权限误拒 |
+| 不挂规格：B102 | `automerge-off`：分页列出五种未完成状态的运行；逐个关闭存量请求；关闭后复查；仍有请求、仍有未完成运行（含「复查时请求为零但旧运行未结束」）或查询失败都非零退出，仅两者皆零才 0 退出；`--dry-run` 不改；`platform` 子命令输出 environment 与变量名，取自 `setting("platform", …)` | 夹具 | `tests.test_automerge_off.AutomergeOffTest.*` | 停机后存量请求仍会合并 |
 | 不挂规格：B104 | 真实临时 git 仓库（默认分支不叫 main）：执行方提交 A、同步合并 M1、执行方提交 B、同步合并 M2，经 `gather` 只计 A、B 两轮；「第二父提交不在主线上」的普通合并、三父提交中只有部分在主线上的合并照常计入 | 夹具 | `tests.test_automerge_rounds.AutomergeRoundsTest.test_rounds_exclude_sync_merges_via_gather` | 同步合并被计入、普通合并被漏计，或查错仓库 |
 | 不挂规格：B104 | 提交取不到、git 出错时照常计入；`mainline=None` 时与改动前一致；同一提交的重跑只算一轮 | 夹具 | `…test_unknown_commits_and_default_behaviour` | 取不到时少计，或默认行为改变 |
 | 不挂规格：B102/B104 | 既有测试全部通过（白名单内的口径同步与补桩除外） | 夹具 | `bin/verify --full` | 回归 |
@@ -187,7 +189,7 @@ test_ci_workflows(1)  test_run_timeline(1)
 | 2 | 引擎：`disable_auto_merge`、判据纯函数、三处调用、补桩 | `engine/agents/github.py`、`engine/routing/signals.py`、`engine/agents/review.py`、`engine/agents/signoff.py`、`engine/agents/dispatch.py`、桩所在测试、`tests/test_native_automerge.py` | 同上，加桩所在测试 | 验收第 4 行 |
 | 3 | `automerge` / `automerge-off` 命令、`platform` 子命令、停机文案与说明 | `engine/agents/automerge.py`、`engine/cli.py`、`engine/routing/policy.py`、`templates/.harness/config/autonomy.toml`、`tests/test_automerge_off.py` | `python3 -W error::ResourceWarning -m unittest tests.test_automerge_off tests.test_install -v` | 验收第 6 行 |
 | 4 | 同步合并判定与计数，`gather` 传参 | `engine/routing/run_check.py`、`engine/routing/policy.py`、`tests/test_automerge_rounds.py`、`tests/test_ci_workflows.py` | `python3 -W error::ResourceWarning -m unittest tests.test_automerge_rounds tests.test_ci_workflows tests.test_run_record_privacy -v` | 验收第 7–8 行 |
-| 5 | README、SECURITY.md、CHANGELOG；全量验证，整理交付证据 | `README.md`、`SECURITY.md`、`CHANGELOG.md` | `bin/verify --full` | 验收第 9 行 |
+| 5 | README、SECURITY.md、CHANGELOG；全量验证，整理交付证据 | `README.md`、`README.zh-CN.md`、`SECURITY.md`、`CHANGELOG.md` | `bin/verify --full` | 验收第 9 行 |
 
 ## 交付与升级
 
@@ -210,9 +212,10 @@ test_ci_workflows(1)  test_run_timeline(1)
 
 **平台验收（设计方，本任务合并并升级本仓库后，在真实仓库执行；这是新的 K5 任务重跑验收 G 之外的补充，目的是证明确实走过原生「等待」路径）：**
 - P1：故意让一个必需检查保持 pending，确认 `autoMergeRequest` 非空且开启者为同步 App；放行检查后核对合并者为 Bot、main 的 `push` 工作流被触发。
-- P2：自动合并开启后推新提交，确认批准作废、不会合并，新一轮判定后重新批准并开启。
+- P2：自动合并开启后推新提交，确认批准作废、不会合并，新一轮判定后重新批准并开启；并实测「等待状态下重复 `--auto`」的行为与退出码，记录原始输出。
+- P2b（等待中同步链）：开启自动合并且必需检查仍 pending 时让 main 前进，记录 `push` job 的 `update-branch`、同步前后的 `autoMergeRequest`（是否保留、开启者）与批准状态、新一轮 CI 后的再批准与再开启，及最终合并的 main push。
 - P3：开启后发布「不通过」评审，确认 `autoMergeRequest` 被清空。
-- P4：运行 `automerge-off`，确认存量请求被撤销并复查为零。
+- P4：运行 `automerge-off`：先在有未完成 auto-merge 运行时确认其非零退出并列出该运行；运行结束后再跑，确认请求被撤销并复查为零、0 退出。
 
 本任务合并后，设计方随升级 PR 同步本仓库的 `auto-merge.yml`，再用新的 K5 任务重跑端到端验收 G。
 
@@ -226,8 +229,10 @@ test_ci_workflows(1)  test_run_timeline(1)
 | 1–3 | 工作流令牌合并不触发 main `push`；判定后出现的否决看不到；等待标签不能代表资格 | 同步 App 开启与退回都用同步令牌；否决处关闭；以 `autoMergeRequest` 作候选索引 |
 | 4 严重 1 | 关闭挡不住旧判定随后开启；最后检查完成与关闭竞态 | 用户选方案 A：开启前再判定 + 残余窗口入 SECURITY.md（不把合同资格做成必需检查） |
 | 4 严重 2 | 「通过＋严重发现」漏判 | 关闭条件为 verdict 不通过或 flagged，判据共用纯函数 |
-| 4 严重 3 | 停机与类别回收不撤销存量请求 | `automerge-off` 撤销并复查，列出在途运行，同步说明与提示 |
+| 4 严重 3 | 停机与类别回收不撤销存量请求 | `automerge-off` 撤销并复查，未完成运行（五种状态）或请求未清零即非零退出，同步说明与提示 |
 | 4 一般 4 | 退回路径用工作流令牌 | 退回用与开启相同的令牌 |
 | 4 一般 5 | 抽审迁移遗漏立即合并与工作流令牌路径 | 合并前幂等登记，取消 `closed` 处理，不新增 `pull_request_target` |
 | 4 一般 6 | 测试桩缺 `disable_auto_merge` | 适配器扫描与白名单、桩记录调用 |
 | 4 一般 7 | 端到端未走等待路径 | 平台验收 P1–P4，回放桩未登记命令即失败 |
+
+**第 5 轮评审（4 严重 5 一般）处理：** 严重 1 补 `actions: read`；严重 2 无同步 App 时开启与退回用工作流令牌，批准令牌只批准；严重 3 recheck 拒绝时先撤销再跳过；严重 4 五种状态分页、未完成运行或请求未清零非零退出、停机顺序入文档。一般 1 按 PR 加 job 级 concurrency、查询失败按失败；一般 2 验收拆为纯函数与发布路径，保留既有拒绝测试；一般 3 新增平台验收 P2b 与重复 `--auto` 实测；一般 4 白名单加入 `README.zh-CN.md` 与 `policy.render` 文案；一般 5 收窄 escalation 覆盖声明。
