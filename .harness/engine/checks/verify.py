@@ -23,6 +23,8 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import TextIO
 
 from engine.core import events, events_db
@@ -203,6 +205,76 @@ def emit_summary(info: dict, tier: str, ok: bool) -> None:
         return
 
 
+def _pass_record_dir() -> Path | None:
+    """通过记录目录：git 公共目录下的 harness/verify-pass（所有 worktree 共用，在 .git 内不入库）。"""
+    common = git("rev-parse", "--git-common-dir", cwd=ROOT, check=False, isolate=True)
+    if not common:
+        return None
+    path = Path(common)
+    if not path.is_absolute():
+        path = ROOT / path
+    return path.resolve() / "harness" / "verify-pass"
+
+
+def _engine_lock_tree() -> str | None:
+    """当前 .harness/engine.lock 记录的引擎目录树哈希；读不到返回 None（不写通过记录）。"""
+    try:
+        return json.loads((ROOT / ".harness" / "engine.lock").read_text(encoding="utf-8"))["tree"]
+    except Exception:  # noqa: BLE001  读不到锁文件就不写记录，回到没有记录的原路径
+        return None
+
+
+def _head_tree() -> str | None:
+    """当前 HEAD 的 tree 哈希；读不到返回 None（不写通过记录）。"""
+    try:
+        return git("rev-parse", "HEAD^{tree}")
+    except Exception:  # noqa: BLE001  读不到就不写记录，回到没有记录的原路径
+        return None
+
+
+def _write_pass_record(info: dict, tier: str, results: list[Result], *, partial: bool,
+                       start_tree: str | None, start_engine_tree: str | None) -> None:
+    """default/full 档全部通过且工作区干净时，写一条按 HEAD tree 命名的通过记录（T713）。
+
+    记录位于 git 公共目录下 harness/verify-pass/<tree>.json，只有 pre-push 读它来跳过对同一
+    代码树的重复验证；verify 命令本身、派发的本地复验与 CI 都不读，照常完整执行。
+    修订 2：待验证的 HEAD tree 与引擎标识在检查开始前固定（start_tree、start_engine_tree），
+    写记录前重新读取，任一变化、或已跟踪文件不再干净，就不写——验证期间的提交、切分支或
+    改动不得把旧代码的验证结果绑到新代码树上。
+    已接受的风险（T713）：记录在本机，执行方理论上能伪造它让 pre-push 跳过验证；后果只是坏
+    代码被推上去，由派发复验和 CI（两者都不读记录）拦下，不影响任何判定与合并。
+    写记录的任何异常都静默按「没有记录」处理：记录只是缓存，不影响 verify 的结论与输出。
+    partial 为真（--only 只跑部分检查）时不写，避免把部分验证当成完整通过。
+    """
+    try:
+        if tier not in ("default", "full") or partial or info["dirty"] or not results:
+            return
+        if any(result.status != "pass" for result in results):
+            return
+        engine_tree = _engine_lock_tree()  # 写之前重新读：HEAD tree、引擎标识、工作区干净度任一变化就不写
+        if start_tree is None or start_engine_tree is None or engine_tree != start_engine_tree:
+            return
+        if _head_tree() != start_tree:
+            return
+        if git("status", "--porcelain", "--untracked-files=no"):
+            return
+        directory = _pass_record_dir()
+        if directory is None:
+            return
+        record = {
+            "tree": start_tree,
+            "engine_tree": engine_tree,
+            "tier": tier,
+            "checks": {result.name: result.status for result in results},
+            "at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        }
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"{start_tree}.json").write_text(
+            json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except Exception:  # noqa: BLE001  记录失败按没有记录处理（pre-push 回到重跑 verify 的原路径）
+        return
+
+
 class _ProjectEventsSink:
     """项目检查子进程的事件临时库（B92）：懒建临时目录，verify 结束后整体删除。
 
@@ -325,6 +397,9 @@ def main(argv: list[str] | None = None) -> int:
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     info = head_info()
+    # 修订 2：开始时固定待验证的 HEAD tree 与引擎标识，写通过记录前重新核对（见 _write_pass_record）。
+    start_tree = _head_tree()
+    start_engine_tree = _engine_lock_tree()
     results = []
     sink = _ProjectEventsSink()  # 项目检查子进程的事件临时库，运行结束后删净（B92）
     try:
@@ -369,6 +444,8 @@ def main(argv: list[str] | None = None) -> int:
     if failed:
         print(f"verify 失败：{', '.join(failed)} @ {info['head'][:12]}{dirty}")
         return 1
+    _write_pass_record(info, tier_name, results, partial=bool(args.only),
+                       start_tree=start_tree, start_engine_tree=start_engine_tree)
     print(f"verify 通过 @ {info['head'][:12]}{dirty}")
     return 0
 
