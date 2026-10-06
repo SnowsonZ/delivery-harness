@@ -1,130 +1,187 @@
-"""并行测试运行器：把 unittest 按测试文件拆成子进程并行执行，汇总结果（T713）。
+"""并行测试运行器：发现交给 unittest，按模块分片并行执行，汇总结果（T713 修订 3）。
 
-    python3 <引擎>/cli.py run-tests -s <测试目录> [-p "test*.py"] [-j <并发数>] [--serial <文件>]...
+    python3 <引擎>/cli.py run-tests -s <测试目录> [-p "test*.py"] [-j <并发数>] [--serial <模块名>]...
 
-文件发现口径与 `unittest discover -s <测试目录> -p <模式>` 一致（T713 修订 2）：顶层与带
-`__init__.py` 的子包里、模块名合法且匹配模式的文件都算，不同子包里的同名文件各算一个。
-每个测试文件一个子进程：`<当前解释器> -W error::ResourceWarning -m unittest <点分模块名>`，
-工作目录取 discover 的 `-t` 口径（即测试目录本身）；discover 从调用目录启动时调用目录会随
-`-m` 进入 sys.path，这里把调用目录等价保留在 PYTHONPATH 里（测试对调用目录下包的导入因此
-不受换工作目录影响），其余环境继承调用方（verify 的事件重定向变量照常传下去，T710）。
---serial 列出的文件（按相对路径或文件名匹配）在并行批次结束后逐个顺序执行，留给确有共享
-状态、不能并行的测试。全部子进程结束后：先打印每个失败文件的完整输出，再打印一行合计
-（文件数、Ran 用例总数、失败与出错数、耗时）；任何一个文件失败退出码为 1，没有发现任何
-测试文件同样按失败处理（避免空跑当通过）。只用标准库。
+父进程和每个子进程都执行与 `python -m unittest discover -s <目录> -p <模式>` 完全相同的发现
+（`unittest.TestLoader().discover(start, pattern)`，参数取法与 discover 的默认值一致，含包级
+`__init__.py` 里的测试与 load_tests 协议），把得到的套件按测试所在模块（`test.__class__
+.__module__` 的完整点分名）分组；导入失败等 `_FailedTest` 的组键是 unittest.loader，同样按
+失败用例对待。分片按模块做：一个模块一个子进程（同一模块的 setUpModule、setUpClass 不被
+拆散），子进程在调用方的工作目录里（不切换 cwd，环境照常继承，调用目录放进 PYTHONPATH
+最前以保持与 `python -m unittest` 一致的导入口径，verify 的事件重定向变量照常传下去，T710）
+重新做同样的发现，只运行分配给本片的模块组，unittest 的完整输出与实际运行的测试 id 经
+结果文件交回父进程。--serial 列出的模块从并行分片中剔除，在并行批次结束后逐个顺序执行；
+每个参数都必须恰好对应一个已发现的模块，否则退出码 2，不执行任何测试。汇总时核对所有
+分片实际运行的测试 id 与父进程发现的测试 id（多重集合）完全相等（不漏、不重），否则退出码
+1 并列出差异；任何一个模块失败退出码 1，没有发现任何测试同样按失败处理（避免空跑当
+通过）。只用标准库。
 """
 
 from __future__ import annotations
 
 import argparse
-import fnmatch
+import io
+import json
 import os
-import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import unittest
+from collections import Counter
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-# unittest 结果行的计数（Ran N tests / FAILED (failures=x, errors=y)）；解析不到的项按 0 计。
-_RAN = re.compile(r"^Ran (\d+) tests? in ", re.MULTILINE)
-_FAILURES = re.compile(r"failures=(\d+)")
-_ERRORS = re.compile(r"errors=(\d+)")
-# 与 unittest.loader 同口径：文件名须是合法模块名（大小写不敏感），否则 discover 也不收。
-VALID_MODULE_NAME = re.compile(r"[_a-z]\w*\.py$", re.IGNORECASE)
 DEFAULT_JOBS_CAP = 8
+# 内部子进程模式标志：父进程派发分片用，不是对外接口。
+_SHARD_FLAG = "--_shard"
+_RUNNER_PATH = Path(__file__).resolve()
 
 
-def discover_tests(start: Path, pattern: str) -> list[tuple[str, str]]:
-    """与 `unittest discover -s start -p pattern` 相同的文件发现口径（T713 修订 2）。
+def _iter_tests(suite: unittest.TestSuite) -> Iterator[unittest.TestCase]:
+    """深度优先展开测试套件，产出所有 TestCase（含 _FailedTest 与 load_tests 附加的用例）。"""
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            yield from _iter_tests(item)
+        else:
+            yield item
 
-    按 discover 的规则只递归进带 `__init__.py` 的子包；文件须是合法模块名且 fnmatch 匹配
-    模式。返回 [(相对测试目录的 posix 路径, 点分模块名)]，按路径排序保证批次确定；不同
-    子包里的同名文件模块名不同，各算一个。
+
+def discover_groups(start: str, pattern: str) -> dict[str, list[unittest.TestCase]]:
+    """与 `unittest discover -s start -p pattern` 完全相同的发现，按测试所在模块分组。
+
+    组键是 `test.__class__.__module__` 的完整点分名；不同子包里的同名文件模块名不同，各算
+    一个。discover 会把 top_level_dir 插进 sys.path，这里用完还原，不影响调用方进程。
     """
-    found: list[tuple[str, str]] = []
-
-    def walk(directory: Path, prefix: str) -> None:
-        for entry in sorted(directory.iterdir(), key=lambda item: item.name):
-            if entry.is_dir():
-                if (entry / "__init__.py").is_file():
-                    walk(entry, prefix + entry.name + ".")
-            elif entry.is_file() and VALID_MODULE_NAME.match(entry.name) \
-                    and fnmatch.fnmatch(entry.name, pattern):
-                found.append((entry.relative_to(start).as_posix(), prefix + entry.stem))
-
-    walk(start, "")
-    return found
+    saved_path = list(sys.path)
+    try:
+        suite = unittest.TestLoader().discover(start, pattern)
+    finally:
+        sys.path[:] = saved_path
+    groups: dict[str, list[unittest.TestCase]] = {}
+    for test in _iter_tests(suite):
+        groups.setdefault(test.__class__.__module__, []).append(test)
+    return groups
 
 
 def _child_env() -> dict[str, str]:
-    """子进程环境：继承调用方，再把调用目录放进 PYTHONPATH 最前（与 discover 的 sys.path 口径一致）。"""
+    """子进程环境：继承调用方，再把调用目录放进 PYTHONPATH 最前。
+
+    子进程按脚本方式启动（sys.path[0] 是本文件所在目录而不是调用目录），补上调用目录才与
+    `python -m unittest discover` 的导入口径一致；工作目录保持调用方的不变（T713 修订 3）。
+    """
     env = dict(os.environ)
     entries = [item for item in env.get("PYTHONPATH", "").split(os.pathsep) if item]
-    if os.getcwd() not in entries:
-        env["PYTHONPATH"] = os.pathsep.join([os.getcwd(), *entries])
+    cwd = os.getcwd()
+    if cwd not in entries:
+        env["PYTHONPATH"] = os.pathsep.join([cwd, *entries])
     return env
 
 
-def run_file(top_level: Path, module: str, name: str) -> dict:
-    """单个测试文件一个子进程：`-m unittest <点分模块名>`，工作目录与 -t 同口径，环境继承调用方。"""
+def _load_result(path: Path) -> dict | None:
+    """读取子进程的结果文件；读不到或不是合法 JSON 对象时按「子进程失败」处理（返回 None）。"""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _shard_main(argv: list[str]) -> int:
+    """子进程模式：做同样的发现，只运行分配给本片的模块组，结果写回结果文件。"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--start", required=True)
+    parser.add_argument("--pattern", required=True)
+    parser.add_argument("--result-file", required=True)
+    parser.add_argument("--module", action="append", required=True)
+    args = parser.parse_args(argv)
+
+    groups = discover_groups(args.start, args.pattern)
+    selected: list[unittest.TestCase] = []
+    missing = [name for name in args.module if name not in groups]
+    for name in args.module:
+        selected.extend(groups.get(name, []))
+    stream = io.StringIO()
+    result = unittest.TextTestRunner(stream=stream, verbosity=1).run(unittest.TestSuite(selected))
+    print(stream.getvalue(), end="")
+    payload = {
+        "ran": result.testsRun,
+        "failures": len(result.failures),
+        "errors": len(result.errors),
+        "ids": [test.id() for test in selected],  # 交给本片运行的测试 id
+        "code": 0 if result.wasSuccessful() and not missing else 1,
+    }
+    Path(args.result_file).write_text(json.dumps(payload), encoding="utf-8")
+    return payload["code"]
+
+
+def run_shard(start: str, pattern: str, module: str, result_file: Path) -> dict:
+    """一个模块一个子进程：在调用方工作目录里做同样的发现，只运行该模块组，交回结果。"""
     started = time.monotonic()
     completed = subprocess.run(
-        [sys.executable, "-W", "error::ResourceWarning", "-m", "unittest", module],
-        cwd=str(top_level), env=_child_env(),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace", check=False,
+        [sys.executable, "-W", "error::ResourceWarning", str(_RUNNER_PATH), _SHARD_FLAG,
+         "--start", start, "--pattern", pattern, "--result-file", str(result_file),
+         "--module", module],
+        env=_child_env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace", check=False,
     )
-    ran = _RAN.search(completed.stdout)
-    failures = _FAILURES.search(completed.stdout)
-    errors = _ERRORS.search(completed.stdout)
+    payload = _load_result(result_file)
+    if payload is None:  # 子进程崩溃或结果不可读：缺少的测试 id 由汇总时的核对拦下
+        payload = {"ran": 0, "failures": 0, "errors": 0, "ids": [], "code": 1}
     return {
-        "name": name,
-        "code": completed.returncode,
+        "name": module,
+        "code": payload.get("code", 1) if completed.returncode == 0 else 1,
         "output": completed.stdout,
-        "ran": int(ran.group(1)) if ran else 0,
-        "failures": int(failures.group(1)) if failures else 0,
-        "errors": int(errors.group(1)) if errors else 0,
+        "ran": payload.get("ran", 0),
+        "failures": payload.get("failures", 0),
+        "errors": payload.get("errors", 0),
+        "ids": list(payload.get("ids", [])),
         "seconds": time.monotonic() - started,
     }
 
 
-def _print_report(results: list[dict], started: float) -> None:
-    """先打印每个失败文件的完整输出，再打印一行合计。"""
-    for result in (r for r in results if r["code"] != 0):
-        print(f"──── {result['name']} 的完整输出 ────")
-        print(result["output"].rstrip("\n"))
-    total = (len(results), sum(r["ran"] for r in results),
-             sum(r["failures"] for r in results), sum(r["errors"] for r in results))
-    print(f"合计：{total[0]} 个文件，Ran {total[1]} 个用例，失败 {total[2]}、出错 {total[3]}，"
-          f"用时 {time.monotonic() - started:.1f}s")
+def _print_differences(expected: Counter, ran: Counter) -> None:
+    """列出分片结果与发现结果的差异（多重集合相减），每类最多展示 10 个。"""
+    print("run-tests：分片实际运行的测试 id 与发现结果不一致：", file=sys.stderr)
+    for label, items in (("缺少", sorted((expected - ran).elements())),
+                         ("多出", sorted((ran - expected).elements()))):
+        if items:
+            preview = "、".join(items[:10])
+            suffix = f" 等 {len(items)} 个" if len(items) > 10 else ""
+            print(f"  {label}（{len(items)}）：{preview}{suffix}", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else list(argv)
+    if args and args[0] == _SHARD_FLAG:
+        return _shard_main(args[1:])
+
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-s", dest="start", required=True, help="测试目录")
     parser.add_argument("-p", dest="pattern", default="test*.py", help="文件模式（默认 test*.py）")
     parser.add_argument("-j", dest="jobs", type=int, default=0, help="并发数（默认 min(CPU 核数, 8)）")
-    parser.add_argument("--serial", action="append", default=[], metavar="文件",
-                        help="并行批次结束后逐个顺序执行的文件（相对路径或文件名，可多次）")
+    parser.add_argument("--serial", action="append", default=[], metavar="模块",
+                        help="并行批次结束后逐个顺序执行的模块（完整点分模块名，可多次）")
     args = parser.parse_args(argv)
 
-    start = Path(args.start)
-    tests = discover_tests(start, args.pattern) if start.is_dir() else []
+    groups = discover_groups(args.start, args.pattern) if Path(args.start).is_dir() else {}
     serial_specs = list(dict.fromkeys(args.serial))
-
-    def is_serial(name: str) -> bool:  # 相对路径精确匹配，或文件名匹配（同名的所有文件都算）
-        return any(spec == name or spec == Path(name).name for spec in serial_specs)
-
-    unknown = [spec for spec in serial_specs if not any(is_serial(name) for name, _ in tests)]
+    unknown = [spec for spec in serial_specs if spec not in groups]
     if unknown:
-        print(f"run-tests：--serial 里的文件不在 {start} 的匹配结果中：{', '.join(unknown)}", file=sys.stderr)
+        print(f"run-tests：--serial 里的模块不在 {args.start} 的发现结果中：{', '.join(unknown)}",
+              file=sys.stderr)
         return 2
-    if not tests:
-        print(f"run-tests：{start} 里没有匹配 {args.pattern} 的测试文件", file=sys.stderr)
+    if not groups:
+        print(f"run-tests：{args.start} 不是存在的测试目录，或里面没有匹配 {args.pattern} 的测试",
+              file=sys.stderr)
         return 1
 
+    expected = Counter(test.id() for tests in groups.values() for test in tests)
     jobs = max(args.jobs, 0) or min(os.cpu_count() or 1, DEFAULT_JOBS_CAP)
+    serial = set(serial_specs)
+    parallel_modules = sorted(name for name in groups if name not in serial)
     started = time.monotonic()
     results: list[dict] = []
     lock = threading.Lock()
@@ -137,21 +194,35 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"✗ {result['name']}（失败 {result['failures']}、出错 {result['errors']}，"
                       f"{result['seconds']:.1f}s）", flush=True)
 
-    parallel = [item for item in tests if not is_serial(item[0])]
-    serial = [item for item in tests if is_serial(item[0])]
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        futures = [pool.submit(run_file, start, module, name) for name, module in parallel]
-        for future in as_completed(futures):
-            result = future.result()
+    with tempfile.TemporaryDirectory(prefix="dh-run-tests-") as tmp:  # 每片一个结果文件，不入库
+        files = {name: Path(tmp) / f"{index:04d}.json"
+                 for index, name in enumerate(parallel_modules + serial_specs)}
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            futures = [pool.submit(run_shard, args.start, args.pattern, name, files[name])
+                       for name in parallel_modules]
+            for future in as_completed(futures):
+                result = future.result()
+                report(result)
+                results.append(result)
+        for name in serial_specs:  # 共享状态的模块逐个顺序执行，不与任何分片重叠
+            result = run_shard(args.start, args.pattern, name, files[name])
             report(result)
             results.append(result)
-    for name, module in serial:  # 共享状态的测试逐个顺序执行，不与任何文件重叠
-        result = run_file(start, module, name)
-        report(result)
-        results.append(result)
 
     results.sort(key=lambda r: r["name"])
-    _print_report(results, started)
+    for result in (r for r in results if r["code"] != 0):
+        print(f"──── {result['name']} 的完整输出 ────")
+        print(result["output"].rstrip("\n"))
+    ran_total = sum(r["ran"] for r in results)
+    failures = sum(r["failures"] for r in results)
+    errors = sum(r["errors"] for r in results)
+    print(f"合计：{len(results)} 个模块，Ran {ran_total} 个用例，失败 {failures}、出错 {errors}，"
+          f"用时 {time.monotonic() - started:.1f}s")
+    ran = Counter(i for r in results for i in r["ids"])
+    if ran != expected:
+        _print_differences(expected, ran)
+        return 1
+    print(f"分片测试 id：运行 {sum(ran.values())}、发现 {sum(expected.values())}，一致")
     return 1 if any(r["code"] != 0 for r in results) else 0
 
 
