@@ -9,8 +9,11 @@
 失败用例对待。分片按模块做：一个模块一个子进程（同一模块的 setUpModule、setUpClass 不被
 拆散），子进程在调用方的工作目录里（不切换 cwd，环境照常继承，调用目录放进 PYTHONPATH
 最前以保持与 `python -m unittest` 一致的导入口径，verify 的事件重定向变量照常传下去，T710）
-重新做同样的发现，只运行分配给本片的模块组，unittest 的完整输出与实际运行的测试 id 经
-结果文件交回父进程。--serial 列出的模块从并行分片中剔除，在并行批次结束后逐个顺序执行；
+重新做同样的发现，**整个执行期间保留 discover 建立的导入路径**（与 `python -m unittest
+discover` 一致；只有父进程——只做发现、不执行测试——在发现后还原 sys.path，T713 修订 4），
+只运行分配给本片的模块组，unittest 的完整输出与**实际执行的**测试 id（TestResult 的
+startTest 事件记下的用例，跳过也算已执行；分配给本片却没有执行的不上报，T713 修订 4）
+经结果文件交回父进程。--serial 列出的模块从并行分片中剔除，在并行批次结束后逐个顺序执行；
 每个参数都必须恰好对应一个已发现的模块，否则退出码 2，不执行任何测试。汇总时核对所有
 分片实际运行的测试 id 与父进程发现的测试 id（多重集合）完全相等（不漏、不重），否则退出码
 1 并列出差异；任何一个模块失败退出码 1，没有发现任何测试同样按失败处理（避免空跑当
@@ -49,17 +52,21 @@ def _iter_tests(suite: unittest.TestSuite) -> Iterator[unittest.TestCase]:
             yield item
 
 
-def discover_groups(start: str, pattern: str) -> dict[str, list[unittest.TestCase]]:
+def discover_groups(start: str, pattern: str, *, restore_path: bool = True) -> dict[str, list[unittest.TestCase]]:
     """与 `unittest discover -s start -p pattern` 完全相同的发现，按测试所在模块分组。
 
     组键是 `test.__class__.__module__` 的完整点分名；不同子包里的同名文件模块名不同，各算
-    一个。discover 会把 top_level_dir 插进 sys.path，这里用完还原，不影响调用方进程。
+    一个。discover 会把 top_level_dir 插进 sys.path：父进程只做发现、不执行测试，发现后
+    还原（restore_path=True）；子进程要在整个执行期间保留 discover 建立的导入路径，运行期
+    间延迟导入测试目录里的辅助模块必须与 `python -m unittest discover` 一样可用，所以传
+    False（T713 修订 4）。
     """
     saved_path = list(sys.path)
     try:
         suite = unittest.TestLoader().discover(start, pattern)
     finally:
-        sys.path[:] = saved_path
+        if restore_path:
+            sys.path[:] = saved_path
     groups: dict[str, list[unittest.TestCase]] = {}
     for test in _iter_tests(suite):
         groups.setdefault(test.__class__.__module__, []).append(test)
@@ -80,6 +87,22 @@ def _child_env() -> dict[str, str]:
     return env
 
 
+class _RecordingResult(unittest.TextTestResult):
+    """在 startTest 事件里记下实际执行过的测试 id（T713 修订 4）。
+
+    跳过的用例同样会经过 startTest（随后 addSkip），算已执行；`result.stop()` 等原因导致
+    分配给本片却没有执行的用例不会出现，父进程的 id 集合核对因此能把漏跑暴露出来。
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.started_ids: list[str] = []
+
+    def startTest(self, test: unittest.TestCase) -> None:
+        self.started_ids.append(test.id())
+        super().startTest(test)
+
+
 def _load_result(path: Path) -> dict | None:
     """读取子进程的结果文件；读不到或不是合法 JSON 对象时按「子进程失败」处理（返回 None）。"""
     try:
@@ -98,19 +121,20 @@ def _shard_main(argv: list[str]) -> int:
     parser.add_argument("--module", action="append", required=True)
     args = parser.parse_args(argv)
 
-    groups = discover_groups(args.start, args.pattern)
+    groups = discover_groups(args.start, args.pattern, restore_path=False)
     selected: list[unittest.TestCase] = []
     missing = [name for name in args.module if name not in groups]
     for name in args.module:
         selected.extend(groups.get(name, []))
     stream = io.StringIO()
-    result = unittest.TextTestRunner(stream=stream, verbosity=1).run(unittest.TestSuite(selected))
+    result = unittest.TextTestRunner(
+        stream=stream, verbosity=1, resultclass=_RecordingResult).run(unittest.TestSuite(selected))
     print(stream.getvalue(), end="")
     payload = {
         "ran": result.testsRun,
         "failures": len(result.failures),
         "errors": len(result.errors),
-        "ids": [test.id() for test in selected],  # 交给本片运行的测试 id
+        "ids": list(result.started_ids),  # 实际执行的测试 id（startTest 事件），非待运行清单
         "code": 0 if result.wasSuccessful() and not missing else 1,
     }
     Path(args.result_file).write_text(json.dumps(payload), encoding="utf-8")

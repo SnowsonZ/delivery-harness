@@ -1,6 +1,7 @@
 """T713 并行测试运行器测试：汇总与退出码、并行与 --serial 隔离、空目录与环境继承、
 发现口径与 unittest discover 完全一致（含包级测试、load_tests、导入失败）、
-不切换工作目录、--serial 逐个校验、id 集合核对。
+不切换工作目录、--serial 逐个校验、id 集合核对、运行期懒导入测试目录辅助模块、
+result.stop() 漏跑被 id 核对抓住（修订 4）。
 
 运行器经真实入口（test_runner.main 与 cli 登记）调用；父进程发现会把夹具模块导入本进程，
 夹具模块名因此全部带唯一序号，避免多次调用之间 sys.modules 命中旧夹具。夹具目录全部用
@@ -105,6 +106,30 @@ MARKS = Path({marks!r})
 class T(unittest.TestCase):
     def test_ser_x(self):
         (MARKS / "x-start").write_text("1", encoding="utf-8")
+"""
+
+# 修订 4：第一个用例沿调用栈找到当前 TestResult（TestCase.run 的局部变量）并真实调用
+# stop()，第二个用例因此不执行；不篡改结果载荷，漏跑只能靠父进程的 id 核对暴露。
+_STOP_SUITE = """import sys
+import unittest
+
+
+def _result():
+    frame = sys._getframe()
+    while frame:
+        result = frame.f_locals.get("result")
+        if isinstance(result, unittest.TestResult):
+            return result
+        frame = frame.f_back
+    raise AssertionError("栈上找不到 TestResult")
+
+
+class T(unittest.TestCase):
+    def test_first(self):
+        _result().stop()
+
+    def test_second(self):
+        pass
 """
 
 
@@ -305,6 +330,47 @@ class TestRunnerTest(unittest.TestCase):
         self.assertNotIn("✗", out)
         self.assertNotIn("合计", out)
         self.assertFalse((marks / "x-start").exists())  # 没有任何测试被执行
+
+    def test_lazy_import_of_test_dir_helper(self):
+        """修订 4：测试方法与 setUpModule 在运行时才导入测试目录里的辅助模块
+        helpers_x.py（不匹配 test*.py）：unittest discover 与 run-tests 都通过（子进程发现后
+        立即还原 sys.path 的实现会导入失败）。"""
+        lazy = unique("test_lazy")
+        suite = self.make_dir({
+            "helpers_x.py": "MARK = True\n",
+            f"{lazy}.py": (
+                "import unittest\n\n\n"
+                "def setUpModule():\n"
+                "    import helpers_x  # 运行阶段才导入：只能靠 discover 建立的导入路径\n"
+                "    assert helpers_x.MARK\n\n\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_lazy(self):\n"
+                "        import helpers_x\n"
+                "        self.assertTrue(helpers_x.MARK)\n"
+            ),
+        })
+        discover = subprocess.run(  # 对照：unittest discover 从同一调用方 cwd 启动同样通过
+            [sys.executable, "-W", "error::ResourceWarning", "-m", "unittest",
+             "discover", "-s", str(suite)],
+            capture_output=True, text=True, check=False)
+        self.assertEqual(discover.returncode, 0, discover.stdout + discover.stderr)
+
+        code, out, err = self.run_main(["-s", str(suite)])
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("合计：1 个模块，Ran 1 个用例，失败 0、出错 0，", out)
+
+    def test_stopped_run_detected(self):
+        """修订 4：同一模块里第一个用例真实调用 result.stop()，第二个用例因此没有执行：
+        分片只上报实际执行的 id，父进程核对发现缺少并退出码 1、列出缺少的测试 id
+        （上报待运行清单的实现会把漏跑当成完整执行而返回 0）。"""
+        stopped = unique("test_stopped")
+        suite = self.make_dir({f"{stopped}.py": _STOP_SUITE})
+        code, out, err = self.run_main(["-s", str(suite)])
+        self.assertEqual(code, 1)
+        self.assertIn(f"✓ {stopped}", out)  # 分片本身全绿：漏跑只能由 id 核对抓住
+        self.assertIn("合计：1 个模块，Ran 1 个用例，失败 0、出错 0，", out)
+        self.assertIn("不一致", err)
+        self.assertIn(f"缺少（1）：{stopped}.T.test_second", err)
 
     def test_id_mismatch_fails(self):
         """分片实际运行的测试 id 与发现集合不相等（这里删掉一个分片报告的 id）：
