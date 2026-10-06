@@ -32,6 +32,9 @@ COMMANDS = {
     "risk": "engine.routing.risk",
     "policy": "engine.routing.policy",
     "run-check": "engine.routing.run_check",
+    # 原生自动合并的平台配置与停机撤销（T715）
+    "automerge": "engine.agents.automerge",
+    "automerge-off": "engine.agents.automerge:off_main",
     # 护栏
     "guard-command": "engine.guards.command_guard",
     "guard-git": "engine.guards.git_guard",

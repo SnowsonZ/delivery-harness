@@ -1,7 +1,8 @@
 # 自治等级与放权规则：机器按路径与 trailer 判定的类别，各自的自治等级与误差预算。
 # 只有用户能放权：改动本文件属 R3，升级时附周报中的证据。
 # 降级是自动的：误差预算超支、PR 带 budget-exceeded 标签时，policy 在下一次判定即时转用户评审。
-# 停机不靠本文件：Actions → auto-merge → Disable workflow。
+# 停机不靠本文件：Disable workflow 后再运行 python .harness/engine/cli.py automerge-off
+# 撤销已开启的自动合并（顺序见 README「Platform setup」）。
 # 新接入的项目全部从人审开始（L3），攒够数据后再逐类放权。
 #
 # R2 合同制路径（可选，设计 docs/plans/2026-10-03-autonomy-trial-design.md 第 4 节）：R2 实现 PR

@@ -183,6 +183,10 @@ class FakeGitHub:
         self.calls.append(("add_label", pr, label))
         self.labels.append(label)
 
+    def disable_auto_merge(self, pr):
+        self.calls.append(("disable_auto_merge", pr))
+        return True
+
     def create_issue(self, title, body, labels):
         self.calls.append(("create_issue", title, tuple(labels)))
         self.issues.append((title, body))
@@ -247,6 +251,10 @@ class FakeReviewGitHub:
         self.calls.append(f"gh pr comment {pr} --body-file -")
         self.comments.append(body)
         return f"https://example.invalid/repo/pull/{pr}#issuecomment-9"
+
+    def disable_auto_merge(self, pr):
+        self.calls.append(f"gh pr merge {pr} --disable-auto")
+        return True
 
 
 def old_marker_head(body: str) -> str:

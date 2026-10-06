@@ -53,15 +53,9 @@ def same_content(reviewed: str, head: str, base: str, cwd: Path) -> bool:
     return old is not None and old == new
 
 
-def review_status(comments: list[dict], login: str, head: str, base: str, cwd: Path) -> tuple[str, str]:
-    """("ok"|"fail"|"missing", 理由)：取最后一个内容与当前 head 相同的评审标记。
-
-    verdict 为「通过」且 flagged 为假时是 ok，其余情况是 fail；没有这样的标记时是 missing。
-    """
-    pair = _last_matched(comments, REVIEW_MARK, login, head, base, cwd)
-    if pair is None:
-        return "missing", "没有指向当前 head 的评审标记"
-    data = pair[1]
+def review_marker_status(data: dict) -> tuple[str, str]:
+    """评审标记 JSON 的判定（T715 抽出，行为不变）：review_status 与评审发布后关闭自动合并
+    共用同一判据——verdict 为「通过」且 flagged 恰为 false 才是 ok。"""
     if data.get("verdict") != "通过":
         return "fail", f"评审结论为「{data.get('verdict')}」"
     if data.get("flagged") is not False:
@@ -70,12 +64,17 @@ def review_status(comments: list[dict], login: str, head: str, base: str, cwd: P
     return "ok", "评审通过且未标记严重"
 
 
-def signoff_status(comments: list[dict], login: str, head: str, base: str, cwd: Path) -> tuple[str, str]:
-    """同 review_status 的规则；ok 的条件是 verdict 为「通过」、mutations >= 1 且 caught == mutations。"""
-    pair = _last_matched(comments, SIGNOFF_MARK, login, head, base, cwd)
+def review_status(comments: list[dict], login: str, head: str, base: str, cwd: Path) -> tuple[str, str]:
+    """("ok"|"fail"|"missing", 理由)：取最后一个内容与当前 head 相同的评审标记，按 review_marker_status 判定。"""
+    pair = _last_matched(comments, REVIEW_MARK, login, head, base, cwd)
     if pair is None:
-        return "missing", "没有指向当前 head 的复核标记"
-    data = pair[1]
+        return "missing", "没有指向当前 head 的评审标记"
+    return review_marker_status(pair[1])
+
+
+def signoff_marker_status(data: dict) -> tuple[str, str]:
+    """复核标记 JSON 的判定（T715 抽出，行为不变）：signoff_status 与复核发布后关闭自动合并共用；
+    ok 的条件是 verdict 为「通过」、mutations >= 1 且 caught == mutations。"""
     if data.get("verdict") != "通过":
         return "fail", f"复核结论为「{data.get('verdict')}」"
     mutations, caught = data.get("mutations"), data.get("caught")
@@ -86,6 +85,14 @@ def signoff_status(comments: list[dict], login: str, head: str, base: str, cwd: 
     if caught != mutations:
         return "fail", f"caught {caught} ≠ mutations {mutations}（有变异未被抓住）"
     return "ok", f"复核通过，{mutations} 项定向变异全部抓住"
+
+
+def signoff_status(comments: list[dict], login: str, head: str, base: str, cwd: Path) -> tuple[str, str]:
+    """("ok"|"fail"|"missing", 理由)：取最后一个内容与当前 head 相同的复核标记，按 signoff_marker_status 判定。"""
+    pair = _last_matched(comments, SIGNOFF_MARK, login, head, base, cwd)
+    if pair is None:
+        return "missing", "没有指向当前 head 的复核标记"
+    return signoff_marker_status(pair[1])
 
 
 def audit_model(comments: list[dict], login: str, head: str, base: str, cwd: Path) -> str | None:

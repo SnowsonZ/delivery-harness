@@ -130,6 +130,16 @@ class FakeAlertGitHub:
         self.calls.append(("add_label", pr, label))
         self.labels.append((pr, label))
 
+    def disable_auto_merge(self, pr):
+        # 与真实 disable_auto_merge 同一契约：失败只打印、返回假，不向评审路径抛异常。
+        try:
+            self._fail()
+        except RuntimeError as error:
+            print(f"关闭 PR #{pr} 的自动合并未成功（{error}）", file=sys.stderr)
+            return False
+        self.calls.append(("disable_auto_merge", pr))
+        return True
+
 
 class ReviewGitHub(FakeAlertGitHub):
     """评审用 gh 桩：pr view/checks/remove-label 走 _run 脚本应答；发布接口继承发布桩。
@@ -588,10 +598,11 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertTrue(alert_step["continue-on-error"])  # 告警失败不影响 job 结论
         self.assertIn('alert integrity_failure --trace "main@${GITHUB_SHA::7}"', alert_step["run"])
 
-        # workflow_run 承载（auto-merge.yml）：needs judge + if always()；默认分支代码；head/事件包只是数据
+        # workflow_run 承载（auto-merge.yml）：needs judge + if always() 且只在 workflow_run 事件
+        # （push 触发的同步一路不告警，T715）；默认分支代码；head/事件包只是数据
         job = auto["jobs"]["alert"]
         self.assertEqual(job["needs"], "judge")
-        self.assertEqual(job["if"], "${{ always() }}")  # 不继承 judge 的 success 门槛
+        self.assertEqual(job["if"], "${{ always() && github.event_name == 'workflow_run' }}")  # push 时跳过
         self.assertEqual(job["permissions"], {"actions": "read", "contents": "read",
                                               "issues": "write", "pull-requests": "write"})
         steps = job["steps"]
@@ -657,6 +668,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.export_events(project, "trigger", target=project.parent / "trigger-events")
         env = self.replay_env(project, shim, log)
         env["RUNNER_TEMP"] = str(project.parent)  # 两份事件包预置在步骤引用的位置（数据，不是代码）
+        env["GITHUB_EVENT_NAME"] = "workflow_run"  # 告警 job 的事件条件（T715）：只在 workflow_run 运行
         context = {"github.event.workflow_run.pull_requests[0].number": "9",
                    "github.event.workflow_run.head_branch": TRACE,
                    "github.event.workflow_run.id": "66",

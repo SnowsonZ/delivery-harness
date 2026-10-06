@@ -173,6 +173,10 @@ class FakeGitHub:
     def add_label(self, pr, label):
         self.calls.append(("add_label", pr, label))
 
+    def disable_auto_merge(self, pr):
+        self.calls.append(("disable_auto_merge", pr))
+        return True
+
     def create_issue(self, title, body, labels):
         self.calls.append(("create_issue", title, tuple(labels)))
         return "https://example.invalid/repo/issues/1"

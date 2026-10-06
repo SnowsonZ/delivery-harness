@@ -1,0 +1,99 @@
+{
+  "task": "T715",
+  "class": "K5",
+  "attempt": 1,
+  "branch": "task/715-automerge-timing-and-rounds",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "657c67628c85bbc62aca28487246d39995101eb33736b02ea047936e7868390c",
+  "prompt_path": "docs/runs/task-715-automerge-timing-and-rounds/1.prompt.md",
+  "guard_ref": "18d8df0d2c15a8fa568b723bc5ed9741740dcdcb",
+  "started_at": "2026-10-06T13:31:31+00:00",
+  "ended_at": "2026-10-06T15:46:32+00:00",
+  "executor_seconds": 7745.8,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {
+    "合并 PR：R0/R1 由仓库 auto-merge 合并，R2 及以上由用户合并，Agent 不自行合并（方案 §13 D4）": 2
+  },
+  "missing_context": [
+    {
+      "category": "spec",
+      "summary": "spec_ambiguous",
+      "ref": "docs/plans/task-715-automerge-timing-and-rounds.md"
+    }
+  ],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 46405752,
+  "gen_ai.usage.output_tokens": 169479,
+  "cost": 1.55143,
+  "escalation": null,
+  "trace_id": "task/715-automerge-timing-and-rounds",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-06T13:31:24.119Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-06T13:31:25.746Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-06T13:31:28.745Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "claim",
+      "status": "ok",
+      "ts": "2026-10-06T13:31:31.608Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-06T15:40:39.434Z",
+      "duration_ms": 7745846,
+      "attempt": 1,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-06T15:46:32.438Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 1
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "89732fad22316148072619f3d24f758a77242adabed8b9174ecf9bf43de5a88c",
+      "fixed_in": "run_record"
+    }
+  ]
+}

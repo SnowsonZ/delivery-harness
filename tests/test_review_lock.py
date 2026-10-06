@@ -91,6 +91,7 @@ class ReviewGitHub:
 
     def __init__(self, prs: dict[int, dict], order: list[tuple] | None = None):
         self.prs, self.order, self.comments, self.calls = prs, order if order is not None else [], [], []
+        self.disabled: list[int] = []
 
     def _run(self, argv, cwd=None, agent=False, stdin=None):
         joined = " ".join(argv)
@@ -108,6 +109,10 @@ class ReviewGitHub:
         if self.order is not None:
             self.order.append(("comment", pr))
         return f"https://example.invalid/pull/{pr}#issuecomment-{len(self.comments)}"
+
+    def disable_auto_merge(self, pr):
+        self.disabled.append(pr)
+        return True
 
 
 def blocking_script() -> str:

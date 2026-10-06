@@ -56,6 +56,7 @@ class FakeReviewGitHub:
     def __init__(self, pr_json: dict):
         self.pr_json = pr_json
         self.comments: list[str] = []
+        self.disabled: list[int] = []
 
     def _run(self, argv, cwd=None, agent=False, stdin=None):
         joined = " ".join(argv)
@@ -70,6 +71,10 @@ class FakeReviewGitHub:
     def comment(self, pr, body, label=None):
         self.comments.append(body)
         return f"https://example.invalid/repo/pull/{pr}#issuecomment-9"
+
+    def disable_auto_merge(self, pr):
+        self.disabled.append(pr)
+        return True
 
 
 def sha(data: bytes) -> str:
