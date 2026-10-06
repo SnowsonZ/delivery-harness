@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""CI 测试分片：打印第 INDEX 片（1 起）的测试模块名，供 `python -m unittest` 直接使用。
+
+    python bin/ci-shard INDEX COUNT
+
+模块集合与 `unittest discover -s tests` 完全一致（tests/test_*.py）。按文件大小做贪心装箱
+（大文件优先放进当前最轻的一片，大小相同按文件名），同一份检出里每一片的结果是确定的，
+所有片合起来恰好覆盖每个模块一次——tests/test_ci_sharding.py 守这一条。大小只是耗时的近似，
+实际耗时失衡时再换权重来源，不在这里引入计时依赖。
+"""
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def modules() -> list[tuple[str, int]]:
+    """(模块名, 文件字节数)，按文件名排序。"""
+    return [(f"tests.{path.stem}", path.stat().st_size) for path in sorted((ROOT / "tests").glob("test_*.py"))]
+
+
+def shards(count: int) -> list[list[str]]:
+    if count < 1:
+        raise ValueError("COUNT 必须 >= 1")
+    loads = [0] * count
+    buckets: list[list[str]] = [[] for _ in range(count)]
+    for name, size in sorted(modules(), key=lambda item: (-item[1], item[0])):
+        index = min(range(count), key=lambda i: (loads[i], i))
+        loads[index] += size
+        buckets[index].append(name)
+    return [sorted(bucket) for bucket in buckets]
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2:
+        print(__doc__, file=sys.stderr)
+        return 2
+    try:
+        index, count = int(argv[0]), int(argv[1])
+        if not 1 <= index <= count:
+            raise ValueError
+        selected = shards(count)[index - 1]
+    except ValueError:
+        print("INDEX 与 COUNT 必须是整数，且 1 <= INDEX <= COUNT", file=sys.stderr)
+        return 2
+    print(" ".join(selected))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
