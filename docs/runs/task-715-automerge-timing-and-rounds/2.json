@@ -1,0 +1,79 @@
+{
+  "task": "T715",
+  "class": "K5",
+  "attempt": 2,
+  "branch": "task/715-automerge-timing-and-rounds",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "0f50270092a0198786cf7611b22c6f37837947c7eeef8671971a08d4f2f90521",
+  "prompt_path": "docs/runs/task-715-automerge-timing-and-rounds/2.prompt.md",
+  "guard_ref": "18d8df0d2c15a8fa568b723bc5ed9741740dcdcb",
+  "started_at": "2026-10-06T15:56:36+00:00",
+  "ended_at": "2026-10-06T16:08:01+00:00",
+  "executor_seconds": 684.7,
+  "exit": "clarify",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 1,
+  "guard_denials": {},
+  "missing_context": [
+    {
+      "category": "spec",
+      "summary": "spec_ambiguous",
+      "ref": "docs/plans/task-715-automerge-timing-and-rounds.md"
+    }
+  ],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 893183,
+  "gen_ai.usage.output_tokens": 18416,
+  "cost": 0.047454,
+  "escalation": "clarify",
+  "trace_id": "task/715-automerge-timing-and-rounds",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "push_pr",
+      "status": "prior",
+      "ts": "2026-10-06T15:50:37.403Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "ci_wait",
+      "status": "prior",
+      "ts": "2026-10-06T15:56:36.437Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-06T16:08:01.614Z",
+      "duration_ms": 684742,
+      "attempt": 2,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "clarify",
+      "status": "ok",
+      "ts": "2026-10-06T16:08:01.634Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "938d7fad1966493f9bba00176393e0bf6d275e858fb5932dd1c37ec387632a79",
+      "fixed_in": "run_record"
+    }
+  ]
+}
