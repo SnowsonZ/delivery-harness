@@ -74,7 +74,7 @@ class GitHub:
         try:
             self._run(["gh", "pr", "merge", str(pr), "--disable-auto"], agent=True)
             return True
-        except RuntimeError as error:
+        except (RuntimeError, OSError) as error:
             print(f"关闭 PR #{pr} 的自动合并未成功（{error}）；若它已开启自动合并，"
                   f"请手动 gh pr merge {pr} --disable-auto", file=sys.stderr)
             return False

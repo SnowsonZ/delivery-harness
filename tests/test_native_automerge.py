@@ -527,6 +527,27 @@ class NegativeSignalsTest(unittest.TestCase):
 
     # ---------- 验收第 4 行：判据纯函数覆盖全部非法标记 ----------
 
+    def test_disable_auto_merge_swallows_runtime_and_os_errors(self):
+        # 真实的 disable_auto_merge：gh 失败（RuntimeError）与 gh 不可执行（OSError，subprocess 抛出）
+        # 都只打印并返回假，不向评审、复核、预算升级路径逸出异常；成功返回真并带上 --disable-auto。
+        calls = []
+
+        class Github(dispatch.GitHub):
+            def __init__(self, error=None):
+                self.error = error
+
+            def _run(self, argv, cwd=None, agent=False, stdin=None):
+                calls.append((argv, agent))
+                if self.error:
+                    raise self.error
+                return ""
+
+        self.assertTrue(Github().disable_auto_merge(14))
+        self.assertEqual(calls[-1], (["gh", "pr", "merge", "14", "--disable-auto"], True))
+        for error in (RuntimeError("gh 失败"), OSError("gh 不存在")):
+            with mock.patch("sys.stderr"):
+                self.assertFalse(Github(error).disable_auto_merge(14), repr(error))
+
     def test_marker_status_pure_functions(self):
         # 评审：结论不是「通过」、flagged 非 false 都是 fail；通过且 flagged 恰为 false 才是 ok
         for data, expect in (({"verdict": "不通过", "flagged": True}, "fail"),
