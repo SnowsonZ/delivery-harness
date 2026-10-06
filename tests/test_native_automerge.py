@@ -64,6 +64,10 @@ import sys
 argv = " ".join(sys.argv[1:])
 with open(os.environ["GH_SHIM_LOG"], "a", encoding="utf-8") as fh:
     fh.write("CALL " + argv + " [token=" + str(os.environ.get("GH_TOKEN") or "none") + "]\\n")
+fail = os.environ.get("GH_SHIM_FAIL")
+if fail and fail in argv:
+    sys.stderr.write("gh shim: 注入失败: " + argv + "\\n")
+    sys.exit(1)
 for pattern, output in json.loads(os.environ.get("GH_SHIM_RESPONSES", "[]")):
     if pattern in argv:
         print(output)
@@ -75,7 +79,7 @@ sys.stderr.write("gh shim: 未登记的调用: " + argv + "\\n")
 sys.exit(1)
 '''
 
-# pr list 的应答（jq 计算后的行）：21、22、23 都打开且目标默认分支；eligibility 由脚本对每个 PR
+# REST pulls 分页查询的应答（jq 计算后的行）：21、22、23 都打开且目标默认分支；eligibility 由脚本对每个 PR
 # 再查 isCrossRepository/autoMergeRequest 判定——21 已开启自动合并（等同步），22 未开启，23 来自 fork。
 # 后两者必须被脚本跳过：不查 mergeable、不同步。
 WAITING_PRS = "21 " + "b" * 40 + "\n22 " + "c" * 40 + "\n23 " + "d" * 40
@@ -123,7 +127,7 @@ class NativeAutomergeTest(unittest.TestCase):
         return base
 
     def replay_job(self, job: str, context: dict[str, str], *, responses: list | None = None,
-                   sync_token: str = "", retry_seconds: str = "0") -> tuple[MergeReplay, str]:
+                   sync_token: str = "", retry_seconds: str = "0", fail: str = "") -> tuple[MergeReplay, str]:
         """重放一个 job 的 run 步骤（uses 步骤记账跳过）。responses 非空时用表驱动的 gh 桩。"""
         steps = [step for step in self.template()["jobs"][job]["steps"] if "uses" not in step]
         shim = self.tmp / f"shim-{job}-{len(list(self.tmp.glob('shim-*')))}"
@@ -138,6 +142,8 @@ class NativeAutomergeTest(unittest.TestCase):
         if responses is not None:
             env["GH_SHIM_RESPONSES"] = json.dumps(responses)
             env["MERGEABLE_RETRY_SECONDS"] = retry_seconds
+        if fail:
+            env["GH_SHIM_FAIL"] = fail
         if sync_token:
             context = {**context, "steps.sync-app.outputs.token": sync_token}
         replay = MergeReplay(project, env, context)
@@ -196,6 +202,8 @@ class NativeAutomergeTest(unittest.TestCase):
         comment = next(index for index, line in enumerate(lines) if "pr comment 14" in line)
         fallback = next(index for index, line in enumerate(lines)
                         if "pr merge 14" in line and "--auto" not in line)
+        label = next(index for index, line in enumerate(lines) if "label create class:K5" in line)
+        self.assertLess(label, issue)  # 议题带 class:K5，标签必须先存在
         self.assertLess(issue, approve)  # 抽审登记在批准（更在任何合并命令）之前
         self.assertLess(issue, enable)
         self.assertLess(enable, view)  # 开启失败后才查 autoMergeRequest
@@ -230,6 +238,8 @@ class NativeAutomergeTest(unittest.TestCase):
         self.assertEqual(replay.conclusion, "success")
         lines = log.splitlines()
         issue = next(index for index, line in enumerate(lines) if "issue create" in line)
+        label = next(index for index, line in enumerate(lines) if "label create class:K5" in line)
+        self.assertLess(label, issue)
         enable = next(index for index, line in enumerate(lines) if "--auto" in line)
         fallback = next(index for index, line in enumerate(lines)
                         if "pr merge 14" in line and "--auto" not in line)
@@ -254,8 +264,12 @@ class NativeAutomergeTest(unittest.TestCase):
         platform = auto["jobs"]["platform"]
         self.assertEqual(platform["if"], "github.event_name == 'push'")
         self.assertEqual(set(platform["permissions"].values()), {"read"})
-        self.assertEqual(platform["steps"][0]["with"]["ref"],
-                         "${{ github.event.repository.default_branch }}")  # 检出默认分支，不是 PR head
+        checkouts = [step for step in platform["steps"] if "checkout" in str(step.get("uses", ""))]
+        self.assertTrue(checkouts)
+        for step in checkouts:  # 每一个检出都是默认分支，不是 PR head
+            self.assertEqual(step["with"]["ref"], "${{ github.event.repository.default_branch }}")
+        for job in ("platform", "sync-waiting"):
+            self.assertNotIn("workflow_run.head_sha", json.dumps(auto["jobs"][job]), job)
         cfg = next(step for step in platform["steps"] if "run" in step)
         self.assertIn("automerge platform", cfg["run"])
         self.assertEqual(sorted(platform["outputs"]),
@@ -272,8 +286,15 @@ class NativeAutomergeTest(unittest.TestCase):
             for forbidden in ("git checkout", "git switch", "git clone"):
                 self.assertNotIn(forbidden, run, step.get("name"))  # 不检出、不执行 PR 代码
 
+        sync_run = "\n".join(str(step.get("run", "")) for step in sync["steps"])
+        # 候选过滤是 jq 表达式，回放桩不会执行它：静态断言保证只有同仓库且已开启自动合并的才算等待中
+        self.assertIn("(.isCrossRepository | not) and (.autoMergeRequest != null)", sync_run)
+        self.assertIn("gh api --paginate", sync_run)  # 完整分页列出打开 PR（gh pr list 默认只取 30 个）
+        self.assertNotIn("gh pr list", sync_run)
+        self.assertNotIn("< <(", sync_run)  # 进程替换会吞掉列表查询的失败
+
         # 回放：落后且不冲突的等待中 PR 用同步令牌 update-branch；fork 与未开自动合并的没进候选。
-        responses = [["pr list", WAITING_PRS], *ELIGIBLE,
+        responses = [["pulls?state=open", WAITING_PRS], *ELIGIBLE,
                      ["pr view 21 --repo owner/repo --json mergeable", "MERGEABLE"],
                      [f"compare/main...{'b' * 40}", "3"]]
         _replay, log = self.replay_job("sync-waiting", self.context(), responses=responses,
@@ -285,8 +306,15 @@ class NativeAutomergeTest(unittest.TestCase):
         self.assertNotIn("pr view 22", "".join(line for line in log.splitlines()
                                                if "isCrossRepository" not in line))
 
+        # 列表查询失败：job 失败，不得打印「没有等待中的自动合并 PR」
+        replay, log = self.replay_job("sync-waiting", self.context(), responses=[], sync_token="sync-token-1",
+                                      fail="pulls?state=open")
+        self.assertEqual(replay.conclusion, "failure")
+        self.assertNotIn("没有等待中", getattr(replay, "output", "") or "")
+        self.assertNotIn("update-branch", log)
+
         # 冲突的等待中 PR：评论、打 escalation、关闭自动合并，不同步
-        responses = [["pr list", "31 " + "e" * 40],
+        responses = [["pulls?state=open", "31 " + "e" * 40],
                      ["pr view 31 --repo owner/repo --json isCrossRepository", "yes"],
                      ["pr view 31 --repo owner/repo --json mergeable", "CONFLICTING"]]
         _replay, log = self.replay_job("sync-waiting", self.context(), responses=responses,
@@ -299,7 +327,7 @@ class NativeAutomergeTest(unittest.TestCase):
         self.assertIn("[token=job-token]", disable_line)  # 关闭用工作流令牌
 
         # mergeable 重试后仍未知：打印并跳过（重试 3 次，间隔经 MERGEABLE_RETRY_SECONDS 压缩）
-        responses = [["pr list", "41 " + "f" * 40],
+        responses = [["pulls?state=open", "41 " + "f" * 40],
                      ["pr view 41 --repo owner/repo --json isCrossRepository", "yes"],
                      ["pr view 41 --repo owner/repo --json mergeable", "UNKNOWN"]]
         _replay, log = self.replay_job("sync-waiting", self.context(), responses=responses,
@@ -309,11 +337,11 @@ class NativeAutomergeTest(unittest.TestCase):
         self.assertNotIn("disable-auto", log)
 
         # 没有等待中的 PR：只查询一次列表，无写调用
-        _replay, log = self.replay_job("sync-waiting", self.context(), responses=[["pr list", ""]],
+        _replay, log = self.replay_job("sync-waiting", self.context(), responses=[["pulls?state=open", ""]],
                                        sync_token="sync-token-1")
-        self.assertEqual([line for line in log.splitlines() if "pr list" in line], log.splitlines())
+        self.assertEqual([line for line in log.splitlines() if "pulls?state=open" in line], log.splitlines())
         # 同步 App 未配置：整体跳过，没有任何 gh 调用
-        _replay, log = self.replay_job("sync-waiting", self.context(), responses=[["pr list", WAITING_PRS]],
+        _replay, log = self.replay_job("sync-waiting", self.context(), responses=[["pulls?state=open", WAITING_PRS]],
                                        sync_token="")
         self.assertEqual(log, "")
 

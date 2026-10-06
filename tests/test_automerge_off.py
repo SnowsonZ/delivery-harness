@@ -27,14 +27,14 @@ from engine.routing.policy import platform_outputs
 
 
 def run_row(run_id: int, status: str, branch: str = "task/1-a") -> dict:
-    return {"databaseId": run_id, "status": status, "headBranch": branch}
+    return {"id": run_id, "status": status, "head_branch": branch}
 
 
 class FakeGh:
     """automerge 的 gh 桩：runs 与请求查询按预置序列应答（每次查询消费一条），写操作记录。
 
     runs_pages 的每个元素是一次查询的应答文本值：--slurp 的 JSON 数组（元素是 API 的 page 对象）。
-    request_outputs 的每个元素是一次 pr list 查询的 jq 输出。
+    request_outputs 的每个元素是一次 REST pulls 分页查询的 jq 输出。
     """
 
     def __init__(self, runs_pages: list, request_outputs: list, fail_on_call: dict[int, str] | None = None):
@@ -53,7 +53,7 @@ class FakeGh:
             raise RuntimeError(f"gh 失败（{pattern}）")
         if "workflows/auto-merge.yml/runs" in joined:
             return json.dumps(self.runs_pages.pop(0))
-        if joined.startswith("pr list"):
+        if "/pulls?state=open" in joined:
             return self.request_outputs.pop(0)
         if joined.startswith("pr merge") and "--disable-auto" in joined:
             self.disabled.append(int(args[2]))
@@ -77,7 +77,7 @@ class AutomergeOffTest(unittest.TestCase):
                 run_row(4, "pending"), run_row(5, "requested"), run_row(6, "completed")]}]],
             [""])
         runs = automerge.incomplete_runs(gh)
-        self.assertEqual([run["databaseId"] for run in runs], [1, 2, 3, 4, 5])
+        self.assertEqual([run["id"] for run in runs], [1, 2, 3, 4, 5])
 
     def test_off_revokes_requests_and_exits_zero_after_recheck(self):
         # 初始：一次在途运行、两个存量请求；关闭后复查为零 → 0 退出，每个 PR 恰好关闭一次
@@ -94,7 +94,7 @@ class AutomergeOffTest(unittest.TestCase):
         self.assertIn("复查通过", text)
         # 关闭之后确有复查（两个查询各两轮）
         self.assertEqual(len([call for call in gh.calls if "workflows/auto-merge.yml/runs" in call]), 2)
-        self.assertEqual(len([call for call in gh.calls if call.startswith("pr list")]), 2)
+        self.assertEqual(len([call for call in gh.calls if "/pulls?state=open" in call and "--paginate" in call]), 2)
 
     def test_off_fails_while_a_run_is_still_in_flight(self):
         # 复查时请求为零但旧运行未结束（queued）：非零退出并列出该运行，不假装成功
@@ -122,7 +122,7 @@ class AutomergeOffTest(unittest.TestCase):
             self.assertEqual(automerge.off_main([]), 1)
         self.assertEqual(gh.disabled, [])
         # 复查失败（第 4 次调用是复查的 pr list）：同样非零退出
-        gh = FakeGh([[], []], ["7\n", ""], fail_on_call={4: "pr list"})
+        gh = FakeGh([[], []], ["7\n", ""], fail_on_call={4: "pulls?state=open"})
         errors = io.StringIO()
         with mock.patch.object(automerge, "_gh", gh), mock.patch("sys.stderr", errors):
             self.assertEqual(automerge.off_main([]), 1)

@@ -286,6 +286,8 @@ jobs:
           CLASS: ${{ needs.judge.outputs.class }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
+          # 类别标签先于议题创建：议题带 class:$CLASS，标签不存在时 issue create 会失败。
+          gh label create "class:$CLASS" --repo "$GITHUB_REPOSITORY" --color c5def5 --force >/dev/null
           gh label create audit --repo "$GITHUB_REPOSITORY" --color fbca04 --force >/dev/null
           title="Audit: PR #$PR ($CLASS)"
           found=$(gh issue list --repo "$GITHUB_REPOSITORY" --label audit --state all \
@@ -379,6 +381,8 @@ jobs:
           CLASS: ${{ needs.judge.outputs.class }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
+          # 类别标签先于议题创建：议题带 class:$CLASS，标签不存在时 issue create 会失败。
+          gh label create "class:$CLASS" --repo "$GITHUB_REPOSITORY" --color c5def5 --force >/dev/null
           gh label create audit --repo "$GITHUB_REPOSITORY" --color fbca04 --force >/dev/null
           title="Audit: PR #$PR ($CLASS)"
           found=$(gh issue list --repo "$GITHUB_REPOSITORY" --label audit --state all \
@@ -479,6 +483,13 @@ jobs:
             echo "同步 App 未配置（仓库变量 $SYNC_APP_ID_VAR 为空），跳过等待中 PR 的同步"
             exit 0
           fi
+          # 完整分页列出目标默认分支的打开 PR（gh pr list 默认只取 30 个，且没有 --paginate）；
+          # 列表失败必须让本步骤失败，不能当成「没有等待中的 PR」。
+          if ! prs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&base=$DEFAULT_BRANCH&per_page=100" \
+            --jq '.[] | "\(.number) \(.head.sha)"'); then
+            echo "列出打开的 PR 失败，本次不同步，等下一轮 push" >&2
+            exit 1
+          fi
           count=0
           while read -r pr head_sha; do
             [ -n "$pr" ] || continue
@@ -509,8 +520,7 @@ jobs:
               GH_TOKEN="$SYNC_TOKEN" gh pr update-branch "$pr" --repo "$GITHUB_REPOSITORY"
               echo "PR #$pr 落后 $behind_by 个提交，已用同步 App 更新分支，等新一轮 CI 后重判"
             fi
-          done < <(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base "$DEFAULT_BRANCH" \
-            --json number,headRefOid --jq '.[] | "\(.number) \(.headRefOid)"')
+          done <<< "$prs"
           if [ "$count" = "0" ]; then
             echo "没有等待中的自动合并 PR"
           fi

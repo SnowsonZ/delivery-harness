@@ -73,13 +73,14 @@ def incomplete_runs(gh=None) -> list[dict]:
 def requested_prs(gh=None) -> list[int]:
     """全部 autoMergeRequest 非空的打开 PR（分页）；查询失败向上抛。"""
     gh = gh or _gh
-    raw = gh("pr", "list", "--state", "open", "--json", "number,autoMergeRequest", "--paginate",
-             "--jq", ".[] | select(.autoMergeRequest != null) | .number")
+    # gh pr list 没有 --paginate（只受 --limit 约束）：用 REST 列表完整分页，auto_merge 非空即已开启。
+    raw = gh("api", "repos/{owner}/{repo}/pulls?state=open&per_page=100", "--paginate",
+             "--jq", ".[] | select(.auto_merge != null) | .number")
     return sorted({int(line) for line in raw.split() if line.strip().isdigit()})
 
 
 def _describe(runs: list[dict]) -> str:
-    return "；".join(f"{run.get('databaseId')}（{run.get('status')}，{run.get('headBranch')}）"
+    return "；".join(f"{run.get('id')}（{run.get('status')}，{run.get('head_branch')}）"
                      for run in runs)
 
 
