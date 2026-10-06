@@ -1,0 +1,154 @@
+{
+  "task": "T713",
+  "class": "K5",
+  "attempt": 6,
+  "branch": "task/713-verify-speedup",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3",
+  "prompt_sha256": "5322c246bfad56b2fef7b5192ce732ba299f0db615c7b8fb22d82cd88267bd4f",
+  "prompt_path": "docs/runs/task-713-verify-speedup/6.prompt.md",
+  "guard_ref": "29f7254c78f84b04769b45ae2a9334dadc307d44",
+  "started_at": "2026-10-06T02:13:46+00:00",
+  "ended_at": "2026-10-06T02:36:05+00:00",
+  "executor_seconds": 990.1,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 1035275,
+  "gen_ai.usage.output_tokens": 18926,
+  "cost": 0.409951,
+  "escalation": null,
+  "trace_id": "task/713-verify-speedup",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "push_pr",
+      "status": "prior",
+      "ts": "2026-10-05T15:21:37.822Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "ci_wait",
+      "status": "prior",
+      "ts": "2026-10-05T15:28:11.203Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "ci_wait",
+      "status": "prior",
+      "ts": "2026-10-05T16:19:50.499Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "ci_wait",
+      "status": "prior",
+      "ts": "2026-10-05T17:48:22.958Z",
+      "duration_ms": null,
+      "attempt": 3,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "ci_wait",
+      "status": "prior",
+      "ts": "2026-10-06T01:27:04.832Z",
+      "duration_ms": null,
+      "attempt": 4,
+      "round": 0
+    },
+    {
+      "stage": "review",
+      "step": "review",
+      "status": "fail",
+      "ts": "2026-10-06T01:30:01.225Z",
+      "duration_ms": 167544,
+      "attempt": 5,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-06T02:13:43.372Z",
+      "duration_ms": null,
+      "attempt": 5,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-06T02:13:44.345Z",
+      "duration_ms": null,
+      "attempt": 5,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-06T02:13:46.338Z",
+      "duration_ms": null,
+      "attempt": 5,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.run-tests",
+      "status": "fail",
+      "ts": "2026-10-06T02:16:05.208Z",
+      "duration_ms": 78,
+      "attempt": 5,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.run-tests",
+      "status": "fail",
+      "ts": "2026-10-06T02:16:28.803Z",
+      "duration_ms": 78,
+      "attempt": 5,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-06T02:30:16.874Z",
+      "duration_ms": 990091,
+      "attempt": 5,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-06T02:36:05.281Z",
+      "duration_ms": null,
+      "attempt": 5,
+      "round": 1
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "4422cd1f75f12f7a3111ff1f73a46b838b8d01e4dbd4c65007fdd9315fb8f3bb",
+      "fixed_in": "run_record"
+    }
+  ]
+}
