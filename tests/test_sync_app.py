@@ -77,7 +77,8 @@ class SyncAppTest(unittest.TestCase):
         # 批准 App 的令牌步骤只申请写 PR（不再持有写代码权限）；同步令牌步骤仅在同步 App 的
         # 变量非空时执行，并申请写内容与写 PR（两个 App 不能合一：ruleset 要求最后一次推送
         # 由推送者以外的人批准，批准 App 同步后成了最后推送者，它的批准不再满足这条规则）
-        app, sync_app, _sync, _merge = merge_app_steps(self.template())
+        named = merge_app_steps(self.template())
+        app, sync_app = named["app"], named["sync_app"]
         self.assertEqual(app["name"], "App token (approve)")
         self.assertEqual(app["with"]["permission-pull-requests"], "write")
         self.assertNotIn("permission-contents", app["with"])
@@ -95,7 +96,8 @@ class SyncAppTest(unittest.TestCase):
         replay, log = replay_merge_app(self.tmp, behind_by="2", mergeable="MERGEABLE")
         self.assertIn("Sync behind branch before approving", replay.ran)
         self.assertNotIn("Sync App token", replay.ran)  # 令牌步骙按「变量非空」条件跳过
-        self.assertNotIn("Label, approve and merge", replay.ran)  # 批准步骙被拦下
+        self.assertNotIn("Label and approve", replay.ran)  # 批准步骙被拦下
+        self.assertNotIn("Enable native auto-merge", replay.ran)  # 开启步骙同样被拦下
         self.assertEqual(replay.conclusion, "success")
         self.assertEqual(log.count("pr comment 14"), 1)  # 只评论一次
         self.assertIn("分支落后于 main，未配置同步 App，请手动同步后重判", log)
