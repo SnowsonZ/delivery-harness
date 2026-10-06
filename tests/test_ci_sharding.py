@@ -76,13 +76,15 @@ class CiWorkflowTest(unittest.TestCase):
         self.jobs = self.workflow["jobs"]
 
     def test_required_check_names_are_stable(self):
-        # ruleset 登记的必需检查名：test (ubuntu-latest)、test (macos-latest)；名字变了必需检查会永远等待
-        self.assertEqual(self.jobs["test-ubuntu"]["name"], "test (ubuntu-latest)")
+        # ruleset 登记的必需检查名：test (macos-latest)、harness；名字变了必需检查会永远等待
         self.assertEqual(self.jobs["test-macos-gate"]["name"], "test (macos-latest)")
+        # ubuntu 测试已与 harness 的 verify --full 合并，不再有独立 job（必需检查已从 ruleset 移除）
+        self.assertNotIn("test-ubuntu", self.jobs)
+        self.assertEqual(sorted(self.jobs), ["changes", "consumer-contract", "test-macos", "test-macos-gate"])
 
     def test_skips_happen_only_on_explicit_docs_only(self):
         # always() 保证上游失败、没起来时 docs_only 为空，下游照常全跑；只有输出明确为 true 才跳过
-        for name in ("test-ubuntu", "test-macos", "consumer-contract"):
+        for name in ("test-macos", "consumer-contract"):
             self.assertEqual(self.jobs[name]["if"], SKIP_IF, name)
             self.assertEqual(self.jobs[name]["needs"], "changes", name)
         self.assertEqual(self.jobs["test-macos-gate"]["if"], "${{ always() }}")

@@ -10,8 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  # 纯文档改动不跑测试矩阵与消费方契约：必需检查（test (ubuntu-latest)、test (macos-latest)）靠 job 级 `if`
-  # 被「跳过」满足；harness 工作流的 verify --full 仍跑全量测试、文档与任务书检查。
+  # 纯文档改动不跑 macOS 测试与消费方契约：必需检查 test (macos-latest) 靠汇总 job 的显式判定满足；
+  # harness 工作流的 verify --full 仍跑 lint、全量测试、文档与任务书检查（Linux 上的测试覆盖就在那里，
+  # 所以不再单设 ubuntu 测试 job——它与 harness 重复，必需检查已由用户从 ruleset 中移除）。
   # 判定只看 PR 改动的文件（含改名前的路径），取不到列表、非 pull_request 事件一律按「要跑」处理；
   # 依赖本 job 的各 job 用 `always() && docs_only != 'true'`：本 job 自己失败、没起来时 docs_only 为空，照常全跑，
   # 只有输出明确为 true 才跳过（直接 needs 而不写 always() 会在上游失败时被一并跳过，必需检查就被误放行）。
@@ -46,27 +47,7 @@ jobs:
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           echo "docs_only=$docs_only"
 
-  test-ubuntu:
-    name: test (ubuntu-latest)
-    needs: changes
-    if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Lint
-        run: |
-          python -m pip install --quiet ruff==0.16.8
-          python -m ruff check engine tests
-
-      - name: Tests
-        run: python -W error::ResourceWarning -m unittest discover -s tests -v
-
-  # macOS 最慢（约 9 分钟，同一套测试 ubuntu 只要 2 分钟）：分 3 片并行，每片由 bin/ci-shard 按模块分配。
+  # macOS 最慢（约 9 分钟，同一套测试 Linux 只要 2 分钟）：分 3 片并行，每片由 bin/ci-shard 按模块分配。
   # 片的名字不是必需检查，必需检查是下面名为 test (macos-latest) 的汇总 job。
   test-macos:
     name: test-macos shard ${{ matrix.shard }}
