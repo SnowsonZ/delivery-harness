@@ -10,12 +10,54 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  # 纯文档改动不跑 macOS 测试与消费方契约：必需检查 test (macos-latest) 靠汇总 job 的显式判定满足；
+  # harness 工作流的 verify --full 仍跑 lint、全量测试、文档与任务书检查（Linux 上的测试覆盖就在那里，
+  # 所以不再单设 ubuntu 测试 job——它与 harness 重复，必需检查已由用户从 ruleset 中移除）。
+  # 判定只看 PR 改动的文件（含改名前的路径），取不到列表、非 pull_request 事件一律按「要跑」处理；
+  # 依赖本 job 的各 job 用 `always() && docs_only != 'true'`：本 job 自己失败、没起来时 docs_only 为空，照常全跑，
+  # 只有输出明确为 true 才跳过（直接 needs 而不写 always() 会在上游失败时被一并跳过，必需检查就被误放行）。
+  # 本文件、分片脚本都不在文档路径内，改它们的 PR 一定跑全量。
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.diff.outputs.docs_only }}
+    steps:
+      - name: Classify changed files
+        id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          # 全部命中才算纯文档（说明性文档，不含 docs/ 之外的任何文件）。
+          DOCS_PATTERN: '^(docs/|README(\.zh-CN)?\.md$|CHANGELOG\.md$|SECURITY\.md$)'
+        run: |
+          docs_only=false
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$PR" ]; then
+            if files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+                --jq '.[] | .filename, (.previous_filename // empty)') && [ -n "$files" ]; then
+              docs_only=true
+              while IFS= read -r file; do
+                if ! printf '%s\n' "$file" | grep -Eq "$DOCS_PATTERN"; then docs_only=false; break; fi
+              done <<< "$files"
+            fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "docs_only=$docs_only"
+
+  # macOS 最慢（约 9 分钟，同一套测试 Linux 只要 2 分钟）：分 3 片并行，每片由 bin/ci-shard 按模块分配。
+  # 片的名字不是必需检查，必需检查是下面名为 test (macos-latest) 的汇总 job。
+  test-macos:
+    name: test-macos shard ${{ matrix.shard }}
+    needs: changes
+    if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+        shard: [1, 2, 3]
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -28,10 +70,35 @@ jobs:
           python -m pip install --quiet ruff==0.16.8
           python -m ruff check engine tests
 
-      - name: Tests
-        run: python -W error::ResourceWarning -m unittest discover -s tests -v
+      - name: Tests (shard ${{ matrix.shard }} of 3)
+        run: python -W error::ResourceWarning -m unittest -v $(python bin/ci-shard ${{ matrix.shard }} 3)
+
+  # 必需检查 test (macos-latest) 的汇总：名字沿用分片前的检查名，ruleset 不用改。
+  # if: always() 必不可少——分片失败时本 job 若被跳过，必需检查会按「跳过」放行；这里显式判定：
+  # 纯文档（docs_only 明确为 true）才允许分片全部被跳过，其余情况分片必须全部成功。
+  test-macos-gate:
+    name: test (macos-latest)
+    needs: [changes, test-macos]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require shards
+        env:
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          SHARDS: ${{ needs.test-macos.result }}
+        run: |
+          echo "docs_only=$DOCS_ONLY shards=$SHARDS"
+          if [ "$DOCS_ONLY" = "true" ]; then
+            [ "$SHARDS" = "skipped" ] || [ "$SHARDS" = "success" ] && exit 0
+          else
+            [ "$SHARDS" = "success" ] && exit 0
+          fi
+          echo "macOS 测试分片未通过（结果：$SHARDS）" >&2
+          exit 1
 
   consumer-contract:
+    needs: changes
+    if: ${{ always() && needs.changes.outputs.docs_only != 'true' }}
     # B44：用本检出的引擎升级消费方（Agent-Notification）main，再跑其 harness 契约测试与快速验证；
     # 引擎变更破坏消费方契约时本 job 变红。检查名登记 ruleset 不在此处。
     runs-on: ubuntu-latest

@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""CI 测试分片：打印第 INDEX 片（1 起）的测试模块名，供 `python -m unittest` 直接使用。
+
+    python bin/ci-shard INDEX COUNT
+
+模块集合与 `unittest discover -s tests` 完全一致（tests/test_*.py）。按文件大小做贪心装箱
+（重的模块优先放进当前最轻的一片，权重相同按模块名），同一份检出里每一片的结果是确定的，
+所有片合起来恰好覆盖每个模块一次——tests/test_ci_sharding.py 守这一条。权重取自 tests/ci_shard_weights.txt
+（本机逐模块实测的秒数，更新方法写在该文件头部）；没登记的模块按 DEFAULT_WEIGHT 处理，
+所以新增测试不登记也不会漏测，只是分得不够准。
+"""
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+WEIGHTS_FILE = ROOT / "tests" / "ci_shard_weights.txt"
+DEFAULT_WEIGHT = 10.0
+
+
+def weights() -> dict[str, float]:
+    """tests/ci_shard_weights.txt：每行「模块名 秒数」，# 开头为注释；文件缺失或行写坏就忽略那一行。"""
+    table: dict[str, float] = {}
+    if WEIGHTS_FILE.exists():
+        for line in WEIGHTS_FILE.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) == 2 and not line.lstrip().startswith("#"):
+                try:
+                    table[parts[0]] = float(parts[1])
+                except ValueError:
+                    continue
+    return table
+
+
+def modules() -> list[tuple[str, float]]:
+    """(模块名, 权重)，按模块名排序。"""
+    table = weights()
+    names = [f"tests.{path.stem}" for path in sorted((ROOT / "tests").glob("test_*.py"))]
+    return [(name, table.get(name, DEFAULT_WEIGHT)) for name in names]
+
+
+def shards(count: int) -> list[list[str]]:
+    if count < 1:
+        raise ValueError("COUNT 必须 >= 1")
+    loads = [0.0] * count
+    buckets: list[list[str]] = [[] for _ in range(count)]
+    for name, weight in sorted(modules(), key=lambda item: (-item[1], item[0])):
+        index = min(range(count), key=lambda i: (loads[i], i))
+        loads[index] += weight
+        buckets[index].append(name)
+    return [sorted(bucket) for bucket in buckets]
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 2:
+        print(__doc__, file=sys.stderr)
+        return 2
+    try:
+        index, count = int(argv[0]), int(argv[1])
+        if not 1 <= index <= count:
+            raise ValueError
+        selected = shards(count)[index - 1]
+    except ValueError:
+        print("INDEX 与 COUNT 必须是整数，且 1 <= INDEX <= COUNT", file=sys.stderr)
+        return 2
+    print(" ".join(selected))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
