@@ -70,6 +70,35 @@ class ShardScriptTest(unittest.TestCase):
             self.assertEqual(result.returncode, 2, bad)
 
 
+class ShardWeightsTest(unittest.TestCase):
+    def test_weighted_shards_are_balanced(self):
+        # 实测权重下三片的总权重接近（失衡超过 15% 说明权重过期或装箱退化）
+        shard = load_shard()
+        table = shard.weights()
+        self.assertTrue(table)
+        loads = [sum(table.get(name, shard.DEFAULT_WEIGHT) for name in bucket) for bucket in shard.shards(3)]
+        self.assertLessEqual(max(loads) - min(loads), 0.15 * (sum(loads) / 3), loads)
+
+    def test_unlisted_modules_get_default_weight_and_bad_lines_are_ignored(self):
+        shard = load_shard()
+        tmp = Path(tempfile.mkdtemp(prefix="dh-shard-weights-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        weights = tmp / "weights.txt"
+        weights.write_text("# 注释\ntests.test_ci_sharding 99.5\n坏行\ntests.test_x notanumber\n\n", encoding="utf-8")
+        original = shard.WEIGHTS_FILE
+        shard.WEIGHTS_FILE = weights
+        self.addCleanup(setattr, shard, "WEIGHTS_FILE", original)
+        self.assertEqual(shard.weights(), {"tests.test_ci_sharding": 99.5})
+        named = dict(shard.modules())
+        self.assertEqual(named["tests.test_ci_sharding"], 99.5)
+        self.assertEqual(named["tests.test_install"], shard.DEFAULT_WEIGHT)  # 没登记按默认，不会漏测
+        flat = sorted(name for bucket in shard.shards(3) for name in bucket)
+        self.assertEqual(flat, sorted(named))
+        shard.WEIGHTS_FILE = tmp / "missing.txt"  # 权重文件缺失：全部按默认，仍完整分配
+        self.assertEqual(shard.weights(), {})
+        self.assertEqual(sorted(name for bucket in shard.shards(3) for name in bucket), sorted(named))
+
+
 class CiWorkflowTest(unittest.TestCase):
     def setUp(self):
         self.workflow = parse_workflow(CI.read_text(encoding="utf-8"))
