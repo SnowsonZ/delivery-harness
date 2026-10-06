@@ -158,6 +158,10 @@ class FakeGitHub:
         self.calls.append(("add_label", pr, label))
         self.labels.append((pr, label))
 
+    def disable_auto_merge(self, pr):
+        self.calls.append(("disable_auto_merge", pr))
+        return True
+
     def create_issue(self, title, body, labels):
         if self.fail_publish:
             raise RuntimeError("gh down")

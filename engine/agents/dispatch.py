@@ -525,6 +525,9 @@ class Dispatcher:
                 return 0
             if ci_rounds >= task.budget["ci_rounds"]:
                 self.github.add_label(pr, "budget-exceeded")
+                # 预算超限是否决的一种（T715）：关闭可能已开启的自动合并；失败只打印，
+                # 不改变升级路径与退出码。
+                self.github.disable_auto_merge(pr)
                 attempt.verify_summary = summary
                 self.escalate(task, pr, attempt, f"CI 第 {ci_rounds} 轮未通过，已达预算 {task.budget['ci_rounds']} 轮")
                 return 1

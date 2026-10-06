@@ -287,6 +287,7 @@ class ExhaustedGitHub(dispatch.GitHub):
     def __init__(self):
         super().__init__(ENGINE_REPO)
         self.pushes, self.prs, self.comments, self.labels, self.pr_queries = [], [], [], [], []
+        self.disabled: list[int] = []
 
     def _run(self, argv, cwd=None, agent=False, stdin=None):
         raise RuntimeError("gh run list 失败：couldn't fetch workflows: unexpected EOF")
@@ -310,6 +311,10 @@ class ExhaustedGitHub(dispatch.GitHub):
 
     def add_label(self, pr, label):
         self.labels.append((pr, label))
+
+    def disable_auto_merge(self, pr):
+        self.disabled.append(pr)
+        return True
 
 
 class DispatchQueryExhaustionTest(unittest.TestCase):

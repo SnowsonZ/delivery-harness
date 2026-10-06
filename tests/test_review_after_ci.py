@@ -117,6 +117,7 @@ class ReviewGitHub(dispatch.GitHub):
         self.ci_ok, self.ci_summary, self.comments_error = ci_ok, ci_summary, comments_error
         self.heads = []
         self.pushes, self.prs, self.posts, self.labels, self.issues, self.argvs = [], [], [], [], [], []
+        self.disabled: list[int] = []
 
     def _run(self, argv, cwd=None, agent=False, stdin=None):
         self.argvs.append(list(argv))
@@ -149,6 +150,10 @@ class ReviewGitHub(dispatch.GitHub):
 
     def add_label(self, pr, label):
         self.labels.append((pr, label))
+
+    def disable_auto_merge(self, pr):
+        self.disabled.append(pr)
+        return True
 
     def create_issue(self, title, body, labels):
         self.issues.append((title, body, labels))

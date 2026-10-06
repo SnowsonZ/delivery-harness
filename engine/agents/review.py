@@ -458,6 +458,10 @@ def review_pr(number: int, reviewer_name: str | None, root: Path = ROOT, github=
                            designer=designer, model=verdict.audit_model, model_basis=verdict.model_basis,
                            parsed=verdict.parsed, independent=independent, same_host=same_host,
                            comment=url, comment_body=body)
+        # 否决或带严重发现（判据与 signals.review_status 共用同一纯函数，T715）：关闭可能已开启的
+        # 自动合并；disable_auto_merge 失败只打印，不改变评审结论与退出码。
+        if signals.review_marker_status({"verdict": verdict.verdict, "flagged": verdict.flagged})[0] == "fail":
+            github.disable_auto_merge(number)
         try:
             github._run(["gh", "pr", "edit", str(number), "--remove-label", LABEL], agent=True)
         except RuntimeError:

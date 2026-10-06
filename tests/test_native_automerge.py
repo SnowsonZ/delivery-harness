@@ -7,18 +7,49 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from engine.agents import dispatch, review, signoff
+from engine.core import alerts, common, events_db
+from engine.routing import signals
 from tests.test_ci_events_workflows import parse_workflow
-from tests.test_signoff import GIT_ENV, MergeReplay, replay_merge_app, write_gh_shim
+from tests.test_dispatch_alerts import (
+    GIT_ENV as DISPATCH_GIT_ENV,
+)
+from tests.test_dispatch_alerts import (
+    VERIFY_PASS,
+    RecordingHost,
+    executor_script,
+    stream,
+)
+from tests.test_dispatch_alerts import FakeGitHub as DispatchFakeGitHub
+from tests.test_signoff import (
+    BRANCH,
+    CHECKS_TOML,
+    GIT_ENV,
+    LOGIN,
+    PR,
+    RULES_TOML,
+    TASKBOOK,
+    FakeReviewer,
+    MergeReplay,
+    ReviewRetriggerGitHub,
+    replay_merge_app,
+    verdict_script,
+    write_gh_shim,
+)
 
 ENGINE_REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = ENGINE_REPO / "templates/.github/workflows/auto-merge.yml"
@@ -323,6 +354,220 @@ class NativeAutomergeTest(unittest.TestCase):
         disable = next(index for index, line in enumerate(lines) if "--disable-auto" in line)
         self.assertEqual([line for line in lines[disable + 1:]
                           if not ("compare/" in line or "--json mergeable" in line)], [])
+
+
+class SequenceReviewGitHub(ReviewRetriggerGitHub):
+    """在 ReviewRetriggerGitHub 之上记录 comment 与 disable 的先后（T715：评论之后才关闭）。"""
+
+    def __init__(self, pr_json: dict, runs: dict | None = None):
+        super().__init__(pr_json, runs)
+        self.sequence: list[str] = []
+
+    def comment(self, pr, body, label=None):
+        self.sequence.append("comment")
+        return super().comment(pr, body, label)
+
+    def disable_auto_merge(self, pr):
+        self.sequence.append("disable")
+        return super().disable_auto_merge(pr)
+
+
+class NegativeSignalsTest(unittest.TestCase):
+    """T715 验收第 4 行：否决信号关闭自动合并（引擎侧），判据与 signals 共用同一纯函数。"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dh-negative-signals-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.repo = self.tmp / "app"
+        self.repo.mkdir()
+        self.git("init", "-q", "-b", "main")
+        (self.repo / "README.md").write_text("# app\n", encoding="utf-8")
+        (self.repo / "docs/plans").mkdir(parents=True)
+        (self.repo / "docs/plans/task-902-signoff.md").write_text(TASKBOOK, encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "init")
+        origin = self.tmp / "origin.git"
+        self.git("clone", "-q", "--bare", ".", str(origin))
+        self.git("remote", "add", "origin", str(origin))
+        self.git("fetch", "-q", "origin")
+        config = self.tmp / "config"
+        config.mkdir()
+        (config / "rules.toml").write_text(RULES_TOML, encoding="utf-8")
+        (config / "checks.toml").write_text(CHECKS_TOML, encoding="utf-8")
+        for name, target in (("CONFIG_DIR", config), ("RULES_PATH", config / "rules.toml")):
+            patch = mock.patch.object(common, name, target)
+            patch.start()
+            self.addCleanup(patch.stop)
+        root_patch = mock.patch.object(events_db, "ROOT", self.repo)
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
+        env_patch = mock.patch.dict(os.environ)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        for key in ("HARNESS_EVENTS", "CI", "GITHUB_HEAD_REF", "GITHUB_REF_NAME"):
+            os.environ.pop(key, None)
+
+    # ---------- 夹具 ----------
+
+    def git(self, *args, check=True):
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith(("GIT_", "HARNESS_", "GITHUB_"))}
+        return subprocess.run(["git", *args], cwd=self.repo, capture_output=True, text=True,
+                              env={**env, **GIT_ENV}, check=check)
+
+    def pr_head(self) -> tuple[str, dict]:
+        """任务分支夹具：任务书已在 main 上，分支上一个实现提交，推为 origin 的任务分支与 PR head。"""
+        self.git("checkout", "-q", "-b", BRANCH)
+        (self.repo / "engine").mkdir(exist_ok=True)
+        (self.repo / "engine" / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "实现\n\nTask: T902")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("push", "-q", "origin", f"HEAD:refs/heads/{BRANCH}", f"HEAD:refs/pull/{PR}/head")
+        self.git("checkout", "-q", "main")
+        return head, {"title": "T902：夹具", "body": "描述", "headRefOid": head,
+                      "headRefName": BRANCH, "baseRefName": "main", "comments": []}
+
+    def run_review(self, pr_json: dict, fake: FakeReviewer) -> SequenceReviewGitHub:
+        gh = SequenceReviewGitHub(pr_json)
+        with mock.patch.object(review, "make_reviewer", lambda name: fake), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(review.review_pr(PR, "opencode", root=self.repo, github=gh), 0)
+        return gh
+
+    # ---------- 验收第 4 行：评审否决各形态关闭自动合并，全部通过不调用 ----------
+
+    def test_review_negative_verdicts_disable_auto_merge(self):
+        _head, pr_json = self.pr_head()
+        # 不通过：评论之后关闭一次
+        gh = self.run_review(pr_json, FakeReviewer(verdict_script("不通过", "[]")))
+        self.assertEqual(len(gh.comments), 1)
+        self.assertEqual(gh.disabled, [PR])
+        self.assertEqual(gh.sequence, ["comment", "disable"])
+        # 「需用户验收」（评审输出没有可解析的结论）：同样关闭
+        gh = self.run_review(pr_json, FakeReviewer("print('评审输出没有结论 JSON')"))
+        self.assertEqual(gh.disabled, [PR])
+        self.assertEqual(gh.sequence, ["comment", "disable"])
+        # 「通过」但带严重发现（flagged）：同样关闭
+        findings = json.dumps([{"severity": "严重", "location": "engine/app.py",
+                                "problem": "问题", "fix": "修"}], ensure_ascii=False)
+        gh = self.run_review(pr_json, FakeReviewer(verdict_script("通过", findings)))
+        self.assertEqual(gh.disabled, [PR])
+        # 评审与复核判据共用：关闭与否与 signals.review_status 对同一标记的判定一致
+        body = gh.comments[0][1]
+        marker = json.loads(body.split(review.REVIEW_MARK, 1)[1].split(" -->", 1)[0])
+        self.assertEqual(signals.review_marker_status(marker)[0], "fail")
+        # 全部通过：不调用
+        gh = self.run_review(pr_json, FakeReviewer(verdict_script("通过", "[]")))
+        self.assertEqual(gh.disabled, [])
+        self.assertEqual(gh.sequence, ["comment"])
+
+    # ---------- 验收第 4 行：复核否决关闭；矛盾「通过」仍拒绝且零调用 ----------
+
+    def test_signoff_negative_verdict_disables_auto_merge(self):
+        _head, pr_view = self.pr_head()
+        body_file = self.tmp / "signoff-body.md"
+        body_file.write_text("复核正文。\n", encoding="utf-8")
+        # 不通过：评论之后关闭一次
+        gh = SequenceReviewGitHub(pr_view)
+        argv = [str(PR), "--verdict", "不通过", "--mutations", "0", "--caught", "0",
+                "--body-file", str(body_file)]
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(signoff.main(argv, root=self.repo, github=gh), 0)
+        self.assertEqual(len(gh.comments), 1)
+        self.assertEqual(gh.disabled, [PR])
+        self.assertEqual(gh.sequence, ["comment", "disable"])
+        # 通过且证据一致：不调用（重判路径照旧，不在此断言）
+        pr_view_with_comments = {**pr_view, "comments": gh._comments()}
+        gh = SequenceReviewGitHub(pr_view_with_comments,
+                                  runs={"pull_request": [{"databaseId": 1, "status": "completed"}]})
+        argv = [str(PR), "--verdict", "通过", "--mutations", "2", "--caught", "2",
+                "--body-file", str(body_file)]
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(signoff.main(argv, root=self.repo, github=gh), 0)
+        self.assertEqual(gh.disabled, [])
+        # 矛盾的「通过」：拒绝发布，零评论、零关闭、零 gh 调用（既有拒绝行为不变）
+        gh = SequenceReviewGitHub(pr_view)
+        argv = [str(PR), "--verdict", "通过", "--mutations", "0", "--caught", "0",
+                "--body-file", str(body_file)]
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors):
+            self.assertEqual(signoff.main(argv, root=self.repo, github=gh), 2)
+        self.assertEqual(gh.comments, [])
+        self.assertEqual(gh.disabled, [])
+        self.assertEqual(gh.calls, [])
+
+    # ---------- 验收第 4 行：判据纯函数覆盖全部非法标记 ----------
+
+    def test_marker_status_pure_functions(self):
+        # 评审：结论不是「通过」、flagged 非 false 都是 fail；通过且 flagged 恰为 false 才是 ok
+        for data, expect in (({"verdict": "不通过", "flagged": True}, "fail"),
+                             ({"verdict": "需用户验收", "flagged": False}, "fail"),
+                             ({"verdict": "通过", "flagged": True}, "fail"),
+                             ({"verdict": "通过"}, "fail"),
+                             ({"verdict": "通过", "flagged": None}, "fail"),
+                             ({"verdict": "通过", "flagged": "false"}, "fail"),
+                             ({"verdict": "通过", "flagged": False}, "ok")):
+            with self.subTest(review=data):
+                self.assertEqual(signals.review_marker_status(data)[0], expect)
+        # 复核：结论不通过、mutations 缺失或 < 1、caught != mutations 都是 fail
+        for data, expect in (({"verdict": "不通过", "mutations": 2, "caught": 2}, "fail"),
+                             ({"verdict": "通过"}, "fail"),
+                             ({"verdict": "通过", "mutations": 2}, "fail"),
+                             ({"verdict": "通过", "mutations": 0, "caught": 0}, "fail"),
+                             ({"verdict": "通过", "mutations": 2, "caught": 1}, "fail"),
+                             ({"verdict": "通过", "mutations": True, "caught": True}, "fail"),
+                             ({"verdict": "通过", "mutations": 1, "caught": 1}, "ok")):
+            with self.subTest(signoff=data):
+                self.assertEqual(signals.signoff_marker_status(data)[0], expect)
+        # 状态函数与纯函数同一判据：对同一条标记数据，结论一致
+        head, _ = self.pr_head()  # 标记的 head 需要指向当前 head
+        data = {"verdict": "通过", "head": head, "designer": "codex", "mutations": 1, "caught": 0}
+        comment = {"author": {"login": LOGIN},
+                   "body": f"正文\n{signals.SIGNOFF_MARK}{json.dumps(data, ensure_ascii=False)} -->\n"}
+        self.assertEqual(signals.signoff_status([comment], LOGIN, head, "origin/main", self.repo)[0],
+                         signals.signoff_marker_status(data)[0])
+
+    # ---------- 验收第 4 行：打 budget-exceeded 标签之后关闭 ----------
+
+    def test_budget_exceeded_disables_auto_merge(self):
+        header = {"task": "T915B", "class": "K7", "risk": "R3", "designer": "codex", "size": "small",
+                  "spec_refs": [],
+                  "budget": {"wall_clock_min": 5, "retries": 0, "ci_rounds": 1, "tokens": None}}
+        rel = "docs/plans/task-915-budget.md"
+        budget = header["budget"]
+        (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / rel).write_text(
+            "---\n"
+            f"task: {header['task']}\nclass: {header['class']}\nrisk: {header['risk']}\n"
+            "designer: codex\nsize: small\narchitecture: false\nspec_refs: []\n"
+            "no_spec_reason: 测试夹具\nbudget:\n"
+            f"  wall_clock_min: {budget['wall_clock_min']}\n  retries: {budget['retries']}\n"
+            f"  ci_rounds: {budget['ci_rounds']}\n  tokens: null\n"
+            "rollback: git revert\n---\n\n# 任务：夹具\n", encoding="utf-8")
+        from engine.checks import taskbook
+        reports = [taskbook.Report(rel, header=header)]
+        for patcher in (mock.patch.object(taskbook, "check_all", lambda *args, **kwargs: reports),
+                        mock.patch.object(taskbook, "on_main", lambda *args, **kwargs: None),
+                        mock.patch.object(taskbook, "load_exempt", lambda *args, **kwargs: {}),
+                        mock.patch.object(alerts, "load_rules", return_value={}),
+                        mock.patch.object(dispatch, "prepare_guard",
+                                          return_value=(Path("guard.ts"), "abc123"))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        gh = DispatchFakeGitHub(ci=(False, "CI 未通过：见摘要", [5]))
+        config = dispatch.Config(slots=2, stall_seconds=120, poll_seconds=0.05, ci_timeout_seconds=5,
+                                 verify=[sys.executable, "-c", VERIFY_PASS])
+        host = RecordingHost(executor_script(stream("done")))
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = dispatch.Dispatcher(self.repo, config, gh, host,
+                                       identity=dict(DISPATCH_GIT_ENV)).run(rel)
+        self.assertEqual(code, 1)  # 预算超限有序退出
+        calls = gh.calls
+        self.assertIn(("add_label", 14, "budget-exceeded"), calls)
+        self.assertIn(("disable_auto_merge", 14), calls)
+        self.assertGreater(calls.index(("disable_auto_merge", 14)),
+                           calls.index(("add_label", 14, "budget-exceeded")))  # 标签之后
 
 
 if __name__ == "__main__":

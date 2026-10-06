@@ -131,7 +131,12 @@ class FakeAlertGitHub:
         self.labels.append((pr, label))
 
     def disable_auto_merge(self, pr):
-        self._fail()
+        # 与真实 disable_auto_merge 同一契约：失败只打印、返回假，不向评审路径抛异常。
+        try:
+            self._fail()
+        except RuntimeError as error:
+            print(f"关闭 PR #{pr} 的自动合并未成功（{error}）", file=sys.stderr)
+            return False
         self.calls.append(("disable_auto_merge", pr))
         return True
 
