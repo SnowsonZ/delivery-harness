@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -181,6 +182,50 @@ def _run_verify(repo: Path, *args: str) -> int:
     return subprocess.run([sys.executable, str(entry), "verify", *args], cwd=repo, check=False).returncode
 
 
+def _pass_record_dir(repo: Path) -> Path | None:
+    """通过记录目录：git 公共目录下的 harness/verify-pass（verify 全部通过时写入，T713）。"""
+    common = git("rev-parse", "--git-common-dir", cwd=repo, check=False, isolate=True)
+    if not common:
+        return None
+    path = Path(common)
+    if not path.is_absolute():
+        path = repo / path
+    return path.resolve() / "harness" / "verify-pass"
+
+
+def _reusable_pass_record(repo: Path, lines: list[str]) -> dict | None:
+    """pre-push 可否复用既有 verify 结果（T713）：本次推送每个本地提交（local_sha）的 tree
+    都有通过记录、当前工作区没有已跟踪文件的改动、记录的 engine_tree 与当前锁文件一致时
+    返回最后一条记录（用于提示），否则 None。
+
+    读写记录的任何异常都按「没有记录」处理：复用只决定是否重跑 verify，不改变任何拒绝逻辑；
+    verify 命令本身、派发的本地复验与 CI 都不读记录，照常完整执行。
+    已接受的风险（T713）：记录在本机，执行方理论上能伪造它让 pre-push 跳过验证；后果只是
+    坏代码被推上去，由派发复验和 CI（两者都不读记录）拦下，不影响任何判定与合并。
+    """
+    try:
+        pushes = [line.split() for line in lines if len(line.split()) == 4]
+        if not pushes or git("status", "--porcelain", "--untracked-files=no", cwd=repo):
+            return None
+        lock = json.loads((repo / ".harness" / "engine.lock").read_text(encoding="utf-8"))
+        directory = _pass_record_dir(repo)
+        if directory is None:
+            return None
+        record: dict | None = None
+        for _local_ref, local_sha, _remote_ref, _remote_sha in pushes:
+            if local_sha == ZERO_SHA:
+                continue  # 删远端分支的行没有本地提交
+            path = directory / f"{git('rev-parse', local_sha + '^{tree}', cwd=repo)}.json"
+            if not path.is_file():
+                return None
+            record = json.loads(path.read_text(encoding="utf-8"))
+            if record.get("engine_tree") != lock.get("tree"):
+                return None
+        return record
+    except Exception:  # noqa: BLE001  记录异常按没有记录处理，回到重跑 verify 的原路径
+        return None
+
+
 def cmd_pre_commit(repo: Path) -> int:
     rules = trusted_rules(repo)
     denials: list[tuple[str, str, str]] = []
@@ -224,6 +269,11 @@ def cmd_pre_push(repo: Path, stdin: str) -> int:
     if code:
         _emit_denials("pre-push", denials)
         return 1
+    record = _reusable_pass_record(repo, lines)
+    if record is not None:
+        print(f"harness：同一代码树已通过 verify（{record.get('tier')}，{record.get('at')}），跳过重跑。",
+              file=sys.stderr)
+        return 0
     return _run_verify(repo)
 
 
