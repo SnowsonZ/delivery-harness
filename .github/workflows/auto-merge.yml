@@ -2,7 +2,16 @@ name: auto-merge
 
 # 合并路由：harness 全绿后，由 .harness/engine/cli.py policy 判定能否自动合并（风险 R0/R1、类别在 autonomy.toml 中为 L4、
 # 未超误差预算、不超规模阈值、任务 PR 的运行记录合格），每条理由写进 job summary。不自动合并的打类别标签并请仓库所有者评审。
-# 停机：Actions → auto-merge → Disable workflow；恢复：Enable workflow。
+# 合并用 GitHub 原生自动合并（B102）：必需检查、合并状态暂时未知、test merge commit 都由 GitHub 等待与处理；
+# 仓库须打开 Settings → General → Pull Requests → Allow auto-merge（未打开时开启失败，退回立即合并并在 PR 评论提示）。
+# 开启前 merge-app 用与 judge 完全相同的命令再判定一次（方案 A）：不通过（如否决刚发出）就撤销可能已存在的
+# 请求并跳过批准与开启；否决发出处（评审、复核、预算标签、request-review）也会关闭自动合并。「再判定 → 开启」
+# 之间的秒级残余竞态是已接受的风险，见 SECURITY.md。
+# main 每次前进（push）时，sync-waiting 同步还在等待自动合并的 PR（workflow_run 只由 harness 触发，main 前进
+# 不会再触发判定），冲突的评论、打 escalation 并关闭自动合并。
+# 停机：Actions → auto-merge → Disable workflow，再取消或等待在途运行，然后运行
+#   python .harness/engine/cli.py automerge-off
+# 撤销已开启的自动合并，直到它以 0 退出（顺序见 README「Platform setup」）。恢复：Enable workflow。
 #
 # 用 workflow_run 而不是在 PR 的 CI 里合并：workflow_run 执行默认分支上的这份定义与引擎，PR 改自己的 workflow 或引擎
 # 影响不到这里的判定。只把 PR 的 diff 当数据读，不执行 PR 的代码。
@@ -15,6 +24,8 @@ on:
   workflow_run:
     workflows: [harness]
     types: [completed]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -97,6 +108,8 @@ jobs:
   # 所有者自己开的 PR（单账号）不能请自己评审，GitHub 拒绝时只记日志、不算失败：这类 PR 由所有者直接合并。
   # 合同制路径只差评审或复核标记时（pending 非空）仍打标签，但不请求所有者评审，免得每个 PR 都通知；
   # 有任何其他失败时 pending 为空，照常请求。
+  # 判定不合格这一路覆盖 policy 拒绝的全部情形（flagged、预算、新 head 等）：同时关闭可能已开启的
+  # 自动合并（|| true：没开过时 gh 会失败），否则旧运行开启的请求会在否决之后仍把 PR 合并掉。
   request-review:
     needs: judge
     if: needs.judge.outputs.auto_merge == 'false'
@@ -118,6 +131,7 @@ jobs:
             echo "no associated PR, skipping"
             exit 0
           fi
+          gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --disable-auto || true
           # 类别标签是误差预算的窗口依据；escape 与 budget-exceeded 供登记使用。
           gh label create "class:$CLASS" --repo "$GITHUB_REPOSITORY" --color c5def5 --force >/dev/null
           gh label create escape --repo "$GITHUB_REPOSITORY" --color d93f0b --description "Defect found after merge; body names the introducing PR" --force >/dev/null
@@ -146,7 +160,52 @@ jobs:
       contents: write
       issues: write  # 类别标签与 audit 议题
       pull-requests: write
+      actions: read  # 再判定经 gather → branch_rounds 查询该分支的 harness 运行，缺了会误判超预算
+    # 同一 PR 的两次运行（merge-app 与 merge-direct 都算）串行：抽审登记、批准与开启不能交错。
+    concurrency:
+      group: auto-merge-pr-${{ github.event.workflow_run.pull_requests[0].number }}
+      cancel-in-progress: false
     steps:
+      # 开启前的再判定（方案 A，T715）：judge 与这里之间可能有否决发出（评审/复核不通过、严重发现、
+      # 超预算）。检出默认分支、git fetch 评估过的 head（只当数据），执行与 judge 完全相同的命令；
+      # 本组步骤只用工作流令牌，没有任何 App 令牌。不通过就撤销可能已存在的请求（旧运行已开启、
+      # 新近出现的否决使再判定拒绝，而 request-review 依据旧 judge 不会关闭），跳过批准与开启。
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Fetch evaluated head (data only)
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: git fetch --no-tags origin "$HEAD_SHA"
+
+      - name: Re-check merge policy of the evaluated head
+        id: recheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+        run: python .harness/engine/cli.py policy --base "origin/$BASE_BRANCH" --head "$HEAD_SHA" ${PR:+--pr "$PR"} --branch "$HEAD_BRANCH" --github
+
+      - name: Revoke stale auto-merge request (recheck rejected)
+        if: steps.recheck.outputs.auto_merge != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          if [ -n "$PR" ]; then
+            gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --disable-auto || true
+          fi
+          echo "再判定不通过（judge 之后出现了否决或预算变化）：已撤销可能存在的自动合并请求，本次不批准、不开启"
+
       # 批准 App 只负责批准（ruleset 要求最后一次推送由推送者以外的人批准）；分支同步由下面的同步 App 负责。
       - name: App token (approve)
         id: app
@@ -210,8 +269,42 @@ jobs:
             fi
           fi
 
-      - name: Label, approve and merge
-        if: steps.branch.outputs.behind != 'true' && steps.branch.outputs.conflict != 'true'
+      # 抽样审计：在任何可能合并的命令**之前**幂等登记 audit 议题（B102 第 4 轮评审一般 5：原生开启与
+      # 退回立即合并两条路都要先有议题）。重复运行不重复开题（先按标题查询、jq 精确比对）；
+      # 查询议题失败按失败处理（job 失败即不合并，等重判），不得当作「不存在」。
+      # 若该 PR 最终未合并，关闭议题并注明。
+      - name: Register audit issue before any merge command
+        if: >-
+          needs.judge.outputs.audit == 'true' &&
+          steps.recheck.outputs.auto_merge == 'true' &&
+          steps.branch.outputs.behind != 'true' &&
+          steps.branch.outputs.conflict != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RISK: ${{ needs.judge.outputs.risk }}
+          CLASS: ${{ needs.judge.outputs.class }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # 类别标签先于议题创建：议题带 class:$CLASS，标签不存在时 issue create 会失败。
+          gh label create "class:$CLASS" --repo "$GITHUB_REPOSITORY" --color c5def5 --force >/dev/null
+          gh label create audit --repo "$GITHUB_REPOSITORY" --color fbca04 --force >/dev/null
+          title="Audit: PR #$PR ($CLASS)"
+          found=$(gh issue list --repo "$GITHUB_REPOSITORY" --label audit --state all \
+            --search "in:title \"Audit: PR #$PR\"" --json title \
+            --jq "[.[] | select(.title == \"$title\")] | length")
+          if [ "$found" = "0" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --label audit --label "class:$CLASS" \
+              --title "$title" \
+              --body "PR #$PR was sampled by the audit rule in .harness/config/autonomy.toml ($RISK $CLASS, $HEAD_SHA). Review it against the task brief, diff and evidence; open a separate issue labelled escape and class:$CLASS naming PR #$PR if you find a problem. Registered when auto-merge is about to be enabled; if this PR ends up unmerged, close this issue with a note."
+          fi
+          echo "audit issue registered for PR #$PR ($found existing)"
+
+      - name: Label and approve
+        if: >-
+          steps.branch.outputs.behind != 'true' &&
+          steps.branch.outputs.conflict != 'true' &&
+          steps.recheck.outputs.auto_merge == 'true'
         env:
           APP_TOKEN: ${{ steps.app.outputs.token }}
           GH_TOKEN: ${{ github.token }}
@@ -219,7 +312,6 @@ jobs:
           PR: ${{ github.event.workflow_run.pull_requests[0].number }}
           RISK: ${{ needs.judge.outputs.risk }}
           CLASS: ${{ needs.judge.outputs.class }}
-          AUDIT: ${{ needs.judge.outputs.audit }}
         run: |
           if [ -z "$PR" ]; then
             echo "no associated PR, skipping"
@@ -231,17 +323,43 @@ jobs:
           GH_TOKEN="$APP_TOKEN" gh api --method POST "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews" \
             -f commit_id="$HEAD_SHA" -f event=APPROVE \
             -f body="auto-merge: $RISK $CLASS, harness passed; routing reasons are in this run's job summary ($HEAD_SHA)"
-          # 只合并本次评估过的提交。
-          gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$HEAD_SHA"
-          # 抽样审计：被抽中的 PR 合并后开 audit 议题，由评审方审完关闭；发现问题另开 escape 议题。
-          if [ "$AUDIT" = "true" ]; then
-            gh label create audit --repo "$GITHUB_REPOSITORY" --color fbca04 --force >/dev/null
-            gh issue create --repo "$GITHUB_REPOSITORY" --label audit --label "class:$CLASS" \
-              --title "Audit: PR #$PR ($CLASS)" \
-              --body "PR #$PR was sampled by the audit rule in .harness/config/autonomy.toml ($RISK $CLASS, $HEAD_SHA). Review it against the task brief, diff and evidence; open a separate issue labelled escape and class:$CLASS naming PR #$PR if you find a problem."
+
+      # 开启原生自动合并（Allow auto-merge）：何时能合并交给 GitHub（必需检查、合并状态暂时未知、
+      # test merge commit），只合并本次评估过的提交。令牌：配置了同步 App 用同步令牌（合并触发的
+      # main push 让 sync-waiting 接手其他等待中的 PR），否则用工作流令牌（不触发 main push，单 App
+      # 部署的代价，见 CHANGELOG）；批准 App 只申请了 Pull requests 写权限，不用它开启或合并。
+      # 开启失败时先查 autoMergeRequest：非空视为已开启过（如上一次运行已开启）；仍为空才退回立即
+      # 合并（令牌与开启一致）并评论一次原因与设置指引。
+      - name: Enable native auto-merge
+        if: >-
+          steps.branch.outputs.behind != 'true' &&
+          steps.branch.outputs.conflict != 'true' &&
+          steps.recheck.outputs.auto_merge == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNC_TOKEN: ${{ steps.sync-app.outputs.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          if [ -z "$PR" ]; then
+            echo "no associated PR, skipping"
+            exit 0
           fi
+          token="$GH_TOKEN"
+          if [ -n "$SYNC_TOKEN" ]; then token="$SYNC_TOKEN"; fi
+          if out=$(GH_TOKEN="$token" gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --merge --match-head-commit "$HEAD_SHA" 2>&1); then
+            echo "auto-merge enabled: $out"
+            exit 0
+          fi
+          if [ "$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest != null')" = "true" ]; then
+            echo "auto-merge request already exists ($out); treating as enabled"
+            exit 0
+          fi
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "开启自动合并失败：${out}。请打开仓库设置 Allow auto-merge（Settings → General → Pull Requests → Allow auto-merge）；本次已退回立即合并。"
+          GH_TOKEN="$token" gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$HEAD_SHA"
 
   # approval = none（单账号）：没有批准步骤，也没有 environment 保护的凭据；合并权限就是 GITHUB_TOKEN 的。
+  # 单账号用工作流令牌合并不触发 main 的 push，sync-waiting 的同步链在该模式下不生效（见 CHANGELOG、SECURITY.md）。
   merge-direct:
     needs: judge
     if: needs.judge.outputs.auto_merge == 'true' && needs.judge.outputs.approval == 'none'
@@ -250,15 +368,41 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+    concurrency:
+      group: auto-merge-pr-${{ github.event.workflow_run.pull_requests[0].number }}
+      cancel-in-progress: false
     steps:
-      - name: Label and merge
+      - name: Register audit issue before any merge command
+        if: needs.judge.outputs.audit == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RISK: ${{ needs.judge.outputs.risk }}
+          CLASS: ${{ needs.judge.outputs.class }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # 类别标签先于议题创建：议题带 class:$CLASS，标签不存在时 issue create 会失败。
+          gh label create "class:$CLASS" --repo "$GITHUB_REPOSITORY" --color c5def5 --force >/dev/null
+          gh label create audit --repo "$GITHUB_REPOSITORY" --color fbca04 --force >/dev/null
+          title="Audit: PR #$PR ($CLASS)"
+          found=$(gh issue list --repo "$GITHUB_REPOSITORY" --label audit --state all \
+            --search "in:title \"Audit: PR #$PR\"" --json title \
+            --jq "[.[] | select(.title == \"$title\")] | length")
+          if [ "$found" = "0" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --label audit --label "class:$CLASS" \
+              --title "$title" \
+              --body "PR #$PR was sampled by the audit rule in .harness/config/autonomy.toml ($RISK $CLASS, $HEAD_SHA). Review it against the task brief, diff and evidence; open a separate issue labelled escape and class:$CLASS naming PR #$PR if you find a problem. Registered when auto-merge is about to be enabled; if this PR ends up unmerged, close this issue with a note."
+          fi
+          echo "audit issue registered for PR #$PR ($found existing)"
+
+      # 工作流令牌先开启原生自动合并，失败（autoMergeRequest 为空）退回立即合并并评论一次。
+      - name: Label and merge (native auto-merge, immediate fallback)
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           PR: ${{ github.event.workflow_run.pull_requests[0].number }}
           RISK: ${{ needs.judge.outputs.risk }}
           CLASS: ${{ needs.judge.outputs.class }}
-          AUDIT: ${{ needs.judge.outputs.audit }}
         run: |
           if [ -z "$PR" ]; then
             echo "no associated PR, skipping"
@@ -266,22 +410,130 @@ jobs:
           fi
           gh label create "class:$CLASS" --repo "$GITHUB_REPOSITORY" --color c5def5 --force >/dev/null
           gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label "class:$CLASS"
+          if out=$(gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --merge --match-head-commit "$HEAD_SHA" 2>&1); then
+            echo "auto-merge enabled: $out"
+            exit 0
+          fi
+          if [ "$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest != null')" = "true" ]; then
+            echo "auto-merge request already exists ($out); treating as enabled"
+            exit 0
+          fi
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "开启自动合并失败：${out}。请打开仓库设置 Allow auto-merge（Settings → General → Pull Requests → Allow auto-merge）；本次已退回立即合并。"
           gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$HEAD_SHA"
-          if [ "$AUDIT" = "true" ]; then
-            gh label create audit --repo "$GITHUB_REPOSITORY" --color fbca04 --force >/dev/null
-            gh issue create --repo "$GITHUB_REPOSITORY" --label audit --label "class:$CLASS" \
-              --title "Audit: PR #$PR ($CLASS)" \
-              --body "PR #$PR was sampled by the audit rule in .harness/config/autonomy.toml ($RISK $CLASS, $HEAD_SHA). Review it against the task brief, diff and evidence; open a separate issue labelled escape and class:$CLASS naming PR #$PR if you find a problem."
+
+  # main 前进（push）时读 platform 配置，供 sync-waiting 使用（取自 policy 同一套 setting("platform", …)）。
+  platform:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      environment: ${{ steps.cfg.outputs.environment }}
+      sync_app_client_id_var: ${{ steps.cfg.outputs.sync_app_client_id_var }}
+      sync_app_private_key_secret: ${{ steps.cfg.outputs.sync_app_private_key_secret }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Read platform config for the sync job
+        id: cfg
+        run: python .harness/engine/cli.py automerge platform
+
+  # main 前进后同步等待中的 PR（B102）：已开启自动合并的 PR 不会因 main 前进得到新判定（workflow_run 只由
+  # harness 触发），会一直落后。只处理已开启自动合并、目标默认分支、head 在本仓库的 PR：落后且不冲突的用
+  # 同步 App 的令牌 update-branch（同步提交触发新一轮 CI 与判定）；冲突的评论、打 escalation 并关闭自动合并
+  # （冲突的 PR 不会自行消失）。mergeable 为 UNKNOWN 时最多重试 3 次、每次间隔 10 秒，仍未知就打印并跳过。
+  # 不检出、不执行任何 PR 代码。同步 App 未配置则打印后结束。
+  sync-waiting:
+    needs: platform
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.platform.outputs.environment }}
+    permissions:
+      contents: write  # update-branch 的同步提交
+      issues: write  # escalation 标签
+      pull-requests: write
+    concurrency:
+      group: auto-merge-push-sync
+      cancel-in-progress: false
+    steps:
+      - name: Sync App token
+        id: sync-app
+        if: vars[needs.platform.outputs.sync_app_client_id_var] != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars[needs.platform.outputs.sync_app_client_id_var] }}
+          private-key: ${{ secrets[needs.platform.outputs.sync_app_private_key_secret] }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Sync waiting auto-merge PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNC_TOKEN: ${{ steps.sync-app.outputs.token }}
+          SYNC_APP_ID_VAR: ${{ needs.platform.outputs.sync_app_client_id_var }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ -z "$SYNC_TOKEN" ]; then
+            echo "同步 App 未配置（仓库变量 $SYNC_APP_ID_VAR 为空），跳过等待中 PR 的同步"
+            exit 0
+          fi
+          # 完整分页列出目标默认分支的打开 PR（gh pr list 默认只取 30 个，且没有 --paginate）；
+          # 列表失败必须让本步骤失败，不能当成「没有等待中的 PR」。
+          if ! prs=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=open&base=$DEFAULT_BRANCH&per_page=100" \
+            --jq '.[] | "\(.number) \(.head.sha)"'); then
+            echo "列出打开的 PR 失败，本次不同步，等下一轮 push" >&2
+            exit 1
+          fi
+          count=0
+          while read -r pr head_sha; do
+            [ -n "$pr" ] || continue
+            # head 在本仓库（非 fork）且已开启自动合并的才算等待中；其余不动。
+            eligible=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json isCrossRepository,autoMergeRequest \
+              --jq 'if (.isCrossRepository | not) and (.autoMergeRequest != null) then "yes" else "no" end')
+            [ "$eligible" = "yes" ] || continue
+            count=$((count + 1))
+            mergeable=""
+            for attempt in 1 2 3; do
+              mergeable=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json mergeable --jq .mergeable)
+              [ "$mergeable" != "UNKNOWN" ] && break
+              [ "$attempt" = "3" ] || sleep "${MERGEABLE_RETRY_SECONDS:-10}"
+            done
+            if [ "$mergeable" = "UNKNOWN" ]; then
+              echo "PR #$pr 的 mergeable 重试后仍未知，跳过，等下一轮 push"
+              continue
+            fi
+            if [ "$mergeable" = "CONFLICTING" ]; then
+              gh label create escalation --repo "$GITHUB_REPOSITORY" --color d93f0b --force >/dev/null 2>&1 || true
+              gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --add-label escalation
+              gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" --body "与 main 冲突，自动合并已关闭，需设计方处理"
+              gh pr merge "$pr" --repo "$GITHUB_REPOSITORY" --disable-auto
+              continue
+            fi
+            behind_by=$(gh api "repos/$GITHUB_REPOSITORY/compare/$DEFAULT_BRANCH...$head_sha" --jq .behind_by)
+            if [ "$behind_by" -gt 0 ] 2>/dev/null; then
+              GH_TOKEN="$SYNC_TOKEN" gh pr update-branch "$pr" --repo "$GITHUB_REPOSITORY"
+              echo "PR #$pr 落后 $behind_by 个提交，已用同步 App 更新分支，等新一轮 CI 后重判"
+            fi
+          done <<< "$prs"
+          if [ "$count" = "0" ]; then
+            echo "没有等待中的自动合并 PR"
           fi
 
   # 告警（B46 设计 5、共用合同 C4/F3）：PR 成功或失败都由此独立告警 job 承载；if: always() 不继承
   # judge 的 success 门槛，失败/被跳过的 CI 也接通（judge 未跑时 outputs 为空，按无证据不告警）。
+  # workflow_run 事件条件：push 触发（sync-waiting 一路）时本 job 不跑，那里没有告警证据。
   # 引擎来自默认分支检出（受信任代码）；PR head 与事件包只当数据下载核对，不检出、不执行 PR 代码。
   # 事件包里出现对应触发证据才发布（verify/integrity 失败、route 预算拒绝），未知失败不自动告警。
   # 最小写权限：PR 告警评论与升级议题；actions:read 只用于下载触发运行的事件包。
   alert:
     needs: judge
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name == 'workflow_run' }}
     runs-on: ubuntu-latest
     permissions:
       actions: read

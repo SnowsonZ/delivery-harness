@@ -121,6 +121,10 @@ def main(argv: list[str] | None = None, root: Path = ROOT, github=None) -> int:
         print(f"复核未发布：{error}", file=sys.stderr)
         return 1
     print(f"PR #{args.pr}：复核已评论（{args.verdict}，designer {designer}，定向变异 {args.caught}/{args.mutations}）")
+    # 复核否决（判据与 signals.signoff_status 共用同一纯函数，T715）：关闭可能已开启的自动合并；
+    # disable_auto_merge 失败只打印，不改变退出码。矛盾的「通过」已在上面拒绝发布，走不到这里。
+    if signals.signoff_marker_status(data)[0] == "fail":
+        github.disable_auto_merge(args.pr)
     retrigger_if_ready(args.pr, root, github)
     return 0
 
