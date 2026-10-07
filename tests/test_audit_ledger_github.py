@@ -564,6 +564,18 @@ class EveryFieldTest(GitHubLedgerTest):
         self.assertTrue(mismatches)
         self.assertIn("outputs", "；".join(item["reason"] for item in mismatches))
 
+    def test_boolean_changed_to_number_reported(self):
+        # 评审 193 第 4 轮：Python 里 True == 1，逐值比较若直接用 == 会放过 sampled 从 true 被改成 1
+        fx, _built, anchor = self.author_world(labels=("alpha",), audit_issues=[AUDIT_ISSUE])
+        self.wipe_events()
+        self.resync(fx, labels=("alpha",), audit_issues=[AUDIT_ISSUE])
+        row = self.row_by_step("github.audit_sample")
+        self.db_exec("UPDATE events SET outputs='{\"issue\":88,\"pr\":402,\"sampled\":1}' WHERE id=?", (row[0],))
+        report = self.inspect(fx, anchor, labels=("alpha",), audit_issues=[AUDIT_ISSUE])
+        mismatches = self.mismatches(report)
+        self.assertTrue(mismatches, "sampled: true → 1 未报 ledger_mismatch")
+        self.assertIn("outputs", "；".join(item["reason"] for item in mismatches))
+
     def test_environment_only_fields_not_reported(self):
         fx, _built, anchor = self.author_world(labels=("alpha",))
         cases = [("ts", "UPDATE events SET ts='2030-01-01T00:00:00.000Z' WHERE id=?"),
@@ -698,6 +710,21 @@ class SupersededSnapshotTest(GitHubLedgerTest):
                 self.assertIn("与运行层不同", reason)
                 self.assertIn(name, reason)
 
+    def test_projection_compares_booleans_and_numbers_strictly(self):
+        # 评审 193 第 4 轮：True == 1。合并投影里 pr 号为 1 的 PR，运行层把 pr 改成 true 也必须报
+        def merge(source: str, pr_value) -> dict:
+            return {"source": source, "trace_id": BRANCH, "step": "github.merge", "stage": "merge", "status": "ok",
+                    "actor": {"role": "engine", "host": "github"}, "decision": {}, "error": {},
+                    "inputs": [{"kind": "pr", "ref": "owner/repo#1"}],
+                    "outputs": {"pr": pr_value, "merger": "alice", "merger_type": "User", "merged_at": MERGED_AT}}
+        ledger_events = {"github:1:aaa": [merge("github:1:aaa", 1)]}
+        same = audit_completeness._merge_fact_findings(ledger_events, {"github:1:bbb": [merge("github:1:bbb", 1)]})
+        self.assertEqual(same, [])
+        tampered = audit_completeness._merge_fact_findings(
+            ledger_events, {"github:1:bbb": [merge("github:1:bbb", True)]})
+        self.assertEqual(len(tampered), 1)
+        self.assertIn("字段：pr", tampered[0]["reason"])
+
     def test_no_runtime_merge_facts_reported(self):
         # ⑤ 运行层没有任何合并事实（事件关闭，同步无产出）→ 报且 reason 区分「读不到」
         fx, _built, anchor = self.author_world(labels=("alpha",))
@@ -757,9 +784,9 @@ class SupersededSnapshotTest(GitHubLedgerTest):
         def corrupt_seq(doc):
             merge = next(stage for stage in doc["stages"]
                          if stage.get("evidence_kind") == "event" and stage.get("step") == "github.merge")
-            merge["seq"] = "1"
-        for present in (True, False):
-            with self.subTest(source_present_in_runtime=present):
+            merge["seq"] = bad_seq
+        for present, bad_seq in ((True, "1"), (False, "1"), (True, True), (False, True)):  # 布尔值不算整数
+            with self.subTest(source_present_in_runtime=present, seq=repr(bad_seq)):
                 fx, _built, anchor = self.author_world(labels=("alpha",), mutate_ledger=corrupt_seq)
                 self.wipe_events()
                 report = self.inspect(fx, anchor, labels=("alpha",) if present else ("alpha", "beta"))

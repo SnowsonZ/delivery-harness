@@ -24,6 +24,7 @@ require_run_record_for_task、verify_anchors（布尔，缺省 true）。缺省�
 
 from __future__ import annotations
 
+import json
 import re
 
 from engine.core import events_db
@@ -281,9 +282,14 @@ def _view(event: dict, keys, output_keys=()) -> dict:
     return viewed
 
 
+def _canon(value) -> str:
+    """JSON 规范化文本，用于逐值比较：Python 的 == 把 True 与 1 当作相等，会放过布尔值被改成数字的篡改。"""
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+
+
 def _by_seq(events: list[dict]) -> list[dict] | None:
     """按 seq 排序；任一 seq 不是整数（账本被损坏或篡改）返回 None，调用方失败关闭，不让异常逃出审计。"""
-    if any(not isinstance(event.get("seq"), int) for event in events):
+    if any(not isinstance(event.get("seq"), int) or isinstance(event.get("seq"), bool) for event in events):
         return None
     return sorted(events, key=lambda event: event["seq"])
 
@@ -297,7 +303,7 @@ def _semantic_diff(ledger_events: list[dict], runtime_events: list[dict]) -> str
         return f"事件数量不同（账本 {len(left)} 条、运行层 {len(right)} 条）"
     for position, (expected, actual) in enumerate(zip(left, right), start=1):
         views = _view(expected, _SEMANTIC_KEYS), _view(actual, _SEMANTIC_KEYS)
-        fields = "、".join(key for key in _SEMANTIC_KEYS if views[0][key] != views[1][key])
+        fields = "、".join(key for key in _SEMANTIC_KEYS if _canon(views[0][key]) != _canon(views[1][key]))
         if fields:
             return f"第 {position} 条事件的字段不同：{fields}"
     return None
@@ -335,7 +341,7 @@ def _merge_fact_findings(ledger_events: dict[str, list[dict]],
             continue
         expected = _view(merge, _MERGE_FIELD_KEYS, _MERGE_OUTPUT_KEYS)
         fields = sorted({key for candidate in candidates for key, value in expected.items()
-                         if value != _view(candidate, _MERGE_FIELD_KEYS, _MERGE_OUTPUT_KEYS)[key]})
+                         if _canon(value) != _canon(_view(candidate, _MERGE_FIELD_KEYS, _MERGE_OUTPUT_KEYS)[key])})
         if fields:
             problems.append((ref, f"账本固定的合并事实与运行层不同（字段：{'、'.join(fields)}）"))
     return [_ledger_finding(ref, reason) for ref, reason in problems]
