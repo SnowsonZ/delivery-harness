@@ -778,15 +778,11 @@ def load_ci(pr: int, *, head: str | None = None, gh=None) -> dict:
     # B117：判定运行在 API 里归在默认分支，分支查询查不到；按工作流列运行（不带任何筛选参数——
     # 带参数的运行列表会被平台按 1,000 条静默截断），由默认分支定义渲染的运行名关联 PR，包 origin
     # 按该运行自己的 API 记录核对（拿 PR 的 head 去核对必然 origin_mismatch）。
-    matched, judge_stale = events_judge.collect_judge_runs(
+    matched = events_judge.collect_judge_runs(
         client, repo=repo, pr=pr, resolved=resolved, trusted=_TRUSTED_PATHS,
-        list_all=_list_all, created_at=info.get("createdAt"), findings=findings)
-    stale |= judge_stale
+        list_all=_list_all, created_at=info.get("createdAt"), stale=stale, findings=findings)
     if stale:
         findings.append(_finding("head_mismatch", f"{len(stale)} 个其他 head 的运行未导入"
                                                  f"（只导入 head {resolved[:7]}…）"))
-    for run in sorted(matched, key=lambda item: str(item.get("id"))):
-        identity = events_judge.run_identity(run, findings)
-        if identity is not None:
-            import_run(run, identity[1], identity[0])
+    events_judge.import_matched(matched, import_run, findings)
     return {"imported": imported, "skipped": skipped, "findings": findings}

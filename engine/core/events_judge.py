@@ -76,6 +76,15 @@ def run_identity(run: dict, findings: list[dict]) -> tuple[str, str] | None:
     return head, branch
 
 
+def import_matched(matched: list[dict], import_run, findings: list[dict]) -> None:
+    """挑出的判定运行逐个核对 API 身份（形状不符记 api 发现跳过）后交给 import_run 导入；
+    import_run 由 events_io 注入（本模块不反向导入它，避免循环）。"""
+    for run in sorted(matched, key=lambda item: str(item.get("id"))):
+        identity = run_identity(run, findings)
+        if identity is not None:
+            import_run(run, identity[1], identity[0])
+
+
 def _parse_time(value) -> datetime | None:
     """ISO 时间戳 → UTC：必须带时区（Z 或 ±HH:MM 偏移，小数秒均可）；缺时区、解析失败都算不可解析。"""
     try:
@@ -127,20 +136,20 @@ def _list_workflow_runs(client, repo: str, workflow_id, created_at,
 
 
 def collect_judge_runs(client, *, repo: str, pr: int, resolved: str, trusted: frozenset[str],
-                       list_all, created_at, findings: list[dict]) -> tuple[list[dict], set[str]]:
+                       list_all, created_at, stale: set[str], findings: list[dict]) -> list[dict]:
     """列出 auto-merge 工作流的运行并挑出该 PR 的判定运行（load_ci 的第二段查询，B117）。
 
     先查工作流列表（工作流很少，一页即可），对 path 可信且为 auto-merge 的每个工作流按上面分页
-    列运行、不带筛选参数，再用 select_judge_runs 挑选。工作流列表或任一运行列表失败：返回已挑到
-    的部分（失败本身已记 api 发现），调用方保持已导入的分支运行结果。created_at 是 PR 的
-    createdAt 原样字符串（None 或不可解析时运行列表读到底）。
+    列运行、不带筛选参数，再用 select_judge_runs 挑选；运行名指向同 PR 另一个 head 的并入传入的
+    stale 集合（调用方与分支运行一样汇总成一条 head_mismatch），不导入。工作流列表或任一运行列
+    表失败：返回已挑到的部分（失败本身已记 api 发现），调用方保持已导入的分支运行结果。
+    created_at 是 PR 的 createdAt 原样字符串（None 或不可解析时运行列表读到底）。
     """
     workflows = list_all(client, f"repos/{repo}/actions/workflows?per_page={_PER_PAGE}",
                          "workflows", findings)
     if workflows is None:
-        return [], set()
+        return []
     matched: list[dict] = []
-    stale: set[str] = set()
     for workflow in workflows:
         path = workflow.get("path") if isinstance(workflow, dict) else None
         if not isinstance(path, str) or path not in trusted or "auto-merge" not in path:
@@ -149,4 +158,4 @@ def collect_judge_runs(client, *, repo: str, pr: int, resolved: str, trusted: fr
         part_matched, part_stale = select_judge_runs(runs or [], pr, resolved, trusted)
         matched += part_matched
         stale |= part_stale
-    return matched, stale
+    return matched

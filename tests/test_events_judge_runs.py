@@ -545,9 +545,10 @@ class EarlyStopTest(unittest.TestCase):
 
     def collect(self, stub: _PagedGh, *, pr: int = PR_NUMBER, resolved: str = "c" * 40):
         findings: list[dict] = []
-        matched, stale = events_judge.collect_judge_runs(
+        stale: set[str] = set()
+        matched = events_judge.collect_judge_runs(
             stub, repo=REPO, pr=pr, resolved=resolved, trusted=TRUSTED,
-            list_all=events_io._list_all, created_at=stub.created_at, findings=findings)
+            list_all=events_io._list_all, created_at=stub.created_at, stale=stale, findings=findings)
         return matched, stale, findings
 
     def run_routes(self, stub: _PagedGh) -> list[str]:
