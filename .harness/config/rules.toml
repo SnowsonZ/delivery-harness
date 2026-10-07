@@ -139,3 +139,6 @@ timeout_minutes = 30
 protected_branches = ["main"]
 # 执行方另外不能编辑的项目文件（引擎固定保护 .github、.githooks、.harness 与各 Agent 配置目录）。
 implementer_protected = ["requirements-dev.txt", "ruff.toml"]
+# pre-push 钩子的 verify 档位："default"（缺省，快速检查 + 质量棘轮 + 文档链接 + 全量测试）或 "push"（去掉全量测试，
+# 约 2 秒；测试由 CI 的必需检查与派发的本地复验兜底）。本仓库的合并关口是 CI，所以用 "push"。
+pre_push_tier = "push"
