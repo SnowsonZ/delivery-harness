@@ -96,15 +96,14 @@ class DisableAutoMergeContractTest(unittest.TestCase):
 
     def test_function_is_unchanged_apart_from_the_docstring(self):
         source = Path(__file__).resolve().parents[1] / "engine" / "agents" / "github.py"
-        stripped = {}
+        dumps = {}
         for name, text in (("基线 6bee972", BASELINE_SOURCE), ("当前源码", source.read_text(encoding="utf-8"))):
             fn = _named_function(text)
             first = fn.body[0]
             self.assertTrue(isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
                             and isinstance(first.value.value, str), f"{name}：函数体第一条不是文档字符串")
-            stripped[name] = fn.body[1:]  # 删去第一个文档字符串节点，其余全部参与比较
-        dumps = {name: ast.dump(ast.Module(body=body, type_ignores=[]), include_attributes=False)
-                 for name, body in stripped.items()}
+            fn.body = fn.body[1:]  # 只删去第一个文档字符串节点；整个 FunctionDef（名称、参数与注解、装饰器、返回注解）照常比较
+            dumps[name] = ast.dump(fn, include_attributes=False)
         self.assertEqual(dumps["基线 6bee972"], dumps["当前源码"])
 
 
