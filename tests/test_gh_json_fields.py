@@ -156,11 +156,41 @@ def _flatten(node: ast.expr, constants: dict[str, list[str | None]]) -> list[str
     return [None]  # f-string、dict、比较等：一个占位
 
 
+def _binding_counts(tree: ast.AST) -> dict[str, int]:
+    """文件里每个名字被绑定的次数：任何作用域的赋值、参数、循环/with/except 目标、推导式、海象、导入。
+
+    静态扫描不做作用域分析，所以只信「全文件只绑定一次」的名字（即那一次模块级赋值）：只要同名变量在别处
+    被重新绑定（局部变量遮蔽、同名参数），这个名字就不能当常量展开，字段串因此解析不出，扫描失败关闭。
+    """
+    counts: dict[str, int] = {}
+
+    def bump(name: str) -> None:
+        counts[name] = counts.get(name, 0) + 1
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bump(node.id)
+        elif isinstance(node, ast.arg):
+            bump(node.arg)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bump((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bump(node.name)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            for name in node.names:
+                bump(name)  # 声明了 global/nonlocal 就意味着函数里在改它
+                bump(name)
+    return counts
+
+
 def _module_constants(tree: ast.Module) -> dict[str, list[str | None]]:
-    """模块级赋值里的可摊平常量（只看顶层 Assign，值本身也必须是可摊平的字符串序列）。"""
+    """模块级赋值里的可摊平常量（只看顶层 Assign，值本身也必须是可摊平的字符串序列，且名字全文件只绑定一次）。"""
+    counts = _binding_counts(tree)
     constants: dict[str, list[str | None]] = {}
     for node in tree.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name) \
+                and counts.get(node.targets[0].id) == 1:
             value = _flatten(node.value, constants)
             if value is not None:
                 constants[node.targets[0].id] = value
@@ -682,6 +712,30 @@ class ScannerEndToEndTest(unittest.TestCase):
                 sites, unresolved = self.scan(source)
                 self.assertEqual(sites, [], source)
                 self.assertEqual(len(unresolved), 1, source)
+
+    def test_shadowed_or_rebound_constants_fail_closed(self):
+        """评审第 2 轮严重发现：局部变量遮蔽模块常量时，扫描器不能仍按模块级的合法值放行。"""
+        base = 'PR_FIELDS = "headRefName"\n'
+        shapes = {
+            "函数里局部赋值同名": base + 'def collect():\n    PR_FIELDS = "baseRepository"\n'
+                              '    return gh("pr", "list", "--json", PR_FIELDS)',
+            "函数参数同名": base + 'def collect(PR_FIELDS):\n    return gh("pr", "list", "--json", PR_FIELDS)',
+            "循环变量同名": base + 'for PR_FIELDS in ("a", "baseRepository"):\n    gh("pr", "list", "--json", PR_FIELDS)',
+            "模块里重复赋值": base + 'PR_FIELDS = "baseRepository"\ngh("pr", "list", "--json", PR_FIELDS)',
+            "global 声明后在函数里改": base + 'def collect():\n    global PR_FIELDS\n    PR_FIELDS = "baseRepository"\n'
+                                  '    return gh("pr", "list", "--json", PR_FIELDS)',
+            "推导式变量同名": base + 'x = [gh("pr", "list", "--json", PR_FIELDS) for PR_FIELDS in ("baseRepository",)]',
+            "with 目标同名": base + 'with open("f") as PR_FIELDS:\n    gh("pr", "list", "--json", PR_FIELDS)',
+            "海象同名": base + 'if (PR_FIELDS := "baseRepository"):\n    gh("pr", "list", "--json", PR_FIELDS)',
+        }
+        for label, source in shapes.items():
+            with self.subTest(shape=label):
+                sites, unresolved = self.scan(source)
+                self.assertEqual(sites, [], source)
+                self.assertEqual(len(unresolved), 1, f"{label} 必须进无法解析：{source}")
+        # 反向：只绑定一次的模块常量仍然展开并校验
+        sites, unresolved = self.scan(base + 'gh("pr", "list", "--json", PR_FIELDS)')
+        self.assertEqual((unresolved, [site[2:] for site in sites]), ([], [(("pr", "list"), "headRefName")]))
 
     def test_argparse_and_startswith_are_not_gh_calls(self):
         sites, unresolved = self.scan(
