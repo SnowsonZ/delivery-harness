@@ -37,7 +37,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from engine.agents import dispatch_observation, run_timeline
-from engine.core import events, events_db
+from engine.core import events, events_db, events_io
 from engine.reports import audit, ci_events, github_events, ledger
 
 GIT_ENV = {
@@ -349,7 +349,7 @@ class GitHubLedgerTest(unittest.TestCase):
     def platform(self, fx: SimpleNamespace, *, comments=(), labels=(), audit_issues=None,
                  escape_issues=None, reviews=None, merger=("alice", "User"), title=PR_TITLE,
                  merged_at=MERGED_AT, parents=2, pr_commits=1, with_ci=False, pr=402,
-                 head_ref=BRANCH, head_sha=None, merge_sha=None, fail=()) -> FakeGh:
+                 head_ref=BRANCH, head_sha=None, merge_sha=None, fail=(), commit_title=None) -> FakeGh:
         """PR 的整套假平台：合并/抽审/逃逸事实路由（驱动真实 sync）+ 可选 CI 事件包与评论。"""
         head_sha, merge_sha = head_sha or fx.branch_head, merge_sha or fx.merge_sha
         packages = None
@@ -367,7 +367,7 @@ class GitHubLedgerTest(unittest.TestCase):
                 "head": {"ref": head_ref, "sha": head_sha},
                 "merged_by": {"login": merger[0], "type": merger[1]}}
         message = f"Merge pull request #{pr} from {head_ref}\n\n{PR_BODY}" if parents == 2 \
-            else f"{title} (#{pr})"
+            else f"{commit_title or title} (#{pr})"
         commit = {"parents": [{"sha": "p1"}, {"sha": "p2"}] if parents == 2 else [{"sha": "p1"}],
                   "commit": {"message": message}}
         return FakeGh(pulls={pr: pull}, reviews={pr: list(reviews or [])},
@@ -533,10 +533,11 @@ class EveryFieldTest(GitHubLedgerTest):
 
     def test_inputs_outputs_difference_reported_without_values(self):
         fx, _built, anchor = self.author_world(labels=("alpha",))
-        for field, sql, params, secret in (
-                ("inputs", "UPDATE refs SET ref='owner/repo#403' WHERE event_id=? AND kind='pr'", (), "403"),
+        for field, sql, params, secret, original in (
+                ("inputs", "UPDATE refs SET ref='owner/repo#403' WHERE event_id=? AND kind='pr'", (), "403",
+                 "owner/repo#402"),
                 ("outputs", "UPDATE events SET outputs=? WHERE id=?",
-                 ('{"label":"alpha","pr":402,"tampered":1}',), "tampered")):
+                 ('{"label":"alpha","pr":402,"tampered":1}',), "tampered", "alpha")):
             with self.subTest(field=field):
                 self.wipe_events()
                 self.resync(fx, labels=("alpha",))
@@ -547,7 +548,9 @@ class EveryFieldTest(GitHubLedgerTest):
                 self.assertTrue(mismatches, f"改动 {field} 未报 ledger_mismatch")
                 reason = "；".join(item["reason"] for item in mismatches)
                 self.assertIn(field, reason)
-                self.assertNotIn(secret, reason)  # reason 只写字段名，不回显值
+                self.assertNotIn(secret, reason)  # reason 只写字段名，不回显运行层的值
+                self.assertNotIn(original, reason)  # 也不回显账本侧的值（评审 mutation P5）
+                self.assertNotRegex(reason, r"[{}\[\]']")  # 没有字典或列表形状的原文
 
     def test_sample_event_difference_reported(self):
         fx, _built, anchor = self.author_world(labels=("alpha",))
@@ -657,7 +660,12 @@ class SupersededSnapshotTest(GitHubLedgerTest):
         merge = self.merge_event(built)
         self.assertEqual(merge["outputs"]["merge_method"], "squash")
         self.wipe_events()
-        report = self.inspect(fx, anchor, parents=1, pr_commits=1, title="feat：改过的标题")
+        # 合并提交主题保持原 squash 主题，只改 PR 标题：_merge_method 比对「当前标题 (#N)」落空，判 unknown
+        report = self.inspect(fx, anchor, parents=1, pr_commits=1, title="feat：改过的标题",
+                              commit_title=PR_TITLE)
+        runtime = [row for row in events_io.query(trace_id=BRANCH) if row["step"] == "github.merge"]
+        self.assertEqual([row["outputs"]["merge_method"] for row in runtime], ["unknown"])
+        self.assertNotIn(merge["source"], {row["source"] for row in runtime})  # 事实变了，source 随之另起
         self.assertNotIn("ledger_mismatch", self.rules_of(report), report["findings"])
 
     def test_approval_drift_and_read_failures_not_reported(self):
@@ -744,6 +752,18 @@ class SupersededSnapshotTest(GitHubLedgerTest):
         report = self.inspect(fx, anchor, escape_issues=[dict(ESCAPE_ISSUE, state="closed")])
         self.assertNotIn("ledger_mismatch", self.rules_of(report), report["findings"])
 
+    def test_duplicate_merge_event_in_ledger_fail_closed(self):
+        # 评审 193：首条之后再出现 github.merge 不属于「一条合并事件加零到多条标签事件」，旧 source 缺失时失败关闭
+        def duplicate_merge(doc):
+            merge = next(stage for stage in doc["stages"]
+                         if stage.get("evidence_kind") == "event" and stage.get("step") == "github.merge")
+            doc["stages"].append({**merge, "seq": merge["seq"] + 100})
+        fx, _built, anchor = self.author_world(labels=("alpha",), mutate_ledger=duplicate_merge)
+        self.wipe_events()
+        report = self.inspect(fx, anchor, labels=("alpha", "beta"))
+        self.assertTrue(any("种类无法识别" in item["reason"] for item in self.mismatches(report)),
+                        report["findings"])
+
     def test_unknown_kind_missing_fail_closed(self):
         # ⑧ 未知 step 的 github: 快照在运行层没有 → 失败关闭（注入必须在账本构建之前）
         fx, _built, anchor = self.author_world(
@@ -762,7 +782,11 @@ class SupersededSnapshotTest(GitHubLedgerTest):
                             and stage.get("source", "").startswith("github:"))]))
         self.wipe_events()
         report = self.inspect(fx, anchor, labels=("alpha", "beta"))
-        self.assertTrue(self.mismatches(report))
+        reasons = [item["reason"] for item in self.mismatches(report)]
+        # 合并快照（旧 source 在运行层缺失）：没有事件原文可核对；抽审快照（同事实同 source 仍在运行层，
+        # 链头因 ts 不同）：只固定链头也不放宽。两条分支各自要有断言，不能互相顶替（变异 K5）。
+        self.assertTrue(any("账本没有事件原文可核对" in reason for reason in reasons), reasons)
+        self.assertTrue(any("没有事件原文可核对，且链头" in reason for reason in reasons), reasons)
 
     def test_ci_chain_missing_still_not_reported(self):
         # ⑩ ci: 链在运行层没有：维持现状（不报，由引用核对报告）

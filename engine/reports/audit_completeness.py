@@ -346,7 +346,7 @@ def _github_chain_findings(auditor, source: str, head, trace, known: bool,
         if not events:
             return [_ledger_finding(ref, "账本快照在运行层没有事件，且账本没有事件原文可核对")]
         steps = [str(row.get("step")) for row in sorted(events, key=lambda row: row.get("seq") or 0)]
-        if steps[0] == "github.merge" and set(steps) <= {"github.merge", "github.merge_label"}:
+        if steps[0] == "github.merge" and all(step == "github.merge_label" for step in steps[1:]):
             return []  # 合并快照：事实合法变化会另起新 source，核对由合并事实一致性检查承担
         if steps in (["github.audit_sample"], ["github.escape"]):
             return []  # 抽审/逃逸事实本就会被后来的事实取代，旧快照缺失合法
