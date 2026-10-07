@@ -69,8 +69,10 @@ class GitHub:
         self._run(["gh", "pr", "edit", str(pr), "--add-label", label], agent=True)
 
     def disable_auto_merge(self, pr: int) -> bool:
-        """关闭 PR 已开启的自动合并（T715 否决信号）：成功返回真；PR 本来就没开或调用失败时只打印、
-        返回假，不抛异常——否决本体已经完成，这里的失败不改变调用方的结论与退出码。"""
+        """关闭 PR 已开启的自动合并（T715 否决信号）。
+
+        返回值只表示 `gh pr merge --disable-auto` 这条命令是否成功：成功返回真（PR 本来没有开启自动合并时 `gh` 也退出 0，同样返回真）；命令失败（RuntimeError）或 `gh` 无法执行（OSError）时只向标准错误打印诊断并返回假，不抛异常。它不告诉调用方是否真有请求被关闭——否决本体已经完成，这里的失败不改变调用方的结论与退出码。
+        """
         try:
             self._run(["gh", "pr", "merge", str(pr), "--disable-auto"], agent=True)
             return True
