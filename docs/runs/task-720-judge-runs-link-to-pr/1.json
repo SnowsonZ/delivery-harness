@@ -1,0 +1,199 @@
+{
+  "task": "T720",
+  "class": "K5",
+  "attempt": 1,
+  "branch": "task/720-judge-runs-link-to-pr",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "dc8bd47e104eb74a17654c3fc937df7e71ac0ff37acc9fc56f1bf584a24dd1de",
+  "prompt_path": "docs/runs/task-720-judge-runs-link-to-pr/1.prompt.md",
+  "guard_ref": "e0d697d5a6ef323bc3952591e8e01ba0eeac8cf4",
+  "started_at": "2026-10-07T18:44:40+00:00",
+  "ended_at": "2026-10-07T20:05:58+00:00",
+  "executor_seconds": 4876.1,
+  "exit": "clarify",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "invalid",
+  "gen_ai.usage.input_tokens": 20654296,
+  "gen_ai.usage.output_tokens": 116710,
+  "cost": 0.707716,
+  "escalation": "clarify",
+  "trace_id": "task/720-judge-runs-link-to-pr",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-07T18:44:31.966Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-07T18:44:33.234Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-07T18:44:35.910Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "claim",
+      "status": "ok",
+      "ts": "2026-10-07T18:44:40.162Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "fail",
+      "ts": "2026-10-07T19:32:10.833Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.quality",
+      "status": "fail",
+      "ts": "2026-10-07T19:32:11.037Z",
+      "duration_ms": 273,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.quality",
+      "status": "fail",
+      "ts": "2026-10-07T19:32:11.103Z",
+      "duration_ms": 332,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tests",
+      "status": "fail",
+      "ts": "2026-10-07T19:40:19.536Z",
+      "duration_ms": 487757,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "fail",
+      "ts": "2026-10-07T19:40:23.964Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "fail",
+      "ts": "2026-10-07T19:40:23.997Z",
+      "duration_ms": 494217,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tests",
+      "status": "fail",
+      "ts": "2026-10-07T19:54:17.194Z",
+      "duration_ms": 482589,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "fail",
+      "ts": "2026-10-07T19:54:21.607Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "fail",
+      "ts": "2026-10-07T19:54:21.638Z",
+      "duration_ms": 488852,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.tests",
+      "status": "fail",
+      "ts": "2026-10-07T20:05:17.596Z",
+      "duration_ms": 507124,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "fail",
+      "ts": "2026-10-07T20:05:17.628Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "fail",
+      "ts": "2026-10-07T20:05:17.663Z",
+      "duration_ms": 509140,
+      "attempt": 2,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-07T20:05:57.834Z",
+      "duration_ms": 4876143,
+      "attempt": 2,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "clarify",
+      "status": "ok",
+      "ts": "2026-10-07T20:05:57.858Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 0
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "55b3cf874713c6880fd5edae55824dcd510cf646a535fbf955fe4bfcff9eb9c9",
+      "fixed_in": "run_record"
+    }
+  ]
+}

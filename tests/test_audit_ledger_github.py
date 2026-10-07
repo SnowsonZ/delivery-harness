@@ -156,6 +156,8 @@ class FakeGh:
             branch = urllib.parse.unquote(urllib.parse.parse_qs(query).get("branch", [""])[0])
             items = [item for item in self.runs if not branch or item.get("head_branch") == branch]
             return {"total_count": len(items), "workflow_runs": items}
+        if re.fullmatch(r"repos/[^/]+/[^/]+/actions/workflows", path):
+            return {"total_count": 0, "workflows": []}  # T720：load_ci 的第二段查询（本文件无 auto-merge 工作流）
         if match := re.fullmatch(r"repos/[^/]+/[^/]+/actions/runs/(\d+)/artifacts", path):
             items = self.artifacts.get(int(match[1]), [])
             return {"total_count": len(items), "artifacts": items}
