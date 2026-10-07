@@ -104,11 +104,12 @@ class GhClient:
         return self._run(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).decode("utf-8").strip()
 
     def pr(self, pr: int) -> dict:
-        data = json.loads(self._run(["pr", "view", str(pr), "--json", "headRefName,headRefOid,baseRepository"]))
-        base = (data.get("baseRepository") or {}).get("name")
-        owner = ((data.get("baseRepository") or {}).get("owner") or {}).get("login")
+        # baseRepository 不是 gh pr view 的合法 JSON 字段（GraphQL 有、gh 没有，gh 2.92 报 Unknown JSON field）：
+        # 改从 url 解析仓库名，url 缺失或形状不符时 repository 为 None，由调用方的形状校验报告。
+        data = json.loads(self._run(["pr", "view", str(pr), "--json", "headRefName,headRefOid,url"]))
+        match = re.search(r"\Ahttps?://[^/]+/([^/]+)/([^/]+)/pull/[0-9]+\Z", str(data.get("url") or ""))
         return {"headRefName": data.get("headRefName"), "headRefOid": data.get("headRefOid"),
-                "repository": f"{owner}/{base}" if owner and base else None}
+                "repository": f"{match[1]}/{match[2]}" if match else None}
 
     def api(self, route: str, *, method: str = "GET", payload=None):
         argv = ["api", route]

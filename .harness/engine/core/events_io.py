@@ -24,17 +24,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from engine.core import events, events_db
-from engine.core.common import git
+from engine.core.events_origin import ORIGIN_LIMIT as _ORIGIN_LIMIT
+from engine.core.events_origin import SHA_RE as _SHA_RE
+from engine.core.events_origin import origin as _origin
 
 BUNDLE_SCHEMA_VERSION = 1
 _HASH_RE = re.compile(r"[0-9a-f]{64}\Z")
-_SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 _KEY_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}\Z")
 
 _LIMIT = 120  # 通用字符串上限（同 T101 过滤口径）
 _REASON_LIMIT = 200
 _REF_LIMIT = 200
-_ORIGIN_LIMIT = 300
 
 _BUNDLE_KEYS = ("schema_version", "origin", "events", "anchors", "artifacts", "chains", "findings")
 _ORIGIN_KEYS = ("repository", "run_id", "run_attempt", "job", "workflow_ref", "head_sha", "head_branch")
@@ -159,31 +159,6 @@ def query(*, trace_id: str | None = None, source: str | None = None, since=None,
 
 
 # ---- 导出 ----
-
-def _origin() -> dict:
-    """导出方环境快照：仓库、head 与真实 Actions 三键；local 导出不伪造 Actions 键。"""
-    origin: dict[str, str] = {}
-    remote = git("remote", "get-url", "origin", cwd=events_db.ROOT, check=False, isolate=True)
-    if remote and events._clean_str(remote, _ORIGIN_LIMIT) is not None:
-        origin["repository"] = remote  # 本机路径形式的 remote 不外发（也是导入隐私口径）
-    head_sha = git("rev-parse", "HEAD", cwd=events_db.ROOT, check=False, isolate=True)
-    if head_sha and _SHA_RE.fullmatch(head_sha):
-        origin["head_sha"] = head_sha
-    if os.environ.get("CI") == "true":
-        branch = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or ""
-        run_id = os.environ.get("GITHUB_RUN_ID")
-        run_attempt, job = os.environ.get("GITHUB_RUN_ATTEMPT"), os.environ.get("GITHUB_JOB")
-        if run_id and run_attempt and job:
-            origin["run_id"], origin["run_attempt"], origin["job"] = run_id, run_attempt, job
-        workflow_ref = os.environ.get("GITHUB_WORKFLOW_REF")
-        if workflow_ref:
-            origin["workflow_ref"] = workflow_ref
-    else:
-        branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=events_db.ROOT, check=False, isolate=True)
-    if branch:
-        origin["head_branch"] = branch
-    return origin
-
 
 def export_bundle(*, trace_id: str | None = None, source: str | None = None) -> dict:
     """导出 EventBundle v1：每条 (source, trace) 的完整链前缀、锚点与安全 manifest。
@@ -646,11 +621,12 @@ class GhClient:
         return result.stdout
 
     def pr(self, pr: int) -> dict:
-        data = json.loads(self._run(["pr", "view", str(pr), "--json", "headRefName,headRefOid,baseRepository"]))
-        base = (data.get("baseRepository") or {}).get("name")
-        owner = ((data.get("baseRepository") or {}).get("owner") or {}).get("login")
+        # baseRepository 不是 gh pr view 的合法 JSON 字段（GraphQL 有、gh 没有，gh 2.92 报 Unknown JSON field）：
+        # 改从 url 解析仓库名，url 缺失或形状不符时 repository 为 None，由调用方的形状校验报告。
+        data = json.loads(self._run(["pr", "view", str(pr), "--json", "headRefName,headRefOid,url"]))
+        match = re.search(r"\Ahttps?://[^/]+/([^/]+)/([^/]+)/pull/[0-9]+\Z", str(data.get("url") or ""))
         return {"headRefName": data.get("headRefName"), "headRefOid": data.get("headRefOid"),
-                "repository": f"{owner}/{base}" if owner and base else None}
+                "repository": f"{match[1]}/{match[2]}" if match else None}
 
     def api(self, route: str):
         return json.loads(self._run(["api", route]))
@@ -777,13 +753,13 @@ def load_ci(pr: int, *, head: str | None = None, gh=None) -> dict:
     if runs is None:
         return {"imported": 0, "skipped": 0, "findings": findings}
     trusted = [run for run in runs if run.get("path") in _TRUSTED_PATHS]
-    stale = sorted({str(run.get("headSha")) for run in trusted if run.get("headSha") != resolved})
+    stale = sorted({str(run.get("head_sha")) for run in trusted if run.get("head_sha") != resolved})
     if stale:
         findings.append(_finding("head_mismatch", f"{len(stale)} 个其他 head 的运行未导入"
                                                  f"（只导入 head {resolved[:7]}…）"))
     imported = skipped = 0
     for run in sorted(trusted, key=lambda item: str(item.get("id"))):
-        if run.get("headSha") != resolved:
+        if run.get("head_sha") != resolved:
             continue
         artifacts = _list_all(client, f"repos/{repo}/actions/runs/{run.get('id')}/artifacts?per_page=100",
                               "artifacts", findings)
