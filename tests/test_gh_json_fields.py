@@ -167,14 +167,74 @@ def _module_constants(tree: ast.Module) -> dict[str, list[str | None]]:
     return constants
 
 
-def _carries_json_flag(node: ast.Call) -> bool:
-    return any(isinstance(sub, ast.Constant) and sub.value == "--json" for sub in ast.walk(node))
+_NON_GH_CALLS = {"add_argument", "startswith"}  # argparse 的选项声明、str.startswith 也会出现 "--json" 字符串
 
 
-def _is_shellish_call(node: ast.Call) -> bool:
-    """排除已知非 gh 调用：argparse 的 add_argument 与 str.startswith 也会出现 "--json" 字符串。"""
-    func = node.func
-    return not (isinstance(func, ast.Attribute) and func.attr in {"add_argument", "startswith"})
+def _parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    return {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+
+
+def _is_non_gh_context(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    """"--json" 所在的列表/调用是不是 argparse 声明或 str.startswith 的参数（不是 gh 命令行）。"""
+    current = node
+    for _ in range(3):  # 向上看几层：元组直接是调用参数
+        parent = parents.get(current)
+        if isinstance(parent, ast.Call) and isinstance(parent.func, ast.Attribute) \
+                and parent.func.attr in _NON_GH_CALLS:
+            return True
+        if parent is None:
+            return False
+        current = parent
+    return False
+
+
+def _has_flag(elements) -> bool:
+    return any(isinstance(item, ast.Constant) and item.value == "--json" for item in elements)
+
+
+def scan_source(text: str, label: str) -> tuple[list[tuple[str, int, tuple[str, str], str]],
+                                               list[tuple[str, int, str]]]:
+    """扫一份源码里的 gh --json 调用点 →（(label, 行号, 命令, 字段串) 列表, 无法解析列表）。
+
+    两类位置都要扫，不只是调用的位置参数：
+    - 含 "--json" 元素的**列表/元组**（argv 常量、`subprocess.run(args=[...])`、`self._run([...])`
+      的参数、赋给变量再传的 argv，定义处就是调用点）；
+    - 位置参数里直接写 "--json" 字符串的**调用**（`_gh("pr", "view", n, "--json", FIELDS)`）。
+    摊不开、字段串不是常量、命令识别不出的一律记入无法解析（让测试失败），不静默跳过。
+    """
+    tree = ast.parse(text)
+    constants = _module_constants(tree)
+    parents = _parent_map(tree)
+    call_sites: list[tuple[str, int, tuple[str, str], str]] = []
+    unresolved: list[tuple[str, int, str]] = []
+
+    def handle(node: ast.AST, parts: list[ast.expr]) -> None:
+        sequence: list[str | None] = []
+        for part in parts:
+            flat = _flatten(part, constants)
+            if flat is None:
+                unresolved.append((label, node.lineno, "参数摊不开"))
+                return
+            sequence += flat
+        index = sequence.index("--json")
+        field_string = sequence[index + 1] if index + 1 < len(sequence) else None
+        if not isinstance(field_string, str) or not re.fullmatch(r"[A-Za-z0-9_,]+", field_string):
+            unresolved.append((label, node.lineno, f"字段串解析不出常量：{field_string!r}"))
+            return
+        pairs = [(sequence[i], sequence[i + 1]) for i in range(index - 1)
+                 if (sequence[i], sequence[i + 1]) in COMMANDS]
+        if len(pairs) != 1:
+            unresolved.append((label, node.lineno, f"命令识别不出（{pairs} 个候选）"))
+            return
+        call_sites.append((label, node.lineno, pairs[0], field_string))
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.List, ast.Tuple)) and _has_flag(node.elts) and not _is_non_gh_context(node, parents):
+            handle(node, [node])
+        elif isinstance(node, ast.Call) and _has_flag(node.args) \
+                and not (isinstance(node.func, ast.Attribute) and node.func.attr in _NON_GH_CALLS):
+            handle(node, list(node.args))
+    return call_sites, unresolved
 
 
 def gh_json_call_sites(root: Path) -> tuple[list[tuple[str, int, tuple[str, str], str]],
@@ -183,37 +243,9 @@ def gh_json_call_sites(root: Path) -> tuple[list[tuple[str, int, tuple[str, str]
     call_sites: list[tuple[str, int, tuple[str, str], str]] = []
     unresolved: list[tuple[str, int, str]] = []
     for path in sorted(root.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        constants = _module_constants(tree)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or not _carries_json_flag(node) or not _is_shellish_call(node):
-                continue
-            sequence: list[str | None] = []
-            for argument in node.args:
-                part = _flatten(argument, constants)
-                if part is None:
-                    sequence = None
-                    break
-                sequence += part
-            if sequence is None:
-                unresolved.append((path.relative_to(root).as_posix(), node.lineno, "参数摊不开"))
-                continue
-            try:
-                index = sequence.index("--json")
-            except ValueError:
-                continue  # "--json" 出现在嵌套表达式里，本调用不直接带该参数
-            field_string = sequence[index + 1] if index + 1 < len(sequence) else None
-            if not isinstance(field_string, str) or not re.fullmatch(r"[A-Za-z0-9_,]+", field_string):
-                unresolved.append((path.relative_to(root).as_posix(), node.lineno,
-                                   f"字段串解析不出常量：{field_string!r}"))
-                continue
-            pairs = [(sequence[i], sequence[i + 1]) for i in range(index - 1)
-                     if (sequence[i], sequence[i + 1]) in COMMANDS]
-            if len(pairs) != 1:
-                unresolved.append((path.relative_to(root).as_posix(), node.lineno,
-                                   f"命令识别不出（{pairs} 个候选）"))
-                continue
-            call_sites.append((path.relative_to(root).as_posix(), node.lineno, pairs[0], field_string))
+        sites, bad = scan_source(path.read_text(encoding="utf-8"), path.relative_to(root).as_posix())
+        call_sites += sites
+        unresolved += bad
     return call_sites, unresolved
 
 
@@ -257,11 +289,12 @@ printf '%s' "$FAKE_GH_RESPONSE"
             "FAKE_GH_RESPONSE": response,
         }
 
-    def install(self):
-        original = os.environ.get("PATH")
-        os.environ["PATH"] = f"{self.bin_dir}{os.pathsep}{original}"
-        os.environ.update(self.environ)
-        return original
+    def env_patch(self):
+        """返回尚未启动的 mock.patch.dict(os.environ, …)：停止时精确恢复，含「原来没有 PATH」的情形。"""
+        path = os.environ.get("PATH")
+        values = dict(self.environ)
+        values["PATH"] = f"{self.bin_dir}{os.pathsep}{path}" if path else str(self.bin_dir)
+        return mock.patch.dict(os.environ, values)
 
 
 def pr_response(url) -> str:
@@ -284,10 +317,9 @@ class PrQueryTest(unittest.TestCase):
         """在 PATH 假 gh 下运行真实客户端的 pr()：返回（结果, 记录到的调用参数行）。"""
         self._serial += 1
         fake = _FakeGh(self.tmp, response=pr_response(url), serial=self._serial)
-        previous_path = fake.install()
-        self.addCleanup(setattr, os, "PATH", previous_path)
-        for key in fake.environ:
-            self.addCleanup(os.environ.pop, key, None)
+        patcher = fake.env_patch()
+        patcher.start()
+        self.addCleanup(patcher.stop)
         result = client_factory().pr(PR_NUMBER)  # 不经过任何桩：走 PATH 上的假 gh 子进程
         lines = fake.log.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(lines), 1, "pr() 恰好发起一次 gh 调用")
@@ -598,6 +630,90 @@ class FieldContractTest(unittest.TestCase):
             counted[command] = counted.get(command, 0) + 1
         self.assertEqual(sorted(counted), sorted(COMMANDS),
                          "七个命令的调用点都应被扫描到（命令集变了要同步快照）")
+
+
+class ScannerEndToEndTest(unittest.TestCase):
+    """扫描器自己的端到端正反例（评审第 1 轮严重发现）：非法字段无论藏在哪种写法里都要被检出，
+    摊不开的写法必须进「无法解析」让测试失败，而不是静默跳过。"""
+
+    def scan(self, source: str):
+        return scan_source(source, "sample.py")
+
+    def assert_flagged(self, source: str, field: str = "baseRepository"):
+        sites, unresolved = self.scan(source)
+        self.assertEqual(unresolved, [], source)
+        self.assertEqual(len(sites), 1, source)
+        _label, _line, command, fields = sites[0]
+        self.assertIn(field, unknown_fields(command, fields), source)
+
+    def test_illegal_field_is_found_in_every_argv_shape(self):
+        shapes = {
+            "位置参数里的 argv 列表": 'self._run(["pr", "view", str(n), "--json", "baseRepository"])',
+            "模块常量 argv（再传给 subprocess）": 'ARGV = ["gh", "pr", "view", "1", "--json", "baseRepository"]\n'
+                                             'subprocess.run(ARGV)',
+            "关键字 args=[...]": 'subprocess.run(args=["gh", "pr", "view", "1", "--json", "baseRepository"])',
+            "元组 argv": 'subprocess.run(("gh", "pr", "view", "1", "--json", "baseRepository"))',
+            "调用位置参数里直接写 --json": '_gh("pr", "view", str(n), "--json", "baseRepository")',
+            "字段串来自模块常量": 'FIELDS = "headRefName,baseRepository"\n'
+                          '_gh("pr", "view", str(n), "--json", FIELDS)',
+            "字段串是常量拼接": 'F = "headRefName"\n_gh("pr", "view", str(n), "--json", F + ",baseRepository")',
+            "类属性里的 argv": 'class A:\n    ARGV = ["pr", "view", "1", "--json", "baseRepository"]',
+        }
+        for label, source in shapes.items():
+            with self.subTest(shape=label):
+                self.assert_flagged(source)
+
+    def test_legal_fields_pass_and_wrong_command_is_caught(self):
+        sites, unresolved = self.scan('self._run(["pr", "view", "1", "--json", "headRefName,url"])')
+        self.assertEqual((unresolved, unknown_fields(sites[0][2], sites[0][3])), ([], []))
+        self.assert_flagged('x = ["pr", "view", "1", "--json", "nameWithOwner"]', "nameWithOwner")  # repo view 的字段
+        self.assert_flagged('_gh("pr", "checks", "1", "--json", "headSha")', "headSha")
+
+    def test_unparseable_shapes_fail_closed(self):
+        shapes = {
+            "命令认不出": '["--json", "number"]',
+            "字段串是变量": 'subprocess.run(["gh", "pr", "view", "1", "--json", fields])',
+            "字段串是 f-string": 'subprocess.run(["gh", "pr", "view", "1", "--json", f"{x}"])',
+            "--json 后面没有字段串（拼接写法）": 'ARGS = ["gh", "pr", "view", "1", "--json"] + [FIELDS]',
+            "命令有多个候选": 'x = ["pr", "view", "issue", "list", "1", "--json", "number"]',
+        }
+        for label, source in shapes.items():
+            with self.subTest(shape=label):
+                sites, unresolved = self.scan(source)
+                self.assertEqual(sites, [], source)
+                self.assertEqual(len(unresolved), 1, source)
+
+    def test_argparse_and_startswith_are_not_gh_calls(self):
+        sites, unresolved = self.scan(
+            'parser.add_argument("--json", action="store_true")\n'
+            'data = any(arg.startswith(("--data", "--json")) for arg in args)')
+        self.assertEqual((sites, unresolved), ([], []))
+
+    def test_real_engine_still_scans_to_the_same_call_sites(self):
+        sites, unresolved = gh_json_call_sites(ENGINE_DIR)
+        self.assertEqual(unresolved, [])
+        self.assertEqual(len(sites), 34)  # 设计方 2026-10-07 原型扫描的调用点数（pr view 12、issue list 7、pr list 5、...）
+
+
+class EnvironmentRestoreTest(unittest.TestCase):
+    """假 gh 改的是 os.environ，停止后必须精确恢复（评审第 1 轮一般发现：旧写法 setattr(os, "PATH", …) 没恢复）。"""
+
+    def test_environment_is_identical_after_the_fake_gh_is_removed(self):
+        tmp = Path(tempfile.mkdtemp(prefix="dh-gh-env-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        fake = _FakeGh(tmp, response="{}", serial=1)
+        for scenario in ("PATH 存在", "PATH 原本不存在"):
+            with self.subTest(scenario=scenario), mock.patch.dict(os.environ):
+                if scenario != "PATH 存在":
+                    os.environ.pop("PATH", None)
+                before = dict(os.environ)
+                patcher = fake.env_patch()
+                patcher.start()
+                self.assertTrue(os.environ["PATH"].startswith(str(fake.bin_dir)))
+                self.assertIn("FAKE_GH_LOG", os.environ)
+                patcher.stop()
+                self.assertEqual(dict(os.environ), before)
+                self.assertNotIn("FAKE_GH_LOG", os.environ)
 
 
 if __name__ == "__main__":
