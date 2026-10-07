@@ -46,7 +46,7 @@ def parse_judge_run_name(title) -> tuple[int, str] | None:
 def select_judge_runs(runs: list, pr: int, resolved: str,
                       trusted: frozenset[str]) -> tuple[list[dict], set[str]]:
     """从 API 形状的运行里挑出该 PR 的判定运行：path 可信、event 为 workflow_run、display_title
-    整串等于运行名（只做整串相等，不做子串或宽松正则）；运行名指向同 PR 另一个 head 的计入
+    整串等于规范运行名 judge_run_name(pr, head)（只做整串相等：不做子串、宽松正则，也不做整数化比较）；运行名指向同 PR 另一个 head 的计入
     stale 集合（调用方与分支运行一样汇总成一条 head_mismatch），不导入。"""
     matched: list[dict] = []
     stale: set[str] = set()
@@ -57,8 +57,8 @@ def select_judge_runs(runs: list, pr: int, resolved: str,
                 or not isinstance(path, str) or path not in trusted):
             continue
         number, head = parsed
-        if number != pr:
-            continue
+        if number != pr or run.get("display_title") != judge_run_name(number, head):
+            continue  # 整串相等：PR 号带前导零（#0187）等非规范写法不算
         if head == resolved:
             matched.append(run)
         else:

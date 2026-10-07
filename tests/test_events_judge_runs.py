@@ -159,12 +159,24 @@ class SelectTest(unittest.TestCase):
                 api_run(9, title=187),                                      # display_title 非字符串
                 api_run(10, title=JUDGE_TITLE, event="push"),               # event 不是 workflow_run
                 api_run(12, title=JUDGE_TITLE, path=".github/workflows/evil.yml"),  # path 不可信
-                api_run(13, title=JUDGE_TITLE, head_sha=HEAD, event=None)]
+                api_run(13, title=JUDGE_TITLE, head_sha=HEAD, event=None),
+                api_run(14, title=f"auto-merge PR #0{PR} @ {HEAD}"),         # 评审 201：PR 号前导零（整数化后相等）
+                api_run(15, title=f"auto-merge PR #00{PR} @ {HEAD}")]
         matched, stale = self.collect(runs)
         self.assertEqual((matched, stale), ([], set()))
 
+    def test_parse_rejects_prefix_and_suffix_text(self):
+        # 变异 S1：解析用子串搜索会放过前缀；select 的整串相等检查另有一层，所以解析本身要直接断言
+        self.assertEqual(events_judge.parse_judge_run_name(JUDGE_TITLE), (PR, HEAD))
+        for title in (f"x{JUDGE_TITLE}", f" {JUDGE_TITLE}", f"{JUDGE_TITLE} ", f"{JUDGE_TITLE}\n", f"{JUDGE_TITLE}x"):
+            with self.subTest(title=title):
+                self.assertIsNone(events_judge.parse_judge_run_name(title))
+
     def test_same_pr_other_head_counts_as_stale(self):
         other = "d" * 40
+        # 非规范写法（前导零）的「其他 head」同样不计入 stale，更不会被选中
+        matched, stale = self.collect([api_run(20, title=f"auto-merge PR #0{PR} @ {other}", head_sha=other)])
+        self.assertEqual((matched, stale), ([], set()))
         matched, stale = self.collect([api_run(21, title=events_judge.judge_run_name(PR, other), head_sha=other),
                                        api_run(22, title=events_judge.judge_run_name(999, other), head_sha=other)])
         self.assertEqual(([run["id"] for run in matched], stale), ([], {other}))
@@ -563,18 +575,20 @@ class EarlyStopTest(unittest.TestCase):
             record["created_at"] = created_at
         return record
 
-    def pages(self, target_page: int, *, stale_from: int | None = None, fresh_pages: tuple = (1,),
+    def pages(self, target_page: int, *, fresh_pages: tuple | None = None, grace_pages: tuple = (),
               target_created_at: str | None = "2026-03-10T00:00:00Z",
               bad_pages: tuple = (), total: int = 30) -> list[list[dict]]:
-        """total 页运行：fresh 页全为新、其余全旧（created_at 早于 cutoff 一天以上）；target_page
-        含目标运行；bad_pages 内含坏时间戳（第一页 naive、其后不可解析）；stale_from 覆盖全旧起点。"""
+        """total 页运行：fresh_pages 内的页填充运行全为新，其余页填充运行全旧（created_at 早于 cutoff
+        一天以上）；缺省 fresh_pages 为目标页之前的所有页；target_page 另含一条目标运行（时间由
+        target_created_at 定）；bad_pages 内含坏时间戳（第一页 naive、其后不可解析）。"""
         fresh, stale = "2026-03-10T00:00:00Z", "2026-03-08T00:00:00Z"
+        fresh_pages = tuple(range(1, target_page)) if fresh_pages is None else fresh_pages
         pages = []
         run_id = itertools.count(1)
         for page in range(1, total + 1):
-            created = fresh if page in fresh_pages or (stale_from is not None and page < stale_from) else stale
-            if stale_from is None:
-                created = fresh if page < target_page else stale
+            created = fresh if page in fresh_pages else stale
+            if page in grace_pages:  # 早于 PR 创建时间但落在一天余量窗口内：不算「旧」
+                created = "2026-03-09T12:00:00Z"
             items = [self.filler(next(run_id), created) for _ in range(99)]
             if page == target_page:
                 items.insert(0, judge_run_record(JUDGE_RUN_ID, PR_NUMBER, "c" * 40, "9" * 40,
@@ -617,17 +631,31 @@ class EarlyStopTest(unittest.TestCase):
         self.assertEqual(len(self.run_routes(stub)), 30)
 
     def test_isolated_stale_page_does_not_stop(self):
-        # 一个旧页夹在两个新页之间（单页旧不停止）：后面的目标仍被找到
-        stub = _PagedGh(self.pages(3, fresh_pages=(1, 3)))
+        # 评审 201：新、旧、新、旧、目标页、其后连续旧页。孤立旧页（第 2、4 页）各自被新页隔开：
+        # 单页旧就停（第 2 页）会漏目标；不在新页处清零旧页计数（第 2、4 页累计到 2）也会在第 4 页误停。
+        pages = self.pages(5, fresh_pages=(1, 3))
+        for number in (2, 4):  # 夹具自检：这两页整页都旧
+            self.assertTrue(all(item["created_at"] == "2026-03-08T00:00:00Z" for item in pages[number - 1]))
+        self.assertTrue(all(item["created_at"] == "2026-03-10T00:00:00Z" for item in pages[2]))  # 第 3 页整页新
+        stub = _PagedGh(pages)
         matched, _stale, findings = self.collect(stub)
         self.assertEqual([run["id"] for run in matched], [JUDGE_RUN_ID])
         self.assertEqual(findings, [])
-        # 第 1、3 页新，第 2 页旧（计数 1 被清零），第 4、5 页旧才停
-        self.assertEqual(len(self.run_routes(stub)), 5)
+        # 目标页（5）含新运行 → 计数清零；其后第 6、7 页连续旧才停
+        self.assertEqual(len(self.run_routes(stub)), 7)
+
+    def test_one_day_grace_window_is_not_stale(self):
+        # 变异 E7：去掉一天余量后，窗口内（早于 createdAt、晚于 createdAt − 1 天）的页被当成旧页而提前停止
+        pages = self.pages(5, fresh_pages=(1,), grace_pages=(2, 3, 4))
+        stub = _PagedGh(pages)
+        matched, _stale, findings = self.collect(stub)
+        self.assertEqual(([run["id"] for run in matched], findings), ([JUDGE_RUN_ID], []))
+        self.assertGreaterEqual(len(self.run_routes(stub)), 5)
 
     def test_boundary_and_timestamp_forms(self):
         # 页内运行时间恰等于 createdAt − 1 天：不算「早于」、不停止；小数秒与 +00:00 均可解析
-        boundary = self.pages(2, target_created_at="2026-03-09T00:00:00Z", fresh_pages=(1, 2))
+        # 第 2 页填充运行全旧，只有目标运行恰在阈值（createdAt − 1 天）上：它不算「早于」，该页不计旧页
+        boundary = self.pages(2, target_created_at="2026-03-09T00:00:00Z", fresh_pages=(1,))
         stub = _PagedGh(boundary)
         matched, _stale, findings = self.collect(stub)
         self.assertEqual([run["id"] for run in matched], [JUDGE_RUN_ID])
