@@ -40,7 +40,8 @@ API 运行记录：event=workflow_run  head_branch=main  head_sha=8f42c2b…（m
 
 1. **模板 `templates/.github/workflows/auto-merge.yml` 加顶层 `run-name`**：**仅当 `judge` 会真正执行时**，运行名为 `auto-merge PR #<PR号> @ <被评估的 head 的 40 位 SHA>`（取 `github.event.workflow_run.pull_requests[0].number` 与 `github.event.workflow_run.head_sha`，与 `judge`、`request-review` 等 job 已在用的变量完全一致）；条件与 `judge.if` **逐字相同**（`workflow_run.event == 'pull_request'`、`conclusion == 'success'`、`head_repository.full_name == github.repository`），其余情形（`push` 触发、上游 CI 失败因而 `judge` 被跳过、来自 fork 的运行）一律保持 `auto-merge`。理由：设计评审 2 实测，上游 CI 失败时 `judge` 被跳过、没有事件包，但运行整体仍是 `success`；若这类运行也带关联名，加载器会把「正常跳过」当成「包缺失」，审计再把它映射成 `reference_unavailable`。REST 运行记录的 `display_title` 字段就是运行名。
 2. **信任论证**：`workflow_run` 触发的运行执行的是**默认分支上的**工作流定义，PR 作者改不了它（这也是 auto-merge 选 `workflow_run` 的原因，见模板顶部说明）；`display_title` 由该定义用 GitHub 提供的载荷渲染，包内容与 PR 分支代码都影响不到它。加载器只信 API 返回的这个字符串，与现在「只信 API」的原则一致，没有放宽。
-3. **加载器（新模块 `engine/core/events_judge.py` + `load_ci` 里一小段）**：分支运行导入完成后，**按工作流列运行，不带任何筛选参数**：先查 `actions/workflows?per_page=100`（工作流很少，一页即可，仍用 `_list_all`，键为 `workflows`），挑出 `path` 在 `_TRUSTED_PATHS` 内且为 `auto-merge` 的工作流（兼容 `.yml` 与 `.yaml`），再对每个这样的工作流查 `actions/workflows/<id>/runs?per_page=100`（分页，键为 `workflow_runs`）。**不得带 `event`、`branch`、`status`、`head_sha`、`created`、`actor`、`check_suite_id` 任何一个参数**：GitHub 文档规定带这些参数的运行列表每次搜索最多返回 1,000 条，超出会静默截断而 `_list_all` 发现不了（设计评审 2 用 `total_count=1001` 的桩复现：返回 1000 条、无任何发现、目标丢失）；本仓库 `event=workflow_run` 的运行已有 479 条，约一个月就会超限。查询与挑选整体写成 `events_judge` 里的一个函数（`list_all` 以参数注入，不导入 `events_io`），`events_io.load_ci` 只调用它并把挑出的运行交给 `_download_run`。结果里客户端筛出满足以下**全部**条件的运行：`path` 在 `_TRUSTED_PATHS` 内、`event == "workflow_run"`、`display_title` **整串等于** `auto-merge PR #<pr> @ <resolved>`（`resolved` 是 PR 当前的 head；用字符串相等比较，不用子串或宽松正则）。形状为 `auto-merge PR #<pr> @ <另一个 40 位小写十六进制>` 的运行归入「其他 head」，与分支运行一样汇总成一条 `head_mismatch` 发现，不导入。
+3. **加载器（新模块 `engine/core/events_judge.py` + `load_ci` 里一小段）**：分支运行导入完成后，**按工作流列运行，不带任何筛选参数**：先查 `actions/workflows?per_page=100`（工作流很少，一页即可，仍用 `_list_all`，键为 `workflows`），挑出 `path` 在 `_TRUSTED_PATHS` 内且为 `auto-merge` 的工作流（兼容 `.yml` 与 `.yaml`），再对每个这样的工作流查 `actions/workflows/<id>/runs?per_page=100`（分页，键为 `workflow_runs`），**由 `events_judge` 里自己的分页函数读取（不用 `_list_all`），带按 PR 创建时间的提前停止**（下一条）。**不得带 `event`、`branch`、`status`、`head_sha`、`created`、`actor`、`check_suite_id` 任何一个参数**：GitHub 文档规定带这些参数的运行列表每次搜索最多返回 1,000 条，超出会静默截断而 `_list_all` 发现不了（设计评审 2 用 `total_count=1001` 的桩复现：返回 1000 条、无任何发现、目标丢失）；本仓库 `event=workflow_run` 的运行已有 479 条，约一个月就会超限。查询与挑选整体写成 `events_judge` 里的一个函数（`list_all` 以参数注入，不导入 `events_io`），`events_io.load_ci` 只调用它并把挑出的运行交给 `_download_run`。结果里客户端筛出满足以下**全部**条件的运行：`path` 在 `_TRUSTED_PATHS` 内、`event == "workflow_run"`、`display_title` **整串等于** `auto-merge PR #<pr> @ <resolved>`（`resolved` 是 PR 当前的 head；用字符串相等比较，不用子串或宽松正则）。形状为 `auto-merge PR #<pr> @ <另一个 40 位小写十六进制>` 的运行归入「其他 head」，与分支运行一样汇总成一条 `head_mismatch` 发现，不导入。
+3a. **分页有界、不随仓库运行总数增长（性能，本任务一并解决）**：运行列表按创建时间从新到旧返回；判定运行一定晚于 PR 创建，所以读到「整页运行都早于 PR 创建时间减一天」就够了。具体：`GhClient.pr`（`events_io.py` 与 `ledger.py` 两处，T718 刚改过的同一处）的 `--json` 字段加 `createdAt`（`gh pr view` 的合法字段，T718 的字段合约快照里已有），返回字典新增 `createdAt`（原样字符串）；分页函数收到它后，**连续两页**所有运行的 `created_at` 都早于 `createdAt − 1 天`时停止（连续两页只能容忍**孤立的**旧页夹在新页之间，不保证任意乱序都不漏；真正的前提是倒序，见下）；`createdAt` 缺失、不可解析（统一规则：用 `datetime.fromisoformat` 解析，**必须带时区信息**（`Z` 或 `±HH:MM` 偏移，含小数秒），不带时区、或解析失败都算不可解析；`createdAt` 与 `created_at` 两个字段同一规则；比较前统一转为 UTC），或页内有运行 `created_at` 缺失/不可解析时，不提前停止，读到底（仍受 50 页上限与不收敛 `api` 发现约束）；**任一页出现 `created_at` 缺失或不可解析的运行后，本次分页永久禁用提前停止**（不是只对那一页），即使之后又出现连续两页旧运行。因此既有桩的 `pr()` 不返回 `createdAt` 时行为与不优化相同。已知并接受的前提：运行列表按创建时间倒序（GitHub 的实际行为），由连续两页的保险与 1 天余量兜底，并在 `events_judge` 的文档字符串里写明。
 4. **导入核对**：对挑出的判定运行，下载其事件包，走现有的 `_download_run` / `_import_package`，但期望值取该运行**自己的** API 记录：`head_sha` 取运行的 `head_sha`（main 的提交），`head_branch` 取运行的 `head_branch`（`main`），而不是 PR 的值；`run_id`、`run_attempt`、`job`、仓库、事件 `source` 的核对都不变。API 记录里 `head_sha` 不是 40 位十六进制、`head_branch` 不是非空字符串时，记 `api` 发现并跳过该运行。
 5. 第二段查询（工作流列表或任一工作流的运行列表）失败（`_list_all` 返回 `None`）时，已导入的分支运行结果保持，只多一条 `api` 发现，不整体失败；分页 50 页不收敛沿用 `_list_all` 的既有报告。
 6. 事件导入后 `trace_id` 保持包里原样，不改写：**同一个包里有两种 trace**（实测 #187 的判定包：`cli.policy` 等事件是 `main@<短 SHA>`，`route.facts`、`route.result` 等判定主体事件是 PR 分支），两种都原样保留；`trace <PR>` 按 PR 分支查到判定主体事件。
@@ -50,15 +51,16 @@ API 运行记录：event=workflow_run  head_branch=main  head_sha=8f42c2b…（m
 ## 白名单
 
 - `templates/.github/workflows/auto-merge.yml`（只加顶层 `run-name`）
-- `engine/core/events_judge.py`（新增，约 50 行：运行名生成与解析、判定运行挑选）
-- `engine/core/events_io.py`（只改 `load_ci` 加第二段查询与导入循环，并导入新模块；**当前 773 行，净增不得超过 20 行**，最终必须 ≤ 800）
+- `engine/core/events_judge.py`（新增，约 90 行：运行名生成与解析、工作流与运行列表的分页（含提前停止）、判定运行挑选）
+- `engine/reports/ledger.py`（只改 `GhClient.pr`：`--json` 加 `createdAt`、返回字典加 `createdAt`）
+- `engine/core/events_io.py`（只改 `GhClient.pr`（加 `createdAt`）与 `load_ci`（调用新模块的函数并把挑出的运行交给 `_download_run`）；**当前 773 行，净增不得超过 20 行**，最终必须 ≤ 800）
 - `tests/test_events_judge_runs.py`（新增，新测试全放这里；可以 `import` 其他测试模块里的桩与夹具辅助）
 - 七个既有测试文件的**假客户端路由**（设计评审 2 实测：新增的 `actions/workflows` 查询会撞上它们，`AssertionError` 或「api 响应形状不符」发现，而 `trace` 测试要求 `findings=[]`）。**每处只加一条路由，不改任何断言、不动其他代码**：
   - `tests/test_audit_events.py`（`FakeGh` 路由分发，`raise AssertionError(f"FakeGh 未配置的路由…")` 之前）
   - `tests/test_audit_completeness.py`、`tests/test_audit_ledger.py`、`tests/test_audit_reconstruction.py`、`tests/test_ledger_equivalent_head.py`（同样的 `FakeGh` 路由分发，同一位置）
   - `tests/test_trace_events_cli.py`（`FakeGh.api` 里，在按页返回运行列表之前）
-  - `tests/test_gh_json_fields.py`（T718 新增的 `_RunsStub.api`，在 `raise AssertionError(f"未预期的 API 路线…")` 之前）
-  新增的路由统一为：路径匹配 `repos/<owner>/<repo>/actions/workflows` 时返回 `{"total_count": 0, "workflows": []}`（`FakeGh.api` 版本按 `"/actions/workflows?" in route` 判断，且不影响 `calls` 记录）。不得靠捕获 `AssertionError`、忽略坏响应或识别测试桩绕过；这七处桩的断言一条都不许动。
+  - `tests/test_gh_json_fields.py`（①T718 新增的 `_RunsStub.api`，在 `raise AssertionError(f"未预期的 API 路线…")` 之前加空 `workflows` 路由；②`PrQueryTest` 里对 `GhClient.pr` 的**契约更新**：假响应 `pr_response` 加 `createdAt`，期望的调用字符串改为 `pr view <N> --json headRefName,headRefOid,url,createdAt`，期望的返回字典加 `createdAt`——这是本任务有意的接口变化（目标终态第 3a 条），不是削弱断言，字段合约测试对 `createdAt` 的检查保持不变）
+  新增的路由统一为：路径匹配 `repos/<owner>/<repo>/actions/workflows` 时返回 `{"total_count": 0, "workflows": []}`（`FakeGh.api` 版本按 `"/actions/workflows?" in route` 判断，且不影响 `calls` 记录）。不得靠捕获 `AssertionError`、忽略坏响应或识别测试桩绕过；这七处桩的断言一条都不许动（②是唯一的例外，已在上面逐项写明）。
 - `CHANGELOG.md`
 
 ## 消费方扫描（命令与输出，设计方 2026-10-07 执行；本仓库 cf45449）
@@ -94,7 +96,7 @@ $ diff templates/.github/workflows/auto-merge.yml .github/workflows/auto-merge.y
 | 沿用 PR 的 `head_sha`/`head_branch` 去核对判定运行包，必然 `origin_mismatch`（新接线的回归风险） | 对判定运行改用该运行自己的 API 值；验收有「包 origin 写成 PR head 反而被拒」的反例，防止核对被架空 |
 | 第二次查询失败拖垮已导入的结果 | 目标终态第 5 条；验收覆盖 |
 | 运行列表超过 1,000 条被平台静默截断 | 不带任何筛选参数（目标终态第 3 条）；验收有「目标运行落在第 11 页之后仍能找到」与「请求路由不含筛选参数」两条，变异把 `event=workflow_run` 加回去须失败 |
-| 判定运行很多时分页过多 | 沿用 `_list_all` 的 50 页上限与不收敛报告；按工作流列、无筛选，当前约 7 页，已知成本，按 PR 创建时间过滤列为后续待办，本任务不做 |
+| 判定运行很多时分页过多、随仓库增长迟早撞 50 页上限而整体失效 | 目标终态第 3a 条：按 PR 创建时间提前停止，读取量只取决于 PR 创建以来的运行数；验收有「目标在第 2 页、后面几十页都是旧运行 → 只读到第 4 页前后停止」「缺 `createdAt` 时读到底」「孤立的旧页夹在两个新页之间（单页旧不停止）时不漏」（只保证孤立旧页，不保证任意乱序）；变异去掉提前停止或改为单页停止须失败 |
 | 上游 CI 失败、`judge` 被跳过的运行被误当成「包缺失」 | 运行名只在 `judge` 会执行时带关联名（第 1 条）；验收有「跳过的运行是普通名、不被挑出、无发现」与「`judge` 已执行但包缺失 → `artifact_missing`」两个反例；耦合测试断言 `run-name` 的条件与 `judge.if` 逐字相同 |
 | 老模板（没有 run-name）的仓库 | 判定运行匹配不到，行为与现状相同，不新增报错；Migration 条目提示重新复制 |
 | `events_io.py` 超 800 行 | 新逻辑放新模块，`events_io` 净增 ≤ 20 行；验收断言两个文件的物理行数 |
@@ -104,7 +106,7 @@ $ diff templates/.github/workflows/auto-merge.yml .github/workflows/auto-merge.y
 ## 非目标
 
 - 不改 `judge` 以外任何 job 的行为，不改模板里其他步骤，不改 `.github/`（本仓库自己的副本，由设计方同步）。
-- 不加按创建时间的过滤、不处理同一运行多次重试（`run_attempt`）导致的旧 attempt 包的物理名发现（既有行为）。
+- 不处理同一运行多次重试（`run_attempt`）导致的旧 attempt 包的物理名发现（既有行为）。
 - 不改 `audit` 的 `missing_route` 规则，不处理 B118。
 - 白名单以外的文件一律不改；共用合同 C0 同样适用。
 
@@ -123,6 +125,7 @@ $ diff templates/.github/workflows/auto-merge.yml .github/workflows/auto-merge.y
 | 不挂规格：B117 | **端到端导入**：假客户端提供 PR 信息、分支运行（一个 harness 运行）、工作流列表（含 auto-merge 工作流）、该工作流的运行列表（一个匹配的判定运行，`head_branch=main`、`head_sha` 为 main 的提交）与两个运行的事件包 zip；判定包按真实形状含**两种 trace**（`cli.policy` 为 `main@<短 SHA>`，`route.facts`/`route.result` 为 PR 分支）；`load_ci` 导入两个包的事件，两种 trace 都原样保留；再调用一次，全部「跳过」、新增为 0 | 夹具 | `::LoadJudgeRunsTest` | 当前代码查不到判定运行；改写 trace |
 | 不挂规格：B117 | **消费者效果**：把上一行导入后的事件（`events_io.query`）装进最小的假审计对象，调用 `audit_completeness.check`：自动合并案例（合并事件 `merger_type=Bot`）不再报 `missing_route`；把 `route.result` 的 `auto_merge` 改为 `false` 时仍报 `missing_route`；没导入判定包时仍报 | 夹具 | `::ConsumerEffectTest` | 导入了却没被审计认出，或审计被放宽 |
 | 不挂规格：B117 | **进入合并账本**：复用上一行的导入夹具与 `tests/test_audit_ledger.py` 的账本夹具，调用真实 `ledger.build_ledger`：账本含该 PR trace 的 `route.facts`、`route.result` 及对应 `ci:…:judge` 链，**`main@<短 SHA>` trace 的事件不混入该 PR 的账本**；没导入判定包时账本没有 `route.result` | 夹具 | `::LedgerEffectTest` | 导入了却没进账本，或把别的 trace 混进账本 |
+| 不挂规格：B117 | **提前停止**（追溯：对应第 3a 条；承载实现的是 `events_judge.py`）（边界：页内运行时间恰等于 `createdAt − 1 天` 的阈值时不算「早于」、不停止；带小数秒的 `…:00.123Z`、`+00:00` 形式按可解析处理；**不带时区的 `2026-10-07T07:49:42` 与无法解析的字符串按不可解析**）：运行列表按创建时间倒序共 30 页，目标运行在第 2 页，其后全部早于 PR 创建一天以上 → 找到目标，且请求的页数不超过 4（目标页之后恰好再读到连续两页都旧即停）；`pr()` 不返回 `createdAt`（或值非法、页内运行 `created_at` 缺失）→ 读到最后一页、结果相同；**坏时间页之后接连续两页旧运行 → 仍读到底、目标仍被找到**（永久禁用）；一个旧页夹在两个新页之间（单页旧不停止）→ 后面的目标仍被找到；`GhClient.pr`（两处）的假 `gh` 输出含 `createdAt` 时返回字典带它，且 `tests/test_gh_json_fields.py` 的字段合约扫描仍通过 | 夹具 | `::EarlyStopTest` | 读取量随仓库运行总数增长，或提前停止漏掉目标 |
 | 不挂规格：B117 | **分页上限与请求形状**：运行列表共 1,001 条、目标运行在第 11 页 → 仍被找到并导入；断言发给客户端的路由里不含 `event=`、`branch=`、`status=`、`head_sha=`、`created=`、`actor=`、`check_suite_id=`；工作流列表里没有 auto-merge 工作流（老仓库）→ 不查运行、无发现、无报错；`.yaml` 扩展名的工作流同样被识别 | 夹具 | `::PaginationAndShapeTest` | 回到带筛选的查询而被截断 |
 | 不挂规格：B117 | **核对仍严格**：判定运行的包 `origin.head_sha` 写成 PR 的 head（而不是该运行的 API `head_sha`）→ `origin_mismatch` 且不导入；`origin.head_branch` 写成 PR 分支 → 同；`origin.run_id` 不符、`repository` 不符、事件 `source` 不是 `ci:<run>:<attempt>:<job>`、artifact 物理名与运行不符、artifact 过期、zip 损坏，各有对应发现；运行 API 记录的 `head_sha` 不是 40 位十六进制或 `head_branch` 为空 → `api` 发现并跳过该运行 | 夹具 | `::StrictVerificationTest` | 核对被架空 |
 | 不挂规格：B117 | **隔离与降级**：另一个 PR 号的判定运行不导入；`path` 不可信的运行不导入；运行名里 head 过期的计入一条 `head_mismatch` 发现且不导入；第二段查询（工作流列表或运行列表）失败（`api` 抛错或形状不符）时，分支运行已导入的结果保持，只多一条 `api` 发现；没有任何判定运行时不报错、不新增发现；**同一 PR/head 上游失败、`judge` 被跳过**的运行（普通名 `auto-merge`、无事件包）不被挑出、无任何发现；**`judge` 已执行（关联名）但包缺失** → 一条 `artifact_missing` | 夹具 | `::IsolationAndDegradationTest` | 失败扩散、误导入或误报缺包 |
@@ -136,12 +139,13 @@ $ diff templates/.github/workflows/auto-merge.yml .github/workflows/auto-merge.y
 | # | 改动 | 涉及文件 | 验证方式 | 对应验收 |
 |---|---|---|---|---|
 | 1 | 新模块 `events_judge.py`（运行名生成、整串匹配、挑选）与模板 `run-name`，先写耦合与挑选测试 | `engine/core/events_judge.py`、`templates/.github/workflows/auto-merge.yml`、`tests/test_events_judge_runs.py` | `python3 -W error::ResourceWarning -m unittest tests.test_events_judge_runs -v` | 验收第 1–2 行 |
-| 2 | `load_ci` 加第二段查询与导入；**先**在七个既有假客户端里各加一条空 `workflows` 路由（不改断言），再补端到端、核对与降级测试 | `engine/core/events_io.py`、`tests/test_events_judge_runs.py`、白名单里的七个既有测试文件 | 同上，加 `tests.test_events_io tests.test_trace_events_cli tests.test_audit_events` | 验收第 3–6 行 |
-| 3 | CHANGELOG；全量验证，整理交付证据 | `CHANGELOG.md` | `bin/verify --full` | 验收第 7 行 |
+| 2 | **先**在七个既有假客户端里各加一条空 `workflows` 路由（不改断言）；两处 `GhClient.pr` 加 `createdAt` 并按契约更新 `PrQueryTest`；`load_ci` 加第二段查询与导入；补端到端、核对、降级与提前停止测试 | `engine/core/events_judge.py`（分页、提前停止与挑选）、`engine/core/events_io.py`、`engine/reports/ledger.py`、`tests/test_events_judge_runs.py`、白名单里的七个既有测试文件 | 同上，加 `tests.test_events_io tests.test_trace_events_cli tests.test_audit_events` | 验收第 3–10 行 |
+| 3 | CHANGELOG；全量验证，整理交付证据 | `CHANGELOG.md` | `bin/verify --full` | 验收第 11 行 |
 
 ## 交付与升级
 
 完成项目检查 `bin/verify --full`。设计方另做逐行验收、G2（CI 的 `consumer-contract`）与定向变异复核，以下变异必须各自被对应断言抓住：
+- 提前停止：去掉提前停止（读取量随历史增长，`EarlyStopTest` 须失败）、改为单页停止（旧页夹在新页之间时漏目标须失败）、坏时间页之后重新启用提前停止、阈值比较改成 `<=`、`createdAt` 不可解析时仍停止；
 - 运行名匹配改成子串或 `startswith`、忽略大小写、去掉 `event == workflow_run` 或 `path` 条件、去掉 SHA 必须等于 `resolved` 的条件、PR 号只比前缀；
 - 判定运行的包改用 PR 的 `head_sha`/`head_branch` 核对（应拒绝 main 的值）；去掉 API 记录形状校验；
 - 第二段查询失败时整体返回失败、丢掉分支运行的结果；运行列表请求改回带 `event=workflow_run` 或其他筛选参数；改写判定包事件的 `trace_id`；`run-name` 的条件去掉或与 `judge.if` 不一致；
