@@ -22,20 +22,24 @@ issue list、run list、repo view。gh 升级后字段集可能变化：有新�
 from __future__ import annotations
 
 import ast
+import io
 import json
 import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from engine.core import events_io
+from engine.core import events_db, events_io
 from engine.reports import ledger
 
 ENGINE_DIR = Path(__file__).resolve().parents[1] / "engine"
@@ -365,6 +369,139 @@ class LoadCiRestShapeTest(unittest.TestCase):
         self.assertEqual(len(mismatched), 1)
         # 全部运行都落到 None head，去重后只报一次；关键是一个都导入不了
         self.assertIn("1 个其他 head", mismatched[0]["detail"])
+
+
+GIT_ENV = {
+    "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
+    "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+}
+PAYLOAD_SHA = "b" * 40
+AMBIENT_SHA = "d" * 40
+
+
+class OriginTest(unittest.TestCase):
+    """验收 5、6：_origin 只在真实 pull_request 运行的全套证据下取载荷里的 PR head。
+
+    GITHUB_SHA 必须等于检出的 HEAD：真实 PR 的 CI 里两者必然相等（actions/checkout 默认检出
+    refs/pull/N/merge）；本机与测试夹具的临时仓库不等，自动回落到现状，不被外层污染。
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dh-gh-json-fields-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.repo = self.fresh_repo()
+        root_patch = mock.patch.object(events_db, "ROOT", self.repo)
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
+        env_patch = mock.patch.dict(os.environ)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        for key in [name for name in os.environ if name.startswith(("GITHUB_", "CI"))]:
+            os.environ.pop(key, None)
+        self.head = self.git("rev-parse", "HEAD")
+
+    def fresh_repo(self) -> Path:
+        path = self.tmp / "fixture"
+        path.mkdir()
+        env = {**{k: v for k, v in os.environ.items() if not k.startswith("GIT_")}, **GIT_ENV}
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True,
+                       capture_output=True, env=env)
+        (path / "README.md").write_text("# fixture\n")
+        subprocess.run(["git", "add", "-A"], cwd=path, check=True, capture_output=True, env=env)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=path, check=True,
+                       capture_output=True, env=env)
+        return path
+
+    def git(self, *args: str) -> str:
+        env = {**{k: v for k, v in os.environ.items() if not k.startswith("GIT_")}, **GIT_ENV}
+        result = subprocess.run(["git", *args], cwd=self.repo, check=True,
+                                capture_output=True, text=True, env=env)
+        return result.stdout.strip()
+
+    def write_payload(self, content: str | None = None, *, serial: int | None = None) -> Path:
+        path = self.tmp / ("event-payload.json" if serial is None else f"event-payload-{serial}.json")
+        path.write_text(content if content is not None else json.dumps(
+            {"action": "synchronize", "number": 181,
+             "pull_request": {"head": {"ref": BRANCH, "sha": PAYLOAD_SHA}}}), encoding="utf-8")
+        return path
+
+    def set_pull_request_env(self, *, ci: bool = True, event_name: str | None = "pull_request",
+                             payload: Path | None = None, ambient_sha: str | None = None,
+                             ambient_equals_head: bool = True):
+        """按需摆出真实形状的外层 PR 环境；载荷 sha 固定 PAYLOAD_SHA（不等于夹具 HEAD）。
+
+        先清掉相关变量再按参数设置，避免各用例之间互相残留。
+        """
+        for key in ("CI", "GITHUB_EVENT_NAME", "GITHUB_EVENT_PATH", "GITHUB_SHA"):
+            os.environ.pop(key, None)
+        if ci:
+            os.environ["CI"] = "true"
+        if event_name:
+            os.environ["GITHUB_EVENT_NAME"] = event_name
+        if payload is not None:
+            os.environ["GITHUB_EVENT_PATH"] = str(payload)
+        if ambient_sha is not None:
+            os.environ["GITHUB_SHA"] = ambient_sha
+        elif ambient_equals_head:
+            os.environ["GITHUB_SHA"] = self.head
+
+    def test_pull_request_head_comes_from_the_event_payload_only(self):
+        # 全套证据齐全：origin.head_sha 取载荷里的 PR head，而不是检出的合成合并提交
+        self.set_pull_request_env(payload=self.write_payload())
+        origin = events_io._origin()
+        self.assertEqual(origin["head_sha"], PAYLOAD_SHA)
+        self.assertNotEqual(origin["head_sha"], self.head)
+        self.assertIn("head_sha", json.dumps(origin))
+        self.assertNotIn(str(self.tmp / "event-payload.json"), json.dumps(origin),
+                         "事件载荷的路径不得进入事件包")
+
+        # 反例逐项：其余一律保持现状（git rev-parse HEAD）；各用例独立的载荷文件，避免互相覆盖
+        regressions = {
+            "push": {"event_name": "push", "payload": self.write_payload(serial=1)},
+            "workflow_run": {"event_name": "workflow_run", "payload": self.write_payload(serial=2)},
+            "非 CI": {"ci": False, "payload": self.write_payload(serial=3)},
+            "载荷文件不存在": {"payload": self.tmp / "missing.json"},
+            "JSON 损坏": {"payload": self.write_payload("{not json", serial=4)},
+            "缺 pull_request": {"payload": self.write_payload('{"issue": {"number": 1}}', serial=5)},
+            "head.sha 不是 40 位十六进制": {
+                "payload": self.write_payload('{"pull_request": {"head": {"sha": "short"}}}', serial=6)},
+            "GITHUB_SHA 缺失": {"payload": self.write_payload(serial=7),
+                              "ambient_sha": None, "ambient_equals_head": False},
+            "GITHUB_SHA 不等于检出 HEAD": {"payload": self.write_payload(serial=8),
+                                            "ambient_sha": AMBIENT_SHA},
+        }
+        for label, kwargs in regressions.items():
+            with self.subTest(case=label):
+                self.set_pull_request_env(**kwargs)
+                self.assertEqual(events_io._origin()["head_sha"], self.head)
+
+    def test_ambient_pull_request_env_does_not_leak_into_fixture_repos(self):
+        # 外层带真实形状的 PR 变量（GITHUB_SHA 与夹具仓库的 HEAD 不同）时，夹具仓库取自己的 HEAD
+        self.set_pull_request_env(payload=self.write_payload(), ambient_sha=AMBIENT_SHA)
+        self.assertEqual(events_io._origin()["head_sha"], self.head)
+
+        # 同一场景跑在 test_trace_events_cli 的真实夹具路径上（真实 emit/export 生成 CI 包）
+        import test_trace_events_cli
+
+        method = next(name for name in dir(test_trace_events_cli.ObservabilityTaskTest)
+                      if name.startswith("test_"))
+        case = test_trace_events_cli.ObservabilityTaskTest(method)
+        case.setUp()
+        try:
+            head, zips = case.build_ci_packages()
+            self.assertNotEqual(head, AMBIENT_SHA)
+            self.assertNotEqual(head, PAYLOAD_SHA)
+            for name, data in zips.items():
+                with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                    member = archive.namelist()[0]
+                    origin = json.loads(archive.read(member))["origin"]
+                self.assertEqual(origin["head_sha"], head,
+                                 f"{name} 的 origin.head_sha 是夹具仓库自己的 HEAD")
+                self.assertNotIn(origin["head_sha"], {AMBIENT_SHA, PAYLOAD_SHA},
+                                 f"{name} 的 origin.head_sha 不得来自外层环境或载荷")
+        finally:
+            case.doCleanups()
 
 
 class FieldContractTest(unittest.TestCase):

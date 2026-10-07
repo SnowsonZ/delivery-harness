@@ -167,7 +167,29 @@ def _origin() -> dict:
     if remote and events._clean_str(remote, _ORIGIN_LIMIT) is not None:
         origin["repository"] = remote  # 本机路径形式的 remote 不外发（也是导入隐私口径）
     head_sha = git("rev-parse", "HEAD", cwd=events_db.ROOT, check=False, isolate=True)
-    if head_sha and _SHA_RE.fullmatch(head_sha):
+    # pull_request 运行检出的是 GitHub 合成的合并提交，PR 的真实 head 只在事件载荷里：仅在 CI
+    # 证据齐全（CI=true、事件类型 pull_request、载荷可读且含 40 位十六进制的 pull_request.head.sha）
+    # 且 GITHUB_SHA 等于检出的 HEAD 时才采用；其余情形（其他事件、非 CI、载荷不可读或形状不符、
+    # 以及测试夹具的临时仓库 HEAD 与外层 GITHUB_SHA 不等）一律保持现状。只取 SHA，载荷的路径
+    # 与内容不进事件包。
+    ambient_sha = os.environ.get("GITHUB_SHA")
+    payload_head = None
+    if (os.environ.get("CI") == "true" and os.environ.get("GITHUB_EVENT_NAME") == "pull_request"
+            and ambient_sha and _SHA_RE.fullmatch(ambient_sha) and ambient_sha == head_sha):
+        event_path = os.environ.get("GITHUB_EVENT_PATH")
+        try:
+            with open(event_path, encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError):
+            payload = None
+        node = payload.get("pull_request") if isinstance(payload, dict) else None
+        node = node.get("head") if isinstance(node, dict) else None
+        candidate = node.get("sha") if isinstance(node, dict) else None
+        if isinstance(candidate, str) and _SHA_RE.fullmatch(candidate):
+            payload_head = candidate
+    if payload_head:
+        origin["head_sha"] = payload_head
+    elif head_sha and _SHA_RE.fullmatch(head_sha):
         origin["head_sha"] = head_sha
     if os.environ.get("CI") == "true":
         branch = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or ""
