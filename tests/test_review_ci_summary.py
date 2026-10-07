@@ -63,7 +63,10 @@ class CiSummaryTest(unittest.TestCase):
         self.assertNotIn("读不到", text)
 
     def test_invalid_output_falls_back_too(self):
-        for bad in ("不是 JSON", json.dumps({"x": 1}), json.dumps([{"name": "a"}]), json.dumps(None)):
+        # 非 JSON、非列表的合法 JSON（对象、空对象、字符串、空字符串、数字、null）、缺键的列表都要回退，
+        # 其中 {} 与 "" 迭代为空，若不检查顶层类型会被误写成「没有 CI 检查」。
+        for bad in ("不是 JSON", json.dumps({"x": 1}), json.dumps({}), json.dumps(""), json.dumps(5),
+                    json.dumps([{"name": "a"}]), json.dumps(None)):
             with self.subTest(output=bad[:12]):
                 gh = FakeGh(checks=bad, view=rollup({"name": "harness", "status": "COMPLETED", "conclusion": "SUCCESS",
                                                     "detailsUrl": "u"}))
@@ -95,9 +98,12 @@ class CiSummaryTest(unittest.TestCase):
         self.assertTrue(text.startswith("读不到 CI 检查结果："))
         self.assertIn("网络断开", text)
         self.assertIn("TLS 握手失败", text)
-        long = review.ci_summary(7, FakeGh(checks=RuntimeError("a" * 5000), view=RuntimeError("TAIL")))
-        self.assertLessEqual(len(long), len("读不到 CI 检查结果：") + review.CI_REASON_LIMIT)
-        self.assertTrue(long.endswith("TAIL"))  # 取尾部
+        # 两条原因都很长时仍能分辨双方：各自保留来源名与错误尾部，总长受限
+        long = review.ci_summary(7, FakeGh(checks=RuntimeError("a" * 5000 + "TAIL-ONE"),
+                                           view=RuntimeError("b" * 5000 + "TAIL-TWO")))
+        self.assertLessEqual(len(long), len("读不到 CI 检查结果：") + review.CI_REASON_LIMIT + 1)
+        for token in ("gh pr checks：", "TAIL-ONE", "gh pr view：", "TAIL-TWO"):
+            self.assertIn(token, long)
 
 
 class ReviewScopeTest(unittest.TestCase):
@@ -108,7 +114,8 @@ class ReviewScopeTest(unittest.TestCase):
         self.assertIn("## 不属于你评审的", self.prompt)
         section = self.prompt.split("## 不属于你评审的", 1)[1].split("## 怎么评", 1)[0]
         for phrase in ("定向变异复核", "不是发现", "「需用户验收」", "`consumer-contract`", "`bin/verify --full`",
-                       "测试设计无效", "CI 失败", "不要猜测通过或失败", "仅评审 PR 时"):
+                       "测试设计无效", "CI 失败", "不要猜测通过或失败", "仅评审 PR 时",
+                       "只适用于配置了它的项目", "不要求补它", "不要把它的缺失写成发现"):
             self.assertIn(phrase, self.prompt if phrase == "仅评审 PR 时" else section, phrase)
         self.assertLess(self.prompt.index("## 不属于你评审的"), self.prompt.index("## 怎么评"))
 

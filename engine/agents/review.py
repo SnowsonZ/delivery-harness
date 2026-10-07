@@ -317,7 +317,7 @@ def review_base(pr: dict, workspace: Path) -> str:
     return git("merge-base", "origin/main", "HEAD", cwd=workspace)
 
 
-CI_REASON_LIMIT = 600  # 读不到时写进 ci.md 的原因文本上限（各取尾部），够诊断又不撑爆材料
+CI_REASON_LIMIT = 600  # 读不到时写进 ci.md 的原因文本总上限，够诊断又不撑爆材料；两条原因各占一半，各自保留来源与尾部
 
 
 def _rollup_lines(rollup: list) -> tuple[list[str], int]:
@@ -343,6 +343,12 @@ def _rollup_lines(rollup: list) -> tuple[list[str], int]:
     return lines, skipped
 
 
+def _reason(source: str, error: Exception) -> str:
+    """一条失败原因：保留来源名，错误文本取尾部，每条最多占总额度的一半。"""
+    budget = CI_REASON_LIMIT // 2 - len(source) - 1
+    return f"{source}：{str(error)[-budget:]}"
+
+
 def ci_summary(number: int, github) -> str:
     """当前 head 的 CI 检查结论与链接（评审方据此核对 PR 描述中「CI 通过」的说法）。
 
@@ -351,9 +357,11 @@ def ci_summary(number: int, github) -> str:
     reasons: list[str] = []
     try:
         checks = json.loads(github._run(["gh", "pr", "checks", str(number), "--json", "name,state,link"]))
+        if not isinstance(checks, list):  # {}、""、数字等合法 JSON 不是检查列表，不能当作「没有检查」
+            raise TypeError(f"顶层不是列表（{type(checks).__name__}）")
         return "\n".join(f"- {item['name']}：{item['state']}（{item['link']}）" for item in checks) or "没有 CI 检查。"
     except (RuntimeError, json.JSONDecodeError, TypeError, KeyError) as error:
-        reasons.append(f"gh pr checks：{error}")
+        reasons.append(_reason("gh pr checks", error))
     try:
         data = json.loads(github._run(["gh", "pr", "view", str(number), "--json", "statusCheckRollup"]))
         rollup = data.get("statusCheckRollup") if isinstance(data, dict) else None
@@ -364,9 +372,8 @@ def ci_summary(number: int, github) -> str:
             lines.append(f"- （另有 {skipped} 项缺少名称或形状异常，未能列出：这份 CI 结论不完整）")
         return "\n".join(lines) or "没有 CI 检查。"
     except (RuntimeError, json.JSONDecodeError, TypeError, ValueError) as error:
-        reasons.append(f"gh pr view：{error}")
-    detail = "；".join(reasons)
-    return f"读不到 CI 检查结果：{detail[-CI_REASON_LIMIT:]}"
+        reasons.append(_reason("gh pr view", error))
+    return "读不到 CI 检查结果：" + "；".join(reasons)
 
 
 def taskbook_from_pr_text(base: str, title: str, body: str, workspace: Path) -> tuple[str, str]:
