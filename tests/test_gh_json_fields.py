@@ -317,6 +317,56 @@ class PrQueryTest(unittest.TestCase):
                     self.assertEqual(result["headRefName"], BRANCH)  # 其余键不受 url 影响
 
 
+class _RunsStub:
+    """load_ci 的 gh 桩：pr 视图固定，runs 走分页 API，artifacts 只记录查询路线（无包 → 有发现）。"""
+
+    def __init__(self, runs: list[dict]):
+        self.runs = runs
+        self.artifact_routes: list[str] = []
+
+    def pr(self, pr: int) -> dict:
+        return {"headRefName": BRANCH, "headRefOid": HEAD, "repository": "owner/repo"}
+
+    def api(self, route: str):
+        if "/artifacts?" in route:
+            self.artifact_routes.append(route)
+            return {"total_count": 0, "artifacts": []}
+        if "/actions/runs?" in route:
+            return {"total_count": len(self.runs), "workflow_runs": self.runs}
+        raise AssertionError(f"未预期的 API 路线：{route}")
+
+    def download(self, url: str) -> bytes:
+        raise AssertionError(f"不应下载：{url}")
+
+
+class LoadCiRestShapeTest(unittest.TestCase):
+    """验收 4：load_ci 按 REST 字段名（head_sha）匹配运行；命令行写法（headSha）一个也不匹配。"""
+
+    def test_matches_runs_by_rest_head_sha(self):
+        stub = _RunsStub([
+            {"id": 9100, "run_attempt": 1, "head_sha": HEAD, "path": ".github/workflows/harness.yml"},
+            {"id": 9101, "run_attempt": 1, "head_sha": "e" * 40, "path": ".github/workflows/harness.yml"},
+        ])
+        result = events_io.load_ci(PR_NUMBER, gh=stub)
+        self.assertEqual(stub.artifact_routes,
+                         ["repos/owner/repo/actions/runs/9100/artifacts?per_page=100&page=1"],
+                         "head 匹配的运行按 REST 形状被处理并查询 artifacts")
+        mismatched = [item for item in result["findings"] if item["code"] == "head_mismatch"]
+        self.assertEqual(len(mismatched), 1)
+        self.assertIn("1 个其他 head", mismatched[0]["detail"])
+        # 旧形状：gh 命令行写法的 headSha 在 REST 响应里不存在，所有运行都是 None head，一个也匹配不上
+        legacy = _RunsStub([
+            {"id": 9100, "run_attempt": 1, "headSha": HEAD, "path": ".github/workflows/harness.yml"},
+            {"id": 9101, "run_attempt": 1, "headSha": "e" * 40, "path": ".github/workflows/harness.yml"},
+        ])
+        result = events_io.load_ci(PR_NUMBER, gh=legacy)
+        self.assertEqual(legacy.artifact_routes, [], "旧形状下没有任何运行被处理")
+        mismatched = [item for item in result["findings"] if item["code"] == "head_mismatch"]
+        self.assertEqual(len(mismatched), 1)
+        # 全部运行都落到 None head，去重后只报一次；关键是一个都导入不了
+        self.assertIn("1 个其他 head", mismatched[0]["detail"])
+
+
 class FieldContractTest(unittest.TestCase):
     """验收 3：engine/ 全部 --json 调用点按实际命令校验字段；无法解析的必须显式登记。"""
 

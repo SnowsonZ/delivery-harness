@@ -378,9 +378,9 @@ class ObservabilityTaskTest(unittest.TestCase):
     def test_ci_download_pagination_and_idempotence(self):
         head, zips = self.build_ci_packages()
         runs = [
-            {"id": 9000, "headSha": "b" * 40, "path": ".github/workflows/harness.yml", "run_attempt": 1},
-            {"id": 9001, "headSha": head, "path": ".github/workflows/harness.yml", "run_attempt": 2},
-            {"id": 9002, "headSha": head, "path": ".github/workflows/auto-merge.yml", "run_attempt": 1},
+            {"id": 9000, "head_sha": "b" * 40, "path": ".github/workflows/harness.yml", "run_attempt": 1},
+            {"id": 9001, "head_sha": head, "path": ".github/workflows/harness.yml", "run_attempt": 2},
+            {"id": 9002, "head_sha": head, "path": ".github/workflows/auto-merge.yml", "run_attempt": 1},
         ]
         artifacts_9001 = [
             {"id": 1, "name": "harness-events-9001-1-job_b", "expired": True,

@@ -778,13 +778,13 @@ def load_ci(pr: int, *, head: str | None = None, gh=None) -> dict:
     if runs is None:
         return {"imported": 0, "skipped": 0, "findings": findings}
     trusted = [run for run in runs if run.get("path") in _TRUSTED_PATHS]
-    stale = sorted({str(run.get("headSha")) for run in trusted if run.get("headSha") != resolved})
+    stale = sorted({str(run.get("head_sha")) for run in trusted if run.get("head_sha") != resolved})
     if stale:
         findings.append(_finding("head_mismatch", f"{len(stale)} 个其他 head 的运行未导入"
                                                  f"（只导入 head {resolved[:7]}…）"))
     imported = skipped = 0
     for run in sorted(trusted, key=lambda item: str(item.get("id"))):
-        if run.get("headSha") != resolved:
+        if run.get("head_sha") != resolved:
             continue
         artifacts = _list_all(client, f"repos/{repo}/actions/runs/{run.get('id')}/artifacts?per_page=100",
                               "artifacts", findings)
