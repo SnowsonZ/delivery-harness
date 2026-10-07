@@ -576,6 +576,21 @@ class OriginTest(OriginFixture):
             case.doCleanups()
 
 
+def imports_events_io(source: str) -> list[str]:
+    """源码里所有指向 events_io 的导入（import、from … import、别名、相对导入都算）。"""
+    found: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            names = [base] + [f"{base}.{alias.name}" if base else alias.name for alias in node.names]
+        else:
+            continue
+        found += [name for name in names if name == "events_io" or name.endswith(".events_io")]
+    return found
+
+
 class OriginMoveTest(OriginFixture):
     """验收 8：搬迁之后 events_io 的同名导入可用、行数不超 B81 棘轮、导出事件包 origin 键集与搬迁前一致。"""
 
@@ -588,14 +603,36 @@ class OriginMoveTest(OriginFixture):
 
         # events_origin 不得导入 events_io（避免循环），按 AST 读源码断言
         source = (ENGINE_DIR / "core" / "events_origin.py").read_text(encoding="utf-8")
-        imported: set[str] = set()
-        for node in ast.walk(ast.parse(source)):
-            if isinstance(node, ast.Import):
-                imported.update(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                imported.add(node.module)
-        circular = [name for name in imported if name == "events_io" or name.endswith(".events_io")]
+        circular = imports_events_io(source)
         self.assertEqual(circular, [], f"events_origin 不得导入 events_io（避免循环），发现：{circular}")
+
+    def test_cycle_check_sees_every_import_shape(self):
+        """评审一般发现、设计方变异 D12：`from engine.core import events_io` 的模块名是 engine.core，
+        events_io 在别名里，只看 ImportFrom.module 会漏掉；相对导入同理。"""
+        bad = [
+            "import engine.core.events_io",
+            "import engine.core.events_io as eio",
+            "from engine.core import events_io",
+            "from engine.core import events, events_io",
+            "from engine.core import events_io as eio",
+            "from engine.core.events_io import something",
+            "from . import events_io",
+            "from .events_io import something",
+            "from .. import events_io",
+        ]
+        for line in bad:
+            with self.subTest(line=line):
+                self.assertTrue(imports_events_io(line), line)
+        good = [
+            "from engine.core import events, events_db",
+            "from engine.core.common import git",
+            "from . import events",
+            "import os, json",
+            "from engine.core import events_origin",
+        ]
+        for line in good:
+            with self.subTest(line=line):
+                self.assertEqual(imports_events_io(line), [], line)
 
         # B81 质量棘轮：搬迁的两个文件物理行数都不超过 800
         for name in ("core/events_io.py", "core/events_origin.py"):
