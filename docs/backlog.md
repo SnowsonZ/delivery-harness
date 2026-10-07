@@ -98,6 +98,7 @@ B34–B41 的处理建议（B35 与 B36 先做、B41 放弃等）用户 2026-09-
 
 | 编号 | 事项 | 关闭 |
 |---|---|---|
+| B112 | pre-push 钩子对只删分支这类没有新内容的推送也跑默认档 verify（含全量单测，本机约 6 到 8 分钟；2026-10-07 清理 148 个远端分支时实测）。做法：新增 `verify --push` 轻量档（快速检查＋质量棘轮＋文档链接，约 2.3 秒，不含全量测试与回放），由 `rules.toml [guard] pre_push_tier` 选用（取自 origin/main，只有明确写 `"push"` 才生效），本仓库已配 | 2026-10-07，delivery-harness #175（引擎）与本自举升级 PR（本仓库钩子生效） |
 | B106 | T715 平台验收（合并并升级本仓库后执行）：P1 必需检查 pending 时开启，核对 `autoMergeRequest` 开启者、合并者与 main push；P2 开启后推新提交（批准作废、重判后重新开启）及等待状态下重复 `--auto` 的行为与退出码；P2b 等待中 main 前进，`push` job 的 `update-branch` 前后 `autoMergeRequest`、批准状态与再开启；P3 开启后发布「不通过」评审，请求被清空；P4 `automerge-off` 在有未完成运行时非零退出并列出，结束后撤销存量请求并复查 0 退出。原始输出记入本行关闭时的 PR | 2026-10-07，delivery-harness 本 PR；记录见 `docs/review/t715-platform-acceptance.md`（P1、P2b、P3、P4 通过；P4「有未完成运行时非零退出」未在真实环境碰到，由单元测试覆盖） |
 | B102 | 自动合并只在 `harness` 完成时触发：必需检查还包括 `ci` 工作流的 `test (ubuntu)`、`test (macos)`，macOS 常比 harness 晚 2–3 分钟结束；merge-app 在必需检查未完成时合并被 ruleset 拒绝，之后没有任何触发，PR 卡住，需人工重跑（G 实测：#147 13:02 被拒，13:05 macOS 才完成）。修法：`ci` 完成时也触发 auto-merge，合并前确认必需检查全部通过、否则静默退出；或改用 GitHub 原生的自动合并（需仓库开启 Allow auto-merge） | 2026-10-07，delivery-harness #162（T715，原生自动合并）；平台行为验收见 B106 |
 | B104 | CI 轮次预算把同步与重跑也算进执行方的轮次：`run_check` 统计分支上已完成的 CI 轮次，同步 App 的同步提交、设计方的 harness 重跑都算一轮，PR 被同步两次即「超出预算」转人审。G 实测：#144 标记有效但「已完成 3 轮，预算 2 轮」。修法：只统计执行方推送的提交触发的轮次（按提交作者或派发记录的轮次） | 2026-10-07，delivery-harness #162（T715，原生自动合并）；平台行为验收见 B106 |

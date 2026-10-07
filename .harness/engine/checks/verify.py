@@ -2,6 +2,7 @@
 
     bin/verify              默认档：工具版本、仓库卫生、质量棘轮、文档链接、验收映射、任务书准入与项目检查（lint、测试等）
     bin/verify --quick      快速档：工具版本、仓库卫生与标为 quick 的项目检查（pre-commit 用）
+    bin/verify --push       轻量档：快速档 + 熵治理棘轮与文档链接，不含全量测试与回放（pre-push 可选，见 rules.toml [guard] pre_push_tier）
     bin/verify --full       完整档：默认档 + 事故回放（注入历史缺陷，对应测试必须失败）
     bin/verify --strict     任何被跳过的检查都算失败（防止平台相关检查被静默跳过）
 
@@ -108,7 +109,15 @@ def _is_macos() -> bool:
     return sys.platform == "darwin" and shutil.which("xcrun") is not None
 
 
-ALL_TIERS = ("quick", "default", "full")
+ALL_TIERS = ("quick", "push", "default", "full")
+
+
+def in_tier(check: Check, tier: str) -> bool:
+    """检查是否属于该档。push 档（pre-push 的轻量选项）= quick 档 + 标了 push 的检查：不含全量测试与回放，
+    所以项目只要把秒级检查标成 quick，不必另外标 push。"""
+    if tier == "push":
+        return "push" in check.tiers or "quick" in check.tiers
+    return tier in check.tiers
 
 
 def builtin_checks(strict: bool = False) -> list[Check]:
@@ -121,9 +130,9 @@ def builtin_checks(strict: bool = False) -> list[Check]:
         Check("integrity", ALL_TIERS, command=[*cli, "integrity"]),
         Check("hygiene", ALL_TIERS, command=[*cli, "hygiene", "--tracked"]),
         # 熵治理棘轮（quality）：复杂度超标函数数与超长文件数只降不升。
-        Check("quality", ("default", "full"), command=[*cli, "quality"]),
+        Check("quality", ("push", "default", "full"), command=[*cli, "quality"]),
         # 文档熵治理（docs）：已跟踪 Markdown 的相对链接断链即失败；陈旧状态只报告。
-        Check("docs", ("default", "full"), command=[*cli, "docs"]),
+        Check("docs", ("push", "default", "full"), command=[*cli, "docs"]),
         # 规格验收编号 ↔ 测试映射（acceptance）：引用失效或新增无测试条目即失败。
         Check("acceptance", ALL_TIERS, command=[*cli, "acceptance"]),
         # 任务书准入（taskbook）：头部、类别与风险、验收挂规格编号、步骤交叉核对。
@@ -379,6 +388,7 @@ def main(argv: list[str] | None = None) -> int:
     tier = parser.add_mutually_exclusive_group()
     tier.add_argument("--quick", action="store_const", dest="tier", const="quick")
     tier.add_argument("--full", action="store_const", dest="tier", const="full")
+    tier.add_argument("--push", action="store_const", dest="tier", const="push")
     parser.add_argument("--only", help="只跑这些检查（逗号分隔）")
     parser.add_argument("--skip", default="", help="跳过这些检查（逗号分隔，会记入汇总）")
     parser.add_argument("--strict", action="store_true", help="被跳过的检查算失败")
@@ -386,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     tier_name = args.tier or "default"
 
-    checks = [check for check in build_checks(args.strict) if tier_name in check.tiers]
+    checks = [check for check in build_checks(args.strict) if in_tier(check, tier_name)]
     if args.only:
         wanted = set(args.only.split(","))
         unknown = wanted - {check.name for check in build_checks(args.strict)}
