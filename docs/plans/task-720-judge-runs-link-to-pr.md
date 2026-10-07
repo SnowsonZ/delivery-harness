@@ -8,7 +8,7 @@ architecture: true
 spec_refs: []
 no_spec_reason: 待办 B117（T718 病灶调查发现：auto-merge 判定运行的事件包与 PR 没有任何可核对的关联，route 事件永远导入不进来）；用户 2026-10-07 决定先修再回主线
 budget:
-  wall_clock_min: 90
+  wall_clock_min: 600
   ci_rounds: 2
   retries: 1
   tokens: null
@@ -153,3 +153,7 @@ $ diff templates/.github/workflows/auto-merge.yml .github/workflows/auto-merge.y
 - `events_judge` 反向导入 `events_io`（`from engine.core import events_io` 写法也要抓住）；`events_io` 净增超过 20 行。
 
 **合并后的接续（设计方，不在本任务内）**：① 另开 R3 PR 把模板的 `run-name` 同步到本仓库的 `.github/workflows/auto-merge.yml`，用户合并；② 再走一次引擎自升级 PR（R3）；③ 随后在下一个自动合并的 PR 上跑 `trace --ci`、`audit`，应能看到 `route.result` 且没有 `missing_route`。
+
+## 修订记录
+
+**修订 1（2026-10-07，首次派发启动后）**：`wall_clock_min` 90 → 600。用户 2026-10-07 决定先不设时长上限、只靠卡死检测（`stall_minutes`，15 分钟既无输出也无文件变化即中止）；T719 的任务书已于其修订 1 改过，T720 漏改，首次派发启动 27 秒后被停机，未产生任何改动。`budget.wall_clock_min` 没有校验上限，写 600 即等于关闭，不改引擎。验收与范围不变。
