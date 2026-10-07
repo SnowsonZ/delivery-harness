@@ -1,0 +1,178 @@
+{
+  "task": "T719",
+  "class": "K5",
+  "attempt": 1,
+  "branch": "task/719-audit-ledger-github-snapshot",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "8a5ec9a81e90d2799d0544c6e2b49a0c07cf65cae83ad9589edb87cbe077aff0",
+  "prompt_path": "docs/runs/task-719-audit-ledger-github-snapshot/1.prompt.md",
+  "guard_ref": "9f32dcb8f5001a8a29f90936df05b86ca68af60b",
+  "started_at": "2026-10-07T14:01:43+00:00",
+  "ended_at": "2026-10-07T14:46:00+00:00",
+  "executor_seconds": 2656.5,
+  "exit": "clarify",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [
+    {
+      "category": "spec",
+      "summary": "spec_ambiguous",
+      "ref": "docs/plans/task-719-audit-ledger-github-snapshot.md"
+    }
+  ],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 2967749,
+  "gen_ai.usage.output_tokens": 51946,
+  "cost": 0.140404,
+  "escalation": "clarify",
+  "trace_id": "task/719-audit-ledger-github-snapshot",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-07T12:25:54.628Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-07T12:25:56.834Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-07T12:25:59.704Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "claim",
+      "status": "ok",
+      "ts": "2026-10-07T12:26:05.055Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "fail",
+      "ts": "2026-10-07T13:26:10.786Z",
+      "duration_ms": 3604016,
+      "attempt": 1,
+      "round": 1
+    },
+    {
+      "stage": "verify",
+      "step": "verify.lint",
+      "status": "fail",
+      "ts": "2026-10-07T13:26:13.379Z",
+      "duration_ms": 65,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "fail",
+      "ts": "2026-10-07T13:26:13.400Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "fail",
+      "ts": "2026-10-07T13:26:13.422Z",
+      "duration_ms": 1239,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-07T13:59:42.778Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-07T13:59:45.229Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-07T14:01:36.396Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-07T14:01:39.451Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-07T14:01:43.251Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-07T14:46:00.694Z",
+      "duration_ms": 2656489,
+      "attempt": 1,
+      "round": 2
+    },
+    {
+      "stage": "dispatch",
+      "step": "clarify",
+      "status": "ok",
+      "ts": "2026-10-07T14:46:00.722Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "f9a5c174253ace70ae0c2c14bb77ac2ecb1f9b0ebb88c780cce2041fa2006d05",
+      "fixed_in": "run_record"
+    }
+  ]
+}
