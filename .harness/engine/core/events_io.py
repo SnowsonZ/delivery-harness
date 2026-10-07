@@ -23,7 +23,7 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from engine.core import events, events_db
+from engine.core import events, events_db, events_judge
 from engine.core.events_origin import ORIGIN_LIMIT as _ORIGIN_LIMIT
 from engine.core.events_origin import SHA_RE as _SHA_RE
 from engine.core.events_origin import origin as _origin
@@ -623,10 +623,12 @@ class GhClient:
     def pr(self, pr: int) -> dict:
         # baseRepository 不是 gh pr view 的合法 JSON 字段（GraphQL 有、gh 没有，gh 2.92 报 Unknown JSON field）：
         # 改从 url 解析仓库名，url 缺失或形状不符时 repository 为 None，由调用方的形状校验报告。
-        data = json.loads(self._run(["pr", "view", str(pr), "--json", "headRefName,headRefOid,url"]))
+        # createdAt 是 PR 创建时间（判定运行分页提前停止的基准，events_judge 原样使用，缺失读到底）。
+        data = json.loads(self._run(["pr", "view", str(pr), "--json", "headRefName,headRefOid,url,createdAt"]))
         match = re.search(r"\Ahttps?://[^/]+/([^/]+)/([^/]+)/pull/[0-9]+\Z", str(data.get("url") or ""))
         return {"headRefName": data.get("headRefName"), "headRefOid": data.get("headRefOid"),
-                "repository": f"{match[1]}/{match[2]}" if match else None}
+                "repository": f"{match[1]}/{match[2]}" if match else None,
+                "createdAt": data.get("createdAt")}
 
     def api(self, route: str):
         return json.loads(self._run(["api", route]))
@@ -735,7 +737,9 @@ def load_ci(pr: int, *, head: str | None = None, gh=None) -> dict:
     """下载 PR 关联的 CI 事件包（harness 与 auto-merge 多 job/attempt）并幂等导入（C5）。
 
     只信 API：仓库、工作流路径、run/head 与物理名逐项核对包 origin 与事件 source；过期/缺失/
-    坏包/其他 head 的运行逐项记 findings；分页不收敛明确报告。
+    坏包/其他 head 的运行逐项记 findings；分页不收敛明确报告。auto-merge 的判定运行由
+    workflow_run 触发、在 API 里归在默认分支，分支查询查不到（B117）：由 events_judge 按工作流
+    列运行、以默认分支定义渲染的运行名关联 PR，判定包按该运行自己的 API 记录核对。
     """
     findings: list[dict] = []
     client = GhClient() if gh is None else gh
@@ -752,22 +756,33 @@ def load_ci(pr: int, *, head: str | None = None, gh=None) -> dict:
     runs = _list_all(client, route, "workflow_runs", findings)
     if runs is None:
         return {"imported": 0, "skipped": 0, "findings": findings}
-    trusted = [run for run in runs if run.get("path") in _TRUSTED_PATHS]
-    stale = sorted({str(run.get("head_sha")) for run in trusted if run.get("head_sha") != resolved})
-    if stale:
-        findings.append(_finding("head_mismatch", f"{len(stale)} 个其他 head 的运行未导入"
-                                                 f"（只导入 head {resolved[:7]}…）"))
-    imported = skipped = 0
-    for run in sorted(trusted, key=lambda item: str(item.get("id"))):
-        if run.get("head_sha") != resolved:
-            continue
+
+    def import_run(run: dict, run_branch: str, run_head: str) -> None:
+        nonlocal imported, skipped
         artifacts = _list_all(client, f"repos/{repo}/actions/runs/{run.get('id')}/artifacts?per_page=100",
                               "artifacts", findings)
         if artifacts is None:
-            continue
+            return
         packages = [item for item in artifacts if _PACKAGE_RE.fullmatch(str(item.get("name") or ""))]
         if not packages:
             findings.append(_finding("artifact_missing", f"运行 {run.get('id')} 没有 harness-events 事件包"))
-        got = _download_run(client, run, packages, branch, resolved, repo, findings)
+        got = _download_run(client, run, packages, run_branch, run_head, repo, findings)
         imported, skipped = imported + got[0], skipped + got[1]
+
+    imported = skipped = 0
+    trusted = [run for run in runs if run.get("path") in _TRUSTED_PATHS]
+    stale = {str(run.get("head_sha")) for run in trusted if run.get("head_sha") != resolved}
+    for run in sorted(trusted, key=lambda item: str(item.get("id"))):
+        if run.get("head_sha") == resolved:
+            import_run(run, branch, resolved)
+    # B117：判定运行在 API 里归在默认分支，分支查询查不到；按工作流列运行（不带任何筛选参数——
+    # 带参数的运行列表会被平台按 1,000 条静默截断），由默认分支定义渲染的运行名关联 PR，包 origin
+    # 按该运行自己的 API 记录核对（拿 PR 的 head 去核对必然 origin_mismatch）。
+    matched = events_judge.collect_judge_runs(
+        client, repo=repo, pr=pr, resolved=resolved, trusted=_TRUSTED_PATHS,
+        list_all=_list_all, created_at=info.get("createdAt"), stale=stale, findings=findings)
+    if stale:
+        findings.append(_finding("head_mismatch", f"{len(stale)} 个其他 head 的运行未导入"
+                                                 f"（只导入 head {resolved[:7]}…）"))
+    events_judge.import_matched(matched, import_run, findings)
     return {"imported": imported, "skipped": skipped, "findings": findings}

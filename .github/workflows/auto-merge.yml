@@ -1,5 +1,12 @@
 name: auto-merge
 
+# 运行名（B117）：只在 judge 会真正执行时带 PR 关联，条件与 judge.if 逐字相同；判定运行由
+# workflow_run 触发、在 API 里归在默认分支，加载器只信 API 返回的 display_title——它由默认分支
+# 上的这份定义用 GitHub 提供的载荷渲染，PR 侧代码与事件包内容都影响不到。上游 CI 失败（judge
+# 被跳过、没有事件包）、push 触发与来自 fork 的运行一律保持普通名 auto-merge，不会被误当成「包缺失」。
+run-name: >-
+  ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && format('auto-merge PR #{0} @ {1}', github.event.workflow_run.pull_requests[0].number, github.event.workflow_run.head_sha) || 'auto-merge' }}
+
 # 合并路由：harness 全绿后，由 .harness/engine/cli.py policy 判定能否自动合并（风险 R0/R1、类别在 autonomy.toml 中为 L4、
 # 未超误差预算、不超规模阈值、任务 PR 的运行记录合格），每条理由写进 job summary。不自动合并的打类别标签并请仓库所有者评审。
 # 合并用 GitHub 原生自动合并（B102）：必需检查、合并状态暂时未知、test merge commit 都由 GitHub 等待与处理；
