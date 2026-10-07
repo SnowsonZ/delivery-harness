@@ -600,6 +600,14 @@ class EarlyStopTest(unittest.TestCase):
         self.assertEqual(findings, [])
         self.assertEqual(len(self.run_routes(stub)), 30)
 
+    def test_reads_to_the_end_with_unparseable_created_at(self):
+        # pr() 返回的 createdAt 不可解析：同样读到底（不提前停止）、目标仍被找到
+        stub = _PagedGh(self.pages(2), created_at="not-a-timestamp")
+        matched, _stale, findings = self.collect(stub)
+        self.assertEqual([run["id"] for run in matched], [JUDGE_RUN_ID])
+        self.assertEqual(findings, [])
+        self.assertEqual(len(self.run_routes(stub)), 30)
+
     def test_bad_timestamp_page_disables_early_stop_permanently(self):
         # 坏时间页之后接连续两页旧运行：仍读到底（永久禁用）、目标仍被找到
         stub = _PagedGh(self.pages(2, bad_pages=(3, 4)))
