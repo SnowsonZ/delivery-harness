@@ -377,6 +377,9 @@ def _ledger(auditor) -> list[dict]:
     doc = getattr(auditor, "ledger_doc", None)
     if not isinstance(doc, dict):
         return []  # 账本缺失/不可解析由 T401 的引用核对报告，不在这里重复
+    for name in ("chains", "stages"):  # 账本是外部输入：容器不是列表就失败关闭，不让遍历抛异常打崩审计
+        if doc.get(name) is not None and not isinstance(doc[name], list):
+            return [_ledger_finding(f"ledger:{name}", f"账本 {name} 字段形状不符（失败关闭）")]
     hashes: dict[str, set] = {}
     for row in auditor.event_rows or []:
         hashes.setdefault(str(row.get("source") or ""), set()).add(row.get("hash"))

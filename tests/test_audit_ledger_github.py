@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from engine.agents import dispatch_observation, run_timeline
 from engine.core import events, events_db, events_io
-from engine.reports import audit, ci_events, github_events, ledger
+from engine.reports import audit, audit_completeness, ci_events, github_events, ledger
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
@@ -766,6 +766,26 @@ class SupersededSnapshotTest(GitHubLedgerTest):
                 reasons = [item["reason"] for item in self.mismatches(report)]
                 self.assertTrue(any("seq" in reason for reason in reasons), reasons)
                 self.assertNotIn("'1'", "；".join(reasons))  # 不回显原始值
+
+    def test_malformed_containers_in_ledger_fail_closed_without_crash(self):
+        # 评审 193 第 3 轮：stages/chains 不是列表（整数、字符串、字典）时遍历不得抛 TypeError。
+        # stages 走真实审计入口（账本写入路径容忍它）；chains 在发布路径上就会被写入方拒绝，
+        # 只能直接调用 _ledger（审计侧的唯一遍历点）。
+        for bad in (5, "x", {"a": 1}):
+            with self.subTest(field="stages", value=repr(bad)):
+                fx, _built, anchor = self.author_world(
+                    labels=("alpha",), mutate_ledger=lambda doc, bad=bad: doc.update({"stages": bad}))
+                self.wipe_events()
+                report = self.inspect(fx, anchor, labels=("alpha",))
+                reasons = [item["reason"] for item in self.mismatches(report)]
+                self.assertTrue(any("账本 stages 字段形状不符" in reason for reason in reasons), reasons)
+                self.assertNotIn(repr(bad), "；".join(reasons))  # 不回显内容
+        for bad in (7, "y", {"a": 1}):
+            with self.subTest(field="chains", value=repr(bad)):
+                auditor = SimpleNamespace(ledger_doc={"chains": bad, "stages": []}, event_rows=[], stages=[],
+                                          trace=BRANCH)
+                reasons = [item["reason"] for item in audit_completeness._ledger(auditor)]
+                self.assertEqual(reasons, ["账本 chains 字段形状不符（失败关闭）"])
 
     def test_duplicate_merge_event_in_ledger_fail_closed(self):
         # 评审 193：首条之后再出现 github.merge 不属于「一条合并事件加零到多条标签事件」，旧 source 缺失时失败关闭
