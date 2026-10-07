@@ -8,7 +8,7 @@ architecture: true
 spec_refs: []
 no_spec_reason: 待办 B118（G3-lite 在 #188 上实测：audit 对内容寻址的 GitHub 事实快照链跨环境必然误报 ledger_mismatch）；用户 2026-10-07 决定先修再回主线
 budget:
-  wall_clock_min: 60
+  wall_clock_min: 90
   ci_rounds: 2
   retries: 1
   tokens: null
@@ -51,7 +51,7 @@ rollback: git revert（仅在用户授权后）
 
 ## 白名单
 
-- `engine/reports/audit_completeness.py`（只改 `_ledger`，可加一个私有辅助函数；当前 313 行，净增不超过 80 行，最终必须 ≤ 800）
+- `engine/reports/audit_completeness.py`（只改 `_ledger`，可加一个私有辅助函数；当前 313 行，净增不超过 150 行，最终必须 ≤ 800）
 - `tests/test_audit_ledger_github.py`（新增，新测试全放这里；不往 788 行的 `test_audit_completeness.py` 里加）
 - `CHANGELOG.md`
 
@@ -138,3 +138,7 @@ evidence source source_class stage step status ts duration_ms seq hash inputs ou
 （两条旧快速通过路径各自能否被单独杀死不作要求：设计评审 1 实测，对静态快照删掉其中一条结果不变；要求的是上面的**行为**。）
 
 **合并并随自举升级生效之后，设计方在真实仓库复跑 `bin/harness audit 188`**，应不再有 `ledger_mismatch`，其余结果不变。
+
+## 修订记录
+
+**修订 1（2026-10-07，第 1 次派发超时之后）**：第 1 次派发在 60 分钟预算用完时超时，且派发在提交「派发记录」时被 lint 钩子拦下而崩溃（执行方写出的 17 处未用变量没来得及修；崩溃后槽位目录被清理，未提交的改动由设计方从事件流重放恢复，已作为恢复提交推到任务分支）。预算与行数按实际调整，验收与范围不变：①`wall_clock_min` 60 → 90，续做用 `--resume`；②`audit_completeness.py` 净增上限 80 → 150 行（实测产出净增约 133 行，十来个私有函数，最终仍须 ≤ 800 行，质量棘轮不变）。续做要完成：`test_kind_classification` 失败（合并快照加标签事件的种类判定）、CHANGELOG、`bin/verify --full`；已有的恢复提交里的代码按任务书逐条自查，不要为凑行数删验收要求的行为。
