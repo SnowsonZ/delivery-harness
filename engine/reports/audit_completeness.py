@@ -281,10 +281,18 @@ def _view(event: dict, keys, output_keys=()) -> dict:
     return viewed
 
 
+def _by_seq(events: list[dict]) -> list[dict] | None:
+    """按 seq 排序；任一 seq 不是整数（账本被损坏或篡改）返回 None，调用方失败关闭，不让异常逃出审计。"""
+    if any(not isinstance(event.get("seq"), int) for event in events):
+        return None
+    return sorted(events, key=lambda event: event["seq"])
+
+
 def _semantic_diff(ledger_events: list[dict], runtime_events: list[dict]) -> str | None:
     """github: 链九字段语义核对（inputs 归一，按 seq 排序逐条）：一致返回 None；差异只写数量与字段名。"""
-    left = sorted(ledger_events, key=lambda event: event.get("seq") or 0)
-    right = sorted(runtime_events, key=lambda event: event.get("seq") or 0)
+    left, right = _by_seq(ledger_events), _by_seq(runtime_events)
+    if left is None or right is None:
+        return "事件 seq 形状不符（失败关闭）"
     if len(left) != len(right):
         return f"事件数量不同（账本 {len(left)} 条、运行层 {len(right)} 条）"
     for position, (expected, actual) in enumerate(zip(left, right), start=1):
@@ -345,7 +353,10 @@ def _github_chain_findings(auditor, source: str, head, trace, known: bool,
         events = ledger_events.get(source) or []
         if not events:
             return [_ledger_finding(ref, "账本快照在运行层没有事件，且账本没有事件原文可核对")]
-        steps = [str(row.get("step")) for row in sorted(events, key=lambda row: row.get("seq") or 0)]
+        ordered = _by_seq(events)
+        if ordered is None:
+            return [_ledger_finding(ref, "账本快照事件的 seq 形状不符（失败关闭）")]
+        steps = [str(row.get("step")) for row in ordered]
         if steps[0] == "github.merge" and all(step == "github.merge_label" for step in steps[1:]):
             return []  # 合并快照：事实合法变化会另起新 source，核对由合并事实一致性检查承担
         if steps in (["github.audit_sample"], ["github.escape"]):

@@ -752,6 +752,21 @@ class SupersededSnapshotTest(GitHubLedgerTest):
         report = self.inspect(fx, anchor, escape_issues=[dict(ESCAPE_ISSUE, state="closed")])
         self.assertNotIn("ledger_mismatch", self.rules_of(report), report["findings"])
 
+    def test_malformed_seq_in_ledger_fail_closed_without_crash(self):
+        # 评审 193：账本是外部输入，同 source 内 seq 混有整数与字符串时排序不得抛 TypeError 把审计打崩
+        def corrupt_seq(doc):
+            merge = next(stage for stage in doc["stages"]
+                         if stage.get("evidence_kind") == "event" and stage.get("step") == "github.merge")
+            merge["seq"] = "1"
+        for present in (True, False):
+            with self.subTest(source_present_in_runtime=present):
+                fx, _built, anchor = self.author_world(labels=("alpha",), mutate_ledger=corrupt_seq)
+                self.wipe_events()
+                report = self.inspect(fx, anchor, labels=("alpha",) if present else ("alpha", "beta"))
+                reasons = [item["reason"] for item in self.mismatches(report)]
+                self.assertTrue(any("seq" in reason for reason in reasons), reasons)
+                self.assertNotIn("'1'", "；".join(reasons))  # 不回显原始值
+
     def test_duplicate_merge_event_in_ledger_fail_closed(self):
         # 评审 193：首条之后再出现 github.merge 不属于「一条合并事件加零到多条标签事件」，旧 source 缺失时失败关闭
         def duplicate_merge(doc):
