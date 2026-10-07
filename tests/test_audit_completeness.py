@@ -330,9 +330,9 @@ class ObservabilityTaskTest(unittest.TestCase):
         return packages
 
     def ci_platform(self, head: str, packages: dict[str, bytes]):
-        runs = [{"id": 9001, "run_attempt": 1, "headSha": head, "head_branch": BRANCH,
+        runs = [{"id": 9001, "run_attempt": 1, "head_sha": head, "head_branch": BRANCH,
                  "path": ".github/workflows/harness.yml"},
-                {"id": 9002, "run_attempt": 1, "headSha": head, "head_branch": BRANCH,
+                {"id": 9002, "run_attempt": 1, "head_sha": head, "head_branch": BRANCH,
                  "path": ".github/workflows/harness.yml"}]
         artifacts = {9001: [{"id": 1, "name": name, "expired": False,
                              "archive_download_url": f"https://dl/{name}"}

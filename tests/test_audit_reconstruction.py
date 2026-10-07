@@ -326,9 +326,9 @@ class ObservabilityTaskTest(unittest.TestCase):
     def ci_platform(self, head: str, packages: dict[str, bytes], *, extra_runs=(),
                     extra_artifacts=None, extra_downloads=None):
         """把 CI 事件包接上假平台：两个独立 run 各带自己的事件包 artifact。"""
-        runs = [{"id": 9001, "run_attempt": 1, "headSha": head, "head_branch": BRANCH,
+        runs = [{"id": 9001, "run_attempt": 1, "head_sha": head, "head_branch": BRANCH,
                  "path": ".github/workflows/harness.yml"},
-                {"id": 9002, "run_attempt": 1, "headSha": head, "head_branch": BRANCH,
+                {"id": 9002, "run_attempt": 1, "head_sha": head, "head_branch": BRANCH,
                  "path": ".github/workflows/harness.yml"}, *extra_runs]
         artifacts = {9001: [{"id": 1, "name": name, "expired": False,
                              "archive_download_url": f"https://dl/{name}"}
@@ -743,7 +743,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         # 90 天 CI artifact 到期：API 标记 expired → reference_expired(ci)，来源与本机到期不同
         world = self.build_project()
         _packages, (runs, artifacts, downloads) = self.ci_evidence(
-            world, extra_runs=[{"id": 9004, "run_attempt": 1, "headSha": world.branch_head,
+            world, extra_runs=[{"id": 9004, "run_attempt": 1, "head_sha": world.branch_head,
                                 "head_branch": BRANCH, "path": ".github/workflows/harness.yml"}],
             extra_artifacts={9004: [{"id": 4, "name": "harness-events-9004-1-job_e", "expired": True,
                                      "archive_download_url": "https://dl/expired"}]})

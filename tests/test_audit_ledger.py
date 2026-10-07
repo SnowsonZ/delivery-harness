@@ -347,8 +347,8 @@ class ObservabilityTaskTest(unittest.TestCase):
 
         基础 run 绑定合并 head；extra_runs 带自己的 headSha（用于其他 head/过期样本）。
         """
-        runs = [{"id": 9001, "run_attempt": 1, "headSha": head, "path": ".github/workflows/harness.yml"},
-                {"id": 9002, "run_attempt": 1, "headSha": head, "path": ".github/workflows/harness.yml"},
+        runs = [{"id": 9001, "run_attempt": 1, "head_sha": head, "path": ".github/workflows/harness.yml"},
+                {"id": 9002, "run_attempt": 1, "head_sha": head, "path": ".github/workflows/harness.yml"},
                 *(extra_runs or [])]
         artifacts = {9001: [{"id": 1, "name": name, "expired": False,
                              "archive_download_url": f"https://dl/{name}"}
@@ -480,7 +480,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         stale_name = "harness-events-9003-1-job_z"
         runs, artifacts, downloads = self.ci_platform(
             builder_head, packages,
-            extra_runs=[{"id": 9003, "run_attempt": 1, "headSha": "e" * 40,
+            extra_runs=[{"id": 9003, "run_attempt": 1, "head_sha": "e" * 40,
                          "path": ".github/workflows/harness.yml"}],
             extra_artifacts={9003: [{"id": 3, "name": stale_name, "expired": False,
                                      "archive_download_url": "https://dl/stale"}]},
@@ -527,7 +527,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         # 缺材料：没有评审评论、CI artifact 过期 → 各报 missing，账本照常复原其余环节
         runs, artifacts, downloads = self.ci_platform(
             builder_head, packages,
-            extra_runs=[{"id": 9004, "run_attempt": 1, "headSha": builder_head,
+            extra_runs=[{"id": 9004, "run_attempt": 1, "head_sha": builder_head,
                          "path": ".github/workflows/harness.yml"}],
             extra_artifacts={9004: [{"id": 4, "name": "harness-events-9004-1-job_e", "expired": True,
                                      "archive_download_url": "https://dl/expired"}]})
