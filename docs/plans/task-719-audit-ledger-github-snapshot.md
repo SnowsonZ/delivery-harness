@@ -8,7 +8,7 @@ architecture: true
 spec_refs: []
 no_spec_reason: 待办 B118（G3-lite 在 #188 上实测：audit 对内容寻址的 GitHub 事实快照链跨环境必然误报 ledger_mismatch）；用户 2026-10-07 决定先修再回主线
 budget:
-  wall_clock_min: 90
+  wall_clock_min: 600
   ci_rounds: 2
   retries: 1
   tokens: null
@@ -141,4 +141,4 @@ evidence source source_class stage step status ts duration_ms seq hash inputs ou
 
 ## 修订记录
 
-**修订 1（2026-10-07，第 1 次派发超时之后）**：第 1 次派发在 60 分钟预算用完时超时，且派发在提交「派发记录」时被 lint 钩子拦下而崩溃（执行方写出的 17 处未用变量没来得及修；崩溃后槽位目录被清理，未提交的改动由设计方从事件流重放恢复，已作为恢复提交推到任务分支）。预算与行数按实际调整，验收与范围不变：①`wall_clock_min` 60 → 90，续做用 `--resume`；②`audit_completeness.py` 净增上限 80 → 150 行（实测产出净增约 133 行，十来个私有函数，最终仍须 ≤ 800 行，质量棘轮不变）。续做要完成：`test_kind_classification` 失败（合并快照加标签事件的种类判定）、CHANGELOG、`bin/verify --full`；已有的恢复提交里的代码按任务书逐条自查，不要为凑行数删验收要求的行为。
+**修订 1（2026-10-07，第 1 次派发超时之后）**：第 1 次派发在 60 分钟预算用完时超时，且派发在提交「派发记录」时被 lint 钩子拦下而崩溃（执行方写出的 17 处未用变量没来得及修；崩溃后槽位目录被清理，未提交的改动由设计方从事件流重放恢复，已作为恢复提交推到任务分支）。预算与行数按实际调整，验收与范围不变：①`wall_clock_min` 60 → 600（用户 2026-10-07 决定：先不设时长上限，只靠卡死检测 `stall_minutes`；`budget.wall_clock_min` 没有校验上限，写 600 即等于关闭，不改引擎）。续做用 `--resume`；②`audit_completeness.py` 净增上限 80 → 150 行（实测产出净增约 133 行，十来个私有函数，最终仍须 ≤ 800 行，质量棘轮不变）。续做要完成：`test_kind_classification` 失败（合并快照加标签事件的种类判定）、CHANGELOG、`bin/verify --full`；已有的恢复提交里的代码按任务书逐条自查，不要为凑行数删验收要求的行为。
