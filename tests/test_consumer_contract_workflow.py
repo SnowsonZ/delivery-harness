@@ -1,7 +1,7 @@
 """B44 消费方契约测试入 CI：ci.yml 的 consumer-contract job 结构断言。
 
 四要素缺一不可：消费方（Agent-Notification）main 检出到独立目录、用本检出引擎
-`engine/cli.py upgrade --target` 升级、`test_harness*` 发现式契约测试、`bin/verify --quick`。
+`engine/cli.py upgrade --target` 升级、`test_harness*` 发现式契约测试、`bin/verify --full`（消费方等价验证 G2，T716 起由快速档升为完整档）。
 按整行精确断言，改错命令、删步骤、漏要素都失败；结构断言只看工作流文本、不执行它，
 job 真实可跑以本 PR 的 CI 运行为准。
 """
@@ -66,10 +66,10 @@ class ConsumerContractWorkflowTest(unittest.TestCase):
             tests,
             '        run: python3 -W error::ResourceWarning -m unittest discover -s tests -p "test_harness*.py" -v',
         )
-        # 要素四：消费方快速档验证。
-        verify = named_step(self.steps, "Consumer quick verify")
+        # 要素四：消费方完整档验证（G2 成为 CI 事实；完整档已包含快速档的全部检查）。
+        verify = named_step(self.steps, "Consumer full verify (G2)")
         self.assert_has_line(verify, "        working-directory: consumer")
-        self.assert_has_line(verify, "        run: bin/verify --quick")
+        self.assert_has_line(verify, "        run: bin/verify --full")
 
 
 if __name__ == "__main__":
