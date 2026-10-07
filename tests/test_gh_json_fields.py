@@ -380,8 +380,8 @@ PAYLOAD_SHA = "b" * 40
 AMBIENT_SHA = "d" * 40
 
 
-class OriginTest(unittest.TestCase):
-    """验收 5、6：_origin 只在真实 pull_request 运行的全套证据下取载荷里的 PR head。
+class OriginFixture(unittest.TestCase):
+    """验收 5、6、8 共用的夹具：临时仓库 + events_db.ROOT 指向它 + 清空 GITHUB_/CI 环境。
 
     GITHUB_SHA 必须等于检出的 HEAD：真实 PR 的 CI 里两者必然相等（actions/checkout 默认检出
     refs/pull/N/merge）；本机与测试夹具的临时仓库不等，自动回落到现状，不被外层污染。
@@ -446,6 +446,9 @@ class OriginTest(unittest.TestCase):
         elif ambient_equals_head:
             os.environ["GITHUB_SHA"] = self.head
 
+class OriginTest(OriginFixture):
+    """验收 5、6：_origin 只在真实 pull_request 运行的全套证据下取载荷里的 PR head。"""
+
     def test_pull_request_head_comes_from_the_event_payload_only(self):
         # 全套证据齐全：origin.head_sha 取载荷里的 PR head，而不是检出的合成合并提交
         self.set_pull_request_env(payload=self.write_payload())
@@ -502,6 +505,59 @@ class OriginTest(unittest.TestCase):
                                  f"{name} 的 origin.head_sha 不得来自外层环境或载荷")
         finally:
             case.doCleanups()
+
+
+class OriginMoveTest(OriginFixture):
+    """验收 8：搬迁之后 events_io 的同名导入可用、行数不超 B81 棘轮、导出事件包 origin 键集与搬迁前一致。"""
+
+    def test_origin_lives_in_its_own_module_and_events_io_stays_under_the_ratchet(self):
+        # 同名导入是同一对象（is 断言）：events_io._origin 不是搬迁残留的第二份实现
+        from engine.core import events_origin
+        self.assertIs(events_io._origin, events_origin.origin)
+        self.assertIs(events_io._SHA_RE, events_origin.SHA_RE)
+        self.assertIs(events_io._ORIGIN_LIMIT, events_origin.ORIGIN_LIMIT)
+
+        # events_origin 不得导入 events_io（避免循环），按 AST 读源码断言
+        source = (ENGINE_DIR / "core" / "events_origin.py").read_text(encoding="utf-8")
+        imported: set[str] = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+        circular = [name for name in imported if name == "events_io" or name.endswith(".events_io")]
+        self.assertEqual(circular, [], f"events_origin 不得导入 events_io（避免循环），发现：{circular}")
+
+        # B81 质量棘轮：搬迁的两个文件物理行数都不超过 800
+        for name in ("core/events_io.py", "core/events_origin.py"):
+            lines = (ENGINE_DIR / name).read_text(encoding="utf-8").splitlines()
+            self.assertLessEqual(len(lines), 800, f"{name} 共 {len(lines)} 行，超过 800 行棘轮")
+
+        # 导出事件包 origin 键集与搬迁前一致：本地导出仅 repository/head_sha/head_branch 中
+        # 取得到的（夹具仓库无 remote，repository 取不到），不伪造 Actions 键
+        bundle = events_io.export_bundle()
+        local = set(bundle["origin"])
+        self.assertEqual(local - {"repository", "head_sha", "head_branch"}, set(),
+                         f"本地导出的 origin 键集超出既有形状：{sorted(local)}")
+        self.assertIn("head_sha", local)  # 夹具仓库自己的 HEAD
+        self.assertNotIn("repository", local)  # 夹具无 remote
+        self.assertFalse({"run_id", "run_attempt", "job", "workflow_ref"} & local)
+
+        # CI 导出：CI=true 且 Actions 变量齐全时另含 run_id/run_attempt/job/workflow_ref，
+        # 且不越出 _ORIGIN_KEYS；head_sha 仍是夹具仓库自己的 HEAD（未设 GITHUB_SHA）
+        os.environ["CI"] = "true"
+        os.environ["GITHUB_HEAD_REF"] = BRANCH
+        os.environ["GITHUB_RUN_ID"] = "1234567890"
+        os.environ["GITHUB_RUN_ATTEMPT"] = "2"
+        os.environ["GITHUB_JOB"] = "verify"
+        os.environ["GITHUB_WORKFLOW_REF"] = "owner/repo/.github/workflows/harness.yml@refs/pull/181/merge"
+        ci = set(events_io.export_bundle()["origin"])
+        self.assertTrue({"head_sha", "head_branch", "run_id", "run_attempt", "job",
+                         "workflow_ref"} <= ci, f"CI 导出缺键：{sorted(ci)}")
+        self.assertEqual(ci - {"repository", *events_io._ORIGIN_KEYS}, set(),
+                         f"CI 导出的 origin 键集超出既有形状：{sorted(ci)}")
+        self.assertEqual(events_io.export_bundle()["origin"]["head_sha"], self.head)
+        self.assertEqual(events_io.export_bundle()["origin"]["head_branch"], BRANCH)
 
 
 class FieldContractTest(unittest.TestCase):
