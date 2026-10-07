@@ -106,6 +106,21 @@ class CiSummaryTest(unittest.TestCase):
             self.assertIn(token, long)
 
 
+class CiReasonPrivacyTest(unittest.TestCase):
+    def test_local_paths_are_not_echoed_into_the_materials(self):
+        # 占位用户名取仓库卫生规则允许的 someone；路径后面的部分用独特词，便于断言没有原样出现
+        paths = ("/Users/someone/secretdir/repo", "/home/someone/secretdir/repo", "C:\\Users\\someone\\secretdir\\repo")
+        for path in paths:
+            with self.subTest(path=path):
+                text = review.ci_summary(7, FakeGh(checks=RuntimeError(f"gh 失败：cwd={path}/x 不存在"),
+                                                   view=RuntimeError(f"gh 失败：{path}: 拒绝访问")))
+                self.assertTrue(text.startswith("读不到 CI 检查结果："), text)
+                self.assertNotIn("secretdir", text)
+                self.assertNotIn("someone", text)
+                self.assertIn("<本机路径>", text)
+                self.assertIn("拒绝访问", text)  # 脱敏不丢诊断信息
+
+
 class ReviewScopeTest(unittest.TestCase):
     def setUp(self):
         self.prompt = (ROOT / "engine/prompts/review_prompt.md").read_text(encoding="utf-8")

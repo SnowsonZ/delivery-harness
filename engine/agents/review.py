@@ -343,10 +343,13 @@ def _rollup_lines(rollup: list) -> tuple[list[str], int]:
     return lines, skipped
 
 
+LOCAL_PATH = re.compile(r"(?:/Users/|/home/|[A-Za-z]:\\Users\\)[^\s'\":;,)]+")
+
+
 def _reason(source: str, error: Exception) -> str:
-    """一条失败原因：保留来源名，错误文本取尾部，每条最多占总额度的一半。"""
+    """一条失败原因：先把本机路径换成占位（材料和提示词不带本机路径），再保留来源名、错误文本取尾部，每条最多占总额度的一半。"""
     budget = CI_REASON_LIMIT // 2 - len(source) - 1
-    return f"{source}：{str(error)[-budget:]}"
+    return f"{source}：{LOCAL_PATH.sub('<本机路径>', str(error))[-budget:]}"
 
 
 def ci_summary(number: int, github) -> str:
