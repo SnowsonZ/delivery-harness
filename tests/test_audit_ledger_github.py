@@ -833,19 +833,22 @@ class GitHubLedgerTest(unittest.TestCase):
 
     def test_kind_classification(self):
         # ⑬ 种类判定：合并快照（含标签）缺失不报；未知 step、只有标签、混合种类失败关闭
-        fx, built, anchor = self.author_world(labels=("alpha", "beta"))
+        fx, _built, anchor = self.author_world(labels=("alpha", "beta"))
         self.wipe_events()
         report = self.inspect(fx, anchor, labels=("gamma",))
         self.assertNotIn("ledger_mismatch", self.rules_of(report), report["findings"])
 
-        fx, built, anchor = self.author_world(labels=("alpha",))
-        source = self.merge_event(built)["source"]
-        self.inject(source, step="github.mystery", stage="ci", outputs={"pr": 402})
+        # 未知 step 必须在账本事件原文里（注入在账本构建前），运行层只剩新议题的新 source：
+        # 抽审快照种类混入未知 step → 失败关闭（与 ⑧ 合并快照混入互补，覆盖种类判定的另一支）
+        fx, _built, anchor = self.author_world(
+            audit_issues=[AUDIT_ISSUE],
+            inject=lambda t: t.inject(t.row_by_step("github.audit_sample")[1], step="github.mystery",
+                                      stage="ci", outputs={"pr": 402}))
         self.wipe_events()
-        report = self.inspect(fx, anchor, labels=("gamma",))
+        report = self.inspect(fx, anchor, audit_issues=[dict(AUDIT_ISSUE, number=89)])
         self.assertTrue(self.mismatches(report))
 
-        fx, built, anchor = self.author_world(inject=lambda t: [
+        fx, _built, anchor = self.author_world(inject=lambda t: [
             t.inject(t.snapshot_source("labels-only"), step="github.merge_label",
                      outputs={"pr": 402, "label": "x"}),
             t.inject(t.snapshot_source("labels-only"), step="github.merge_label",
@@ -854,7 +857,7 @@ class GitHubLedgerTest(unittest.TestCase):
         report = self.inspect(fx, anchor)
         self.assertTrue(self.mismatches(report))
 
-        fx, built, anchor = self.author_world(labels=("alpha",), inject=lambda t: t.inject(
+        fx, _built, anchor = self.author_world(labels=("alpha",), inject=lambda t: t.inject(
             t.row_by_step("github.merge")[1], step="github.escape", stage="ci",
             outputs={"pr": 402, "issue": 1}))
         self.wipe_events()
