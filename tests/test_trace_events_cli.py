@@ -88,6 +88,8 @@ class FakeGh:
     def api(self, route: str):
         self.calls.append(("api", route))
         page = int(urllib.parse.parse_qs(route.split("?", 1)[1])["page"][0])
+        if "/actions/workflows?" in route:
+            return {"total_count": 0, "workflows": []}  # T720：load_ci 的第二段查询（本文件无 auto-merge 工作流）
         if "/artifacts" in route:
             run_id = int(route.split("/actions/runs/")[1].split("/")[0])
             return self.artifact_pages[run_id][page - 1]

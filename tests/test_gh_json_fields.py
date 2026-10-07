@@ -336,7 +336,7 @@ printf '%s' "$FAKE_GH_RESPONSE"
 
 def pr_response(url) -> str:
     """pr view 的假响应：headRefName/headRefOid 固定，url 按用例给（None 表示键缺失）。"""
-    data = {"headRefName": BRANCH, "headRefOid": HEAD}
+    data = {"headRefName": BRANCH, "headRefOid": HEAD, "createdAt": "2026-03-04T05:06:07Z"}
     if url is not None:
         data["url"] = url
     return json.dumps(data)
@@ -368,10 +368,10 @@ class PrQueryTest(unittest.TestCase):
             with self.subTest(client=label):
                 result, call = self.query_with_fake_gh(factory, REPO_URL)
                 self.assertEqual(call,
-                                 f"pr view {PR_NUMBER} --json headRefName,headRefOid,url")
+                                 f"pr view {PR_NUMBER} --json headRefName,headRefOid,url,createdAt")
                 self.assertNotIn("baseRepository", call, "记录到的 --json 字段不得含 baseRepository")
                 self.assertEqual(result, {"headRefName": BRANCH, "headRefOid": HEAD,
-                                          "repository": "owner/repo"})
+                                          "repository": "owner/repo", "createdAt": "2026-03-04T05:06:07Z"})
 
     def test_repository_parsing_forms(self):
         forms = [
@@ -406,6 +406,8 @@ class _RunsStub:
             return {"total_count": 0, "artifacts": []}
         if "/actions/runs?" in route:
             return {"total_count": len(self.runs), "workflow_runs": self.runs}
+        if "/actions/workflows?" in route:
+            return {"total_count": 0, "workflows": []}  # T720：load_ci 的第二段查询（无 auto-merge 工作流）
         raise AssertionError(f"未预期的 API 路线：{route}")
 
     def download(self, url: str) -> bytes:

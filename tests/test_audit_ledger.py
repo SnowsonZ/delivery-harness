@@ -143,6 +143,8 @@ class FakeGh:
         if match := re.fullmatch(r"repos/[^/]+/[^/]+/actions/runs/(\d+)/artifacts", path):
             items = self.artifacts.get(int(match[1]), [])
             return {"total_count": len(items), "artifacts": self._page(items, query)}
+        if re.fullmatch(r"repos/[^/]+/[^/]+/actions/workflows", path):
+            return {"total_count": 0, "workflows": []}  # T720：load_ci 的第二段查询（本文件无 auto-merge 工作流）
         raise AssertionError(f"FakeGh 未配置的路由：{path}")
 
     def _write(self, route: str, payload) -> dict:
