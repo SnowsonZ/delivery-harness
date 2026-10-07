@@ -24,17 +24,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from engine.core import events, events_db
-from engine.core.common import git
+from engine.core.events_origin import ORIGIN_LIMIT as _ORIGIN_LIMIT
+from engine.core.events_origin import SHA_RE as _SHA_RE
+from engine.core.events_origin import origin as _origin
 
 BUNDLE_SCHEMA_VERSION = 1
 _HASH_RE = re.compile(r"[0-9a-f]{64}\Z")
-_SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 _KEY_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}\Z")
 
 _LIMIT = 120  # 通用字符串上限（同 T101 过滤口径）
 _REASON_LIMIT = 200
 _REF_LIMIT = 200
-_ORIGIN_LIMIT = 300
 
 _BUNDLE_KEYS = ("schema_version", "origin", "events", "anchors", "artifacts", "chains", "findings")
 _ORIGIN_KEYS = ("repository", "run_id", "run_attempt", "job", "workflow_ref", "head_sha", "head_branch")
@@ -159,53 +159,6 @@ def query(*, trace_id: str | None = None, source: str | None = None, since=None,
 
 
 # ---- 导出 ----
-
-def _origin() -> dict:
-    """导出方环境快照：仓库、head 与真实 Actions 三键；local 导出不伪造 Actions 键。"""
-    origin: dict[str, str] = {}
-    remote = git("remote", "get-url", "origin", cwd=events_db.ROOT, check=False, isolate=True)
-    if remote and events._clean_str(remote, _ORIGIN_LIMIT) is not None:
-        origin["repository"] = remote  # 本机路径形式的 remote 不外发（也是导入隐私口径）
-    head_sha = git("rev-parse", "HEAD", cwd=events_db.ROOT, check=False, isolate=True)
-    # pull_request 运行检出的是 GitHub 合成的合并提交，PR 的真实 head 只在事件载荷里：仅在 CI
-    # 证据齐全（CI=true、事件类型 pull_request、载荷可读且含 40 位十六进制的 pull_request.head.sha）
-    # 且 GITHUB_SHA 等于检出的 HEAD 时才采用；其余情形（其他事件、非 CI、载荷不可读或形状不符、
-    # 以及测试夹具的临时仓库 HEAD 与外层 GITHUB_SHA 不等）一律保持现状。只取 SHA，载荷的路径
-    # 与内容不进事件包。
-    ambient_sha = os.environ.get("GITHUB_SHA")
-    payload_head = None
-    if (os.environ.get("CI") == "true" and os.environ.get("GITHUB_EVENT_NAME") == "pull_request"
-            and ambient_sha and _SHA_RE.fullmatch(ambient_sha) and ambient_sha == head_sha):
-        event_path = os.environ.get("GITHUB_EVENT_PATH")
-        try:
-            with open(event_path, encoding="utf-8") as handle:
-                payload = json.load(handle)
-        except (OSError, ValueError):
-            payload = None
-        node = payload.get("pull_request") if isinstance(payload, dict) else None
-        node = node.get("head") if isinstance(node, dict) else None
-        candidate = node.get("sha") if isinstance(node, dict) else None
-        if isinstance(candidate, str) and _SHA_RE.fullmatch(candidate):
-            payload_head = candidate
-    if payload_head:
-        origin["head_sha"] = payload_head
-    elif head_sha and _SHA_RE.fullmatch(head_sha):
-        origin["head_sha"] = head_sha
-    if os.environ.get("CI") == "true":
-        branch = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME") or ""
-        run_id = os.environ.get("GITHUB_RUN_ID")
-        run_attempt, job = os.environ.get("GITHUB_RUN_ATTEMPT"), os.environ.get("GITHUB_JOB")
-        if run_id and run_attempt and job:
-            origin["run_id"], origin["run_attempt"], origin["job"] = run_id, run_attempt, job
-        workflow_ref = os.environ.get("GITHUB_WORKFLOW_REF")
-        if workflow_ref:
-            origin["workflow_ref"] = workflow_ref
-    else:
-        branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=events_db.ROOT, check=False, isolate=True)
-    if branch:
-        origin["head_branch"] = branch
-    return origin
-
 
 def export_bundle(*, trace_id: str | None = None, source: str | None = None) -> dict:
     """导出 EventBundle v1：每条 (source, trace) 的完整链前缀、锚点与安全 manifest。
