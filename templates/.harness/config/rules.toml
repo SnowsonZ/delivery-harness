@@ -119,6 +119,9 @@ timeout_minutes = 30
 protected_branches = ["main"]
 # 执行方另外不能编辑的项目文件（引擎固定保护 .github、.githooks、.harness 与各 Agent 配置目录）。
 implementer_protected = []
+# pre-push 钩子的 verify 档位（可选）："default"（缺省，快速检查 + 质量棘轮 + 文档链接 + 全量测试）或 "push"
+# （去掉全量测试，秒级）。有 CI 必需检查兜底全量测试的项目可以改成 "push"；没有 CI 的项目保持缺省。
+# pre_push_tier = "default"
 
 # 派发预警（B46 T205，可选）：取消注释启用 [alerts] 节，删除整节即全部关闭——
 #   最后一轮 CI 预警：预算内最后一轮 CI 在等待前于 PR（无 PR 时在升级议题）上预警，总预算 1 则首轮即预警。

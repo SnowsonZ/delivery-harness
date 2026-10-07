@@ -274,7 +274,11 @@ def cmd_pre_push(repo: Path, stdin: str) -> int:
         print(f"harness：同一代码树已通过 verify（{record.get('tier')}，{record.get('at')}），跳过重跑。",
               file=sys.stderr)
         return 0
-    return _run_verify(repo)
+    # pre-push 的 verify 档位取自受信任的规则（origin/main 版本）：[guard] pre_push_tier = "push" 时只跑轻量档
+    # （秒级的快速检查 + 质量棘轮 + 文档链接，不含全量测试），测试交给 CI 与派发自己的本地复验；
+    # 缺省或写错一律按默认档，和以前一样。
+    tier = (rules.get("guard") or {}).get("pre_push_tier", "default")
+    return _run_verify(repo, "--push") if tier == "push" else _run_verify(repo)
 
 
 def cmd_reference_transaction(repo: Path, state: str, stdin: str) -> int:
