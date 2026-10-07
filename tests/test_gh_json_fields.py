@@ -218,8 +218,9 @@ def _is_non_gh_context(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
     return False
 
 
-def _has_flag(elements) -> bool:
-    return any(isinstance(item, ast.Constant) and item.value == "--json" for item in elements)
+def _has_flag(elements, constants: dict[str, list[str | None]]) -> bool:
+    """元素里有没有 "--json" 标志：字面量、指向它的模块常量（JSON_FLAG）、`"--" + "json"` 拼接都算。"""
+    return any(_flatten(item, constants) == ["--json"] for item in elements)
 
 
 def scan_source(text: str, label: str) -> tuple[list[tuple[str, int, tuple[str, str], str]],
@@ -231,6 +232,11 @@ def scan_source(text: str, label: str) -> tuple[list[tuple[str, int, tuple[str, 
       的参数、赋给变量再传的 argv，定义处就是调用点）；
     - 位置参数里直接写 "--json" 字符串的**调用**（`_gh("pr", "view", n, "--json", FIELDS)`）。
     摊不开、字段串不是常量、命令识别不出的一律记入无法解析（让测试失败），不静默跳过。
+
+    能力边界（有意写明，评审曾三轮各找出一种新的绕过写法，静态扫描永远有写不完的边角）：本扫描是
+    **防回归**，防的是「不小心写错字段名」（B116 的 baseRepository 就是这样），不防刻意规避：标志经模块
+    常量与字符串拼接可以识别；标志来自函数参数、运行期拼接、exec/getattr 之类不识别。命名被重复绑定
+    （遮蔽、同名参数）的常量一律不展开，字段串因此解析不出而失败关闭。
     """
     tree = ast.parse(text)
     constants = _module_constants(tree)
@@ -259,9 +265,10 @@ def scan_source(text: str, label: str) -> tuple[list[tuple[str, int, tuple[str, 
         call_sites.append((label, node.lineno, pairs[0], field_string))
 
     for node in ast.walk(tree):
-        if isinstance(node, (ast.List, ast.Tuple)) and _has_flag(node.elts) and not _is_non_gh_context(node, parents):
+        if isinstance(node, (ast.List, ast.Tuple)) and _has_flag(node.elts, constants) \
+                and not _is_non_gh_context(node, parents):
             handle(node, [node])
-        elif isinstance(node, ast.Call) and _has_flag(node.args) \
+        elif isinstance(node, ast.Call) and _has_flag(node.args, constants) \
                 and not (isinstance(node.func, ast.Attribute) and node.func.attr in _NON_GH_CALLS):
             handle(node, list(node.args))
     return call_sites, unresolved
@@ -692,6 +699,23 @@ class ScannerEndToEndTest(unittest.TestCase):
         for label, source in shapes.items():
             with self.subTest(shape=label):
                 self.assert_flagged(source)
+
+    def test_the_flag_itself_may_live_in_a_constant_or_be_concatenated(self):
+        """评审第 3 轮严重发现：JSON_FLAG = "--json" 后用它拼 argv，字面量扫描会静默漏掉。"""
+        shapes = {
+            "常量作标志（列表 argv）": 'JSON_FLAG = "--json"\n'
+                              'subprocess.run(["gh", "pr", "view", "1", JSON_FLAG, "baseRepository"])',
+            "常量作标志（直接位置参数）": 'JSON_FLAG = "--json"\n_gh("pr", "view", "1", JSON_FLAG, "baseRepository")',
+            "拼接出标志": '_gh("pr", "view", "1", "--" + "json", "baseRepository")',
+            "常量拼接出标志": 'DASH = "--"\nsubprocess.run(["gh", "pr", "view", "1", DASH + "json", "baseRepository"])',
+            "标志与字段串都在常量里": 'F = "--json"\nX = "baseRepository"\n_gh("pr", "view", "1", F, X)',
+        }
+        for label, source in shapes.items():
+            with self.subTest(shape=label):
+                self.assert_flagged(source)
+        # 合法字段经常量标志仍放行，不是一律拒绝
+        sites, unresolved = self.scan('JSON_FLAG = "--json"\n_gh("pr", "view", "1", JSON_FLAG, "headRefName")')
+        self.assertEqual((unresolved, unknown_fields(sites[0][2], sites[0][3])), ([], []))
 
     def test_legal_fields_pass_and_wrong_command_is_caught(self):
         sites, unresolved = self.scan('self._run(["pr", "view", "1", "--json", "headRefName,url"])')
