@@ -1,0 +1,91 @@
+{
+  "task": "T717",
+  "class": "K5",
+  "attempt": 1,
+  "branch": "task/717-disable-auto-merge-contract",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "1268db7e8095d3338ca81b0c4035671d57a87f7e08860b727619853055cf49de",
+  "prompt_path": "docs/runs/task-717-disable-auto-merge-contract/1.prompt.md",
+  "guard_ref": "a735d2335d9fbed5d3703db3be0a2b75b282e329",
+  "started_at": "2026-10-07T04:22:04+00:00",
+  "ended_at": "2026-10-07T04:40:51+00:00",
+  "executor_seconds": 714.1,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 445323,
+  "gen_ai.usage.output_tokens": 13614,
+  "cost": 0.025529,
+  "escalation": null,
+  "trace_id": "task/717-disable-auto-merge-contract",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-07T04:21:52.256Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-07T04:21:54.743Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-07T04:21:59.233Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "claim",
+      "status": "ok",
+      "ts": "2026-10-07T04:22:04.095Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-07T04:33:58.590Z",
+      "duration_ms": 714107,
+      "attempt": 1,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-07T04:40:51.199Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 1
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "e91d2bccab6712a1da3a74567f47a6cbb9fd7f5acb61a928de12bb09f59f0ec1",
+      "fixed_in": "run_record"
+    }
+  ]
+}
