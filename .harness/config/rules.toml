@@ -22,7 +22,7 @@ max_file_kb = 1024
 secret_patterns = [
     'ghp_[A-Za-z0-9]{30,}',
     'github_pat_[A-Za-z0-9_]{40,}',
-    'sk-[A-Za-z0-9_-]{32,}',
+    '(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{32,}',  # 前置边界：否则 task- 的结尾 sk- 会把长任务名当成密钥（B62）
     'AKIA[0-9A-Z]{16}',
     'xox[baprs]-[A-Za-z0-9-]{10,}',
     '-----BEGIN [A-Z ]*PRIVATE KEY-----',
