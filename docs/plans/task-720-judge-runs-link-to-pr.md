@@ -55,12 +55,13 @@ API 运行记录：event=workflow_run  head_branch=main  head_sha=8f42c2b…（m
 - `engine/reports/ledger.py`（只改 `GhClient.pr`：`--json` 加 `createdAt`、返回字典加 `createdAt`）
 - `engine/core/events_io.py`（只改 `GhClient.pr`（加 `createdAt`）与 `load_ci`（调用新模块的函数并把挑出的运行交给 `_download_run`）；**当前 773 行，净增不得超过 20 行**，最终必须 ≤ 800）
 - `tests/test_events_judge_runs.py`（新增，新测试全放这里；可以 `import` 其他测试模块里的桩与夹具辅助）
-- 七个既有测试文件的**假客户端路由**（设计评审 2 实测：新增的 `actions/workflows` 查询会撞上它们，`AssertionError` 或「api 响应形状不符」发现，而 `trace` 测试要求 `findings=[]`）。**每处只加一条路由，不改任何断言、不动其他代码**：
+- 八个既有测试文件的**假客户端路由**（设计评审 2 实测：新增的 `actions/workflows` 查询会撞上它们，`AssertionError` 或「api 响应形状不符」发现，而 `trace` 测试要求 `findings=[]`）。**每处只加一条路由，不改任何断言、不动其他代码**：
   - `tests/test_audit_events.py`（`FakeGh` 路由分发，`raise AssertionError(f"FakeGh 未配置的路由…")` 之前）
   - `tests/test_audit_completeness.py`、`tests/test_audit_ledger.py`、`tests/test_audit_reconstruction.py`、`tests/test_ledger_equivalent_head.py`（同样的 `FakeGh` 路由分发，同一位置）
   - `tests/test_trace_events_cli.py`（`FakeGh.api` 里，在按页返回运行列表之前）
+  - `tests/test_audit_ledger_github.py`（T719 新增，晚于本任务书的扫描基线 cf45449 才合并；它的 `FakeGh.api` 同样有 `actions/runs` 路由，并经 `build_ledger → load_ci` 走到新查询，在 `raise AssertionError(f"FakeGh 未配置的路由…")` 之前加同一条空 `workflows` 路由，不改任何断言）
   - `tests/test_gh_json_fields.py`（①T718 新增的 `_RunsStub.api`，在 `raise AssertionError(f"未预期的 API 路线…")` 之前加空 `workflows` 路由；②`PrQueryTest` 里对 `GhClient.pr` 的**契约更新**：假响应 `pr_response` 加 `createdAt`，期望的调用字符串改为 `pr view <N> --json headRefName,headRefOid,url,createdAt`，期望的返回字典加 `createdAt`——这是本任务有意的接口变化（目标终态第 3a 条），不是削弱断言，字段合约测试对 `createdAt` 的检查保持不变）
-  新增的路由统一为：路径匹配 `repos/<owner>/<repo>/actions/workflows` 时返回 `{"total_count": 0, "workflows": []}`（`FakeGh.api` 版本按 `"/actions/workflows?" in route` 判断，且不影响 `calls` 记录）。不得靠捕获 `AssertionError`、忽略坏响应或识别测试桩绕过；这七处桩的断言一条都不许动（②是唯一的例外，已在上面逐项写明）。
+  新增的路由统一为：路径匹配 `repos/<owner>/<repo>/actions/workflows` 时返回 `{"total_count": 0, "workflows": []}`（`FakeGh.api` 版本按 `"/actions/workflows?" in route` 判断，且不影响 `calls` 记录）。不得靠捕获 `AssertionError`、忽略坏响应或识别测试桩绕过；这八处桩的断言一条都不许动（②是唯一的例外，已在上面逐项写明）。
 - `CHANGELOG.md`
 
 ## 消费方扫描（命令与输出，设计方 2026-10-07 执行；本仓库 cf45449）
@@ -80,8 +81,8 @@ $ diff templates/.github/workflows/auto-merge.yml .github/workflows/auto-merge.y
 | 消费方 | 是否需要配套改动 | 理由 |
 |---|---|---|
 | `audit.py`、`ledger.py`、`trace.py` | 无需 | 都经 `load_ci`，返回字典形状不变 |
-| 引用 `load_ci` 的七个既有测试文件的假客户端 | **需要（已列白名单）** | 设计评审 2 逐个实例化并经真实 `_list_all` 查询 `actions/workflows?per_page=100`（设计方补查出第七个：T718 的 `tests/test_gh_json_fields.py::_RunsStub` 对未知路线同样 `AssertionError`；判定标准是「假客户端对 `actions/runs` 有路由」：`grep -n "actions/runs" tests/*.py` 命中的七个文件，`test_events_io.py` 只有一条注释提到 `load_ci`、无假客户端）：`test_audit_events`、`test_ledger_equivalent_head`、`test_audit_ledger`、`test_audit_reconstruction`、`test_audit_completeness` 抛 `AssertionError`（未配置的路由），`test_trace_events_cli` 返回了运行列表而产生「api 响应形状不符」发现。每处只加一条返回空 `workflows` 的路由（见白名单）；`test_events_io.py` 的桩直接换掉 `load_ci` 的依赖，不受影响（实现前再核对，必须通过） |
-| 七个假客户端以外的测试 | 无需 | `grep -n "actions/runs" tests/*.py` 的其余命中（`test_run_record_privacy.py` 的一个 URL 字符串）与 `load_ci` 无关 |
+| 引用 `load_ci` 的八个既有测试文件的假客户端 | **需要（已列白名单）** | 设计评审 2 逐个实例化并经真实 `_list_all` 查询 `actions/workflows?per_page=100`（设计方补查出第七个：T718 的 `tests/test_gh_json_fields.py::_RunsStub` 对未知路线同样 `AssertionError`；判定标准是「假客户端对 `actions/runs` 有路由」：`grep -n "actions/runs" tests/*.py` 命中的七个文件，`test_events_io.py` 只有一条注释提到 `load_ci`、无假客户端）：`test_audit_events`、`test_ledger_equivalent_head`、`test_audit_ledger`、`test_audit_reconstruction`、`test_audit_completeness` 抛 `AssertionError`（未配置的路由），`test_trace_events_cli` 返回了运行列表而产生「api 响应形状不符」发现。每处只加一条返回空 `workflows` 的路由（见白名单）；`test_events_io.py` 的桩直接换掉 `load_ci` 的依赖，不受影响（实现前再核对，必须通过） |
+| 八个假客户端以外的测试 | 无需 | `grep -n "actions/runs" tests/*.py` 的其余命中（`test_run_record_privacy.py` 的一个 URL 字符串）与 `load_ci` 无关 |
 | 模板相关既有测试（`test_native_automerge`、`test_contract_route`、`test_ci_events_workflows`、`test_install`） | 实现前核对，必须仍通过 | 它们用自带的简化 YAML 解析器（`tests/test_ci_events_workflows.py::parse_workflow`）读模板，没试过顶层的 `run-name`；表达式里有 `&&`、`||`、引号与冒号，按已有 `if: >-` 的折叠块写法书写并先跑这几个测试。若解析器处理不了，**停下向设计方报告**（改解析器在白名单外，不得自行扩大） |
 | 本仓库 `.github/workflows/auto-merge.yml` | 设计方另开 PR | 不在白名单 |
 | 消费方 Agent-Notification | 升级时按 Migration 重新复制 | 它的 `consumer-contract` CI 只跑升级与 verify，不依赖 run-name |
@@ -139,7 +140,7 @@ $ diff templates/.github/workflows/auto-merge.yml .github/workflows/auto-merge.y
 | # | 改动 | 涉及文件 | 验证方式 | 对应验收 |
 |---|---|---|---|---|
 | 1 | 新模块 `events_judge.py`（运行名生成、整串匹配、挑选）与模板 `run-name`，先写耦合与挑选测试 | `engine/core/events_judge.py`、`templates/.github/workflows/auto-merge.yml`、`tests/test_events_judge_runs.py` | `python3 -W error::ResourceWarning -m unittest tests.test_events_judge_runs -v` | 验收第 1–2 行 |
-| 2 | **先**在七个既有假客户端里各加一条空 `workflows` 路由（不改断言）；两处 `GhClient.pr` 加 `createdAt` 并按契约更新 `PrQueryTest`；`load_ci` 加第二段查询与导入；补端到端、核对、降级与提前停止测试 | `engine/core/events_judge.py`（分页、提前停止与挑选）、`engine/core/events_io.py`、`engine/reports/ledger.py`、`tests/test_events_judge_runs.py`、白名单里的七个既有测试文件 | 同上，加 `tests.test_events_io tests.test_trace_events_cli tests.test_audit_events` | 验收第 3–10 行 |
+| 2 | **先**在八个既有假客户端里各加一条空 `workflows` 路由（不改断言）；两处 `GhClient.pr` 加 `createdAt` 并按契约更新 `PrQueryTest`；`load_ci` 加第二段查询与导入；补端到端、核对、降级与提前停止测试 | `engine/core/events_judge.py`（分页、提前停止与挑选）、`engine/core/events_io.py`、`engine/reports/ledger.py`、`tests/test_events_judge_runs.py`、白名单里的八个既有测试文件 | 同上，加 `tests.test_events_io tests.test_trace_events_cli tests.test_audit_events` | 验收第 3–10 行 |
 | 3 | CHANGELOG；全量验证，整理交付证据 | `CHANGELOG.md` | `bin/verify --full` | 验收第 11 行 |
 
 ## 交付与升级
@@ -157,3 +158,5 @@ $ diff templates/.github/workflows/auto-merge.yml .github/workflows/auto-merge.y
 ## 修订记录
 
 **修订 1（2026-10-07，首次派发启动后）**：`wall_clock_min` 90 → 600。用户 2026-10-07 决定先不设时长上限、只靠卡死检测（`stall_minutes`，15 分钟既无输出也无文件变化即中止）；T719 的任务书已于其修订 1 改过，T720 漏改，首次派发启动 27 秒后被停机，未产生任何改动。`budget.wall_clock_min` 没有校验上限，写 600 即等于关闭，不改引擎。验收与范围不变。
+
+**修订 2（2026-10-08，首次完整派发的执行方升级之后）**：白名单漏了 `tests/test_audit_ledger_github.py`。任务书的消费方扫描基线是 cf45449，T719（#193）在其后合并并新增了这个文件，其内置的假客户端同样会被新增的 `actions/workflows` 查询撞上。执行方在 `bin/verify --full` 里实测：全仓只有该文件的 47 个用例失败，失败签名完全相同（`FakeGh 未配置的路由：repos/owner/repo/actions/workflows`），其余用例全部通过。处理：把它按与另外七个文件同一方式列入白名单（加两行空路由，不改断言），验收与范围不变；其余实现已由执行方完成并提交，续做只需补这两行、重跑 `bin/verify --full` 后交付。这也是待办 B123（重复的 `FakeGh`）的又一个实例。
