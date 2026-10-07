@@ -183,7 +183,8 @@ class FakeGh:
 
 
 class GitHubLedgerTest(unittest.TestCase):
-    """共用夹具：项目 + 运行记录 + 事实齐备的平台桩；真实账本写入路径与真实事实同步。"""
+    """共用夹具基类：项目 + 运行记录 + 事实齐备的平台桩；真实账本写入路径与真实事实同步。
+    不直接携带测试方法；验收 1–6 各为一个具名子类（任务书验收表的覆盖列）。"""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="dh-t719-"))
@@ -468,13 +469,14 @@ class GitHubLedgerTest(unittest.TestCase):
                 return audit.inspect_pr(402, gh=gh, cwd=fx.project)
         return audit.inspect_pr(402, gh=gh, cwd=fx.project)
 
-    # ---- 验收 1：跨环境同事实（B118 核心）——语义核对通过，链头不同不再是误报 ----
+class CrossEnvironmentTest(GitHubLedgerTest):
+    """验收 1：跨环境同事实（B118 核心）——语义核对通过，链头不同不再是误报。"""
 
     def test_cross_environment_same_facts_pass(self):
         fx, built, anchor = self.author_world(labels=("alpha", "beta"))
         merge = self.merge_event(built)
         source = merge["source"]
-        self.assertEqual(source, github_events._snapshot_source(402, mock.ANY) if False else source)
+        self.assertTrue(source.startswith("github:402:"), source)  # 内容寻址快照链
         self.wipe_events()
         self.resync(fx, labels=("alpha", "beta"))
         # 同 source、链头不同（ts 不同），且 duration_ms/engine_version 也不同：仍不得报
@@ -502,7 +504,8 @@ class GitHubLedgerTest(unittest.TestCase):
         self.resync(fx, labels=("alpha", "beta"))
         self.assertEqual(len({row[1] for row in self.github_rows()}), 2)
 
-    # ---- 验收 2：逐字段反例（标签/抽审事件，只能由语义核对抓住） ----
+class EveryFieldTest(GitHubLedgerTest):
+    """验收 2：逐字段反例（标签/抽审事件，只能由语义核对抓住）。"""
 
     def test_every_semantic_field_difference_reported(self):
         fx, _built, anchor = self.author_world(labels=("alpha",))
@@ -572,7 +575,8 @@ class GitHubLedgerTest(unittest.TestCase):
                 report = self.inspect(fx, anchor, labels=("alpha",))
                 self.assertNotIn("ledger_mismatch", self.rules_of(report), report["findings"])
 
-    # ---- 验收 3：后续事件的差异（防「只比较第一条」） ----
+class LaterEventTest(GitHubLedgerTest):
+    """验收 3：后续事件的差异（防「只比较第一条」）。"""
 
     def test_later_event_difference_reported(self):
         fx, _built, anchor = self.author_world(labels=("alpha", "beta"))
@@ -594,7 +598,8 @@ class GitHubLedgerTest(unittest.TestCase):
         report = self.inspect(fx, anchor, labels=("alpha", "beta"))
         self.assertTrue(self.mismatches(report))
 
-    # ---- 验收 4：数量与追加（不再认「链头在前缀里」） ----
+class CountAndAppendTest(GitHubLedgerTest):
+    """验收 4：数量与追加（不再认「链头在前缀里」）。"""
 
     def test_count_and_append_differences_reported(self):
         # (a) 运行层比账本少一条标签事件
@@ -636,7 +641,8 @@ class GitHubLedgerTest(unittest.TestCase):
         report = self.inspect(fx, anchor, labels=("alpha",))
         self.assertTrue(self.mismatches(report))
 
-    # ---- 验收 5：整条快照缺失按种类处理 + 合并事实独立必检（B121） ----
+class SupersededSnapshotTest(GitHubLedgerTest):
+    """验收 5：整条快照缺失按种类处理 + 合并事实独立必检（B121），①–⑬ 各一个子测试。"""
 
     def test_merge_snapshot_missing_label_added_not_reported(self):
         # ① 合并后加标签：事实合法变化另起新 source，旧快照缺失不报；label_count 不在投影里
@@ -864,7 +870,8 @@ class GitHubLedgerTest(unittest.TestCase):
         report = self.inspect(fx, anchor, labels=("gamma",))
         self.assertTrue(self.mismatches(report))
 
-    # ---- 验收 6：仍保留的行为 ----
+class PreservedBehaviorTest(GitHubLedgerTest):
+    """验收 6：仍保留的行为（ci:/本机链核对、无事件原文不放宽）。"""
 
     def test_preserved_behaviors(self):
         # github: 链头等于运行层链头（同一环境、无差异）不报，且整份报告全绿
