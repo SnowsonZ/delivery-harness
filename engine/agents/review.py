@@ -317,13 +317,56 @@ def review_base(pr: dict, workspace: Path) -> str:
     return git("merge-base", "origin/main", "HEAD", cwd=workspace)
 
 
+CI_REASON_LIMIT = 600  # 读不到时写进 ci.md 的原因文本上限（各取尾部），够诊断又不撑爆材料
+
+
+def _rollup_lines(rollup: list) -> tuple[list[str], int]:
+    """statusCheckRollup → (展示行, 跳过的项数)。CheckRun 取 name、conclusion（未完成时取 status）、detailsUrl；
+    StatusContext 取 context、state、targetUrl；不是对象或没有名称的项跳过并计数，不静默当作没有检查。"""
+    lines: list[str] = []
+    skipped = 0
+    for item in rollup:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+        name = item.get("name") or item.get("context")
+        if not name:
+            skipped += 1
+            continue
+        if "context" in item and "name" not in item:
+            state, link = item.get("state") or "UNKNOWN", item.get("targetUrl") or ""
+        else:
+            status = item.get("status") or ""
+            state = (item.get("conclusion") if status == "COMPLETED" else status) or "UNKNOWN"
+            link = item.get("detailsUrl") or ""
+        lines.append(f"- {name}：{state}（{link}）")
+    return lines, skipped
+
+
 def ci_summary(number: int, github) -> str:
-    """当前 head 的 CI 检查结论与链接（评审方据此核对 PR 描述中「CI 通过」的说法）。"""
+    """当前 head 的 CI 检查结论与链接（评审方据此核对 PR 描述中「CI 通过」的说法）。
+
+    先用 `gh pr checks --json`（成功时输出格式不变）；它失败或形状不对时回退 `gh pr view --json statusCheckRollup`；
+    两条都读不到时写明各自的原因，而不是只写「读不到」——#175 的评审材料里只剩一句「读不到」，事后无从诊断。"""
+    reasons: list[str] = []
     try:
         checks = json.loads(github._run(["gh", "pr", "checks", str(number), "--json", "name,state,link"]))
-    except (RuntimeError, json.JSONDecodeError):
-        return "读不到 CI 检查结果。"
-    return "\n".join(f"- {item['name']}：{item['state']}（{item['link']}）" for item in checks) or "没有 CI 检查。"
+        return "\n".join(f"- {item['name']}：{item['state']}（{item['link']}）" for item in checks) or "没有 CI 检查。"
+    except (RuntimeError, json.JSONDecodeError, TypeError, KeyError) as error:
+        reasons.append(f"gh pr checks：{error}")
+    try:
+        data = json.loads(github._run(["gh", "pr", "view", str(number), "--json", "statusCheckRollup"]))
+        rollup = data.get("statusCheckRollup") if isinstance(data, dict) else None
+        if not isinstance(rollup, list):
+            raise TypeError(f"statusCheckRollup 不是列表（{type(rollup).__name__}）")
+        lines, skipped = _rollup_lines(rollup)
+        if skipped:
+            lines.append(f"- （另有 {skipped} 项缺少名称或形状异常，未能列出：这份 CI 结论不完整）")
+        return "\n".join(lines) or "没有 CI 检查。"
+    except (RuntimeError, json.JSONDecodeError, TypeError, ValueError) as error:
+        reasons.append(f"gh pr view：{error}")
+    detail = "；".join(reasons)
+    return f"读不到 CI 检查结果：{detail[-CI_REASON_LIMIT:]}"
 
 
 def taskbook_from_pr_text(base: str, title: str, body: str, workspace: Path) -> tuple[str, str]:

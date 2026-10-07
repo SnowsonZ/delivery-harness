@@ -127,6 +127,9 @@ jobs:
         working-directory: consumer
         run: python3 -W error::ResourceWarning -m unittest discover -s tests -p "test_harness*.py" -v
 
-      - name: Consumer quick verify
+      # G2（消费方等价验证）成为 CI 事实：用待测引擎升级消费方后跑它的完整 verify（lint、全量测试、回放等）。
+      # 标了 requires = "macos" 的 Swift 检查在 Linux 上显示为跳过（不是失败），涉及 Swift 的改动由设计方在 macOS 补跑。
+      # 各项结果由 verify 自己写进本 job 的 summary。完整档已包含快速档的全部检查，所以不再单跑 --quick。
+      - name: Consumer full verify (G2)
         working-directory: consumer
-        run: bin/verify --quick
+        run: bin/verify --full
