@@ -12,10 +12,9 @@ route.facts 的机器判定；任务 PR＝route.facts 声明任务书类别 ∨ 
 
 防篡改：校验各 (source, trace) 原始链（events_db.verify）；每个固定锚点（运行记录/CI artifact/PR
 评论）核对「对应前缀链上有该链头」而非最终链头——合法后续追加不误报，删尾即使内部链仍合法也能由
-固定锚点发现；账本核对（B118/B121）：ci:/本机链沿用链头与前缀成员核对（合法追加不误报），github:
-内容寻址快照链在两个环境各记一份时间戳、链头必然不同，改为同 source 事件九字段语义核对，合并事实
-独立必检，缺失快照按种类区分被取代与失败关闭。链未知或不可得不当完整：事件库不可读产生如实发现并
-按链不可校验处理，不当「无事件」放过。
+固定锚点发现；账本核对（B118/B121）：ci:/本机链沿用链头与前缀成员核对，github: 内容寻址快照链改
+为九字段语义核对（合并事实独立必检、缺失快照按种类区分被取代与失败关闭）。链未知或不可得不当完
+整：事件库不可读产生如实发现并按链不可校验处理，不当「无事件」放过。
 
 checks.toml 可选 [audit]：require_review_risk（0..3，缺省 2）、require_route_for_auto、
 require_run_record_for_task、verify_anchors（布尔，缺省 true）。缺省执行设计规则；未知键、类型或
@@ -38,8 +37,8 @@ _CONFIG_REF = ".harness/config/checks.toml [audit]"
 _RISK_RE = re.compile(r"R([0-3])\Z")
 # T201 运行记录固定的锚点；missing_anchor 只认它，CI/PR 评论锚点是额外固定点，不豁免记录锚点。
 _RECORD_FIXED_IN = "run_record"
-# B118/B121：github: 快照链九字段语义核对的固定比较键（不多不少）；合并投影 = 稳定身份字段
-# + outputs 子集（排除 label_count、merge_method 与批准四字段等合并后可合法变化的字段）。
+# B118/B121：github: 快照链九字段语义核对键；合并投影 = 稳定身份字段 + outputs 子集（排除
+# label_count、merge_method 与批准四字段等合并后可合法变化的字段）。
 _SEMANTIC_KEYS = ("seq", "stage", "step", "status", "actor", "inputs", "outputs", "decision", "error")
 _MERGE_FIELD_KEYS = ("stage", "status", "actor", "decision", "error", "inputs")
 _MERGE_OUTPUT_KEYS = ("pr", "merger", "merger_type", "merged_at")
@@ -267,37 +266,30 @@ def _ledger_finding(ref: str, reason: str) -> dict:
     return _finding("ledger_mismatch", source="github", stage="merge", ref=ref, reason=reason)
 
 
-def _normalized_inputs(value):
-    """inputs 里 PR 引用（owner/repo#N）的仓库部分转小写（GitHub 仓库名不区分大小写）；语义核对与合并投影共用。"""
-    if not isinstance(value, list):
-        return value
+def _view(event: dict, keys, output_keys=()) -> dict:
+    """比较视图：取 keys 字段与 outputs 的 output_keys 子集；inputs 里 PR 引用（owner/repo#N）的
+    仓库部分转小写（GitHub 仓库名不区分大小写），语义核对与合并投影共用同一归一。"""
+    outputs = event.get("outputs") if isinstance(event.get("outputs"), dict) else {}
     normalized = []
-    for item in value:
+    for item in event.get("inputs") if isinstance(event.get("inputs"), list) else ():
         ref = item.get("ref") if isinstance(item, dict) else None
         match = _PR_REF_RE.fullmatch(ref) if isinstance(ref, str) else None
         normalized.append(
             {**item, "ref": f"{match['owner'].lower()}/{match['repo'].lower()}#{match['num']}"} if match else item)
-    return normalized
-
-
-def _view(event: dict, keys, output_keys=()) -> dict:
-    """比较视图：取 keys 字段（inputs 归一），再从 outputs 取 output_keys 子集。"""
-    outputs = event.get("outputs") if isinstance(event.get("outputs"), dict) else {}
-    viewed = {key: (_normalized_inputs(event.get(key)) if key == "inputs" else event.get(key))
-              for key in keys}
+    viewed = {key: (normalized if key == "inputs" else event.get(key)) for key in keys}
     viewed.update((key, outputs.get(key)) for key in output_keys)
     return viewed
 
 
 def _semantic_diff(ledger_events: list[dict], runtime_events: list[dict]) -> str | None:
-    """github: 链语义核对（九字段、inputs 归一，按 seq 排序逐条）：一致返回 None；差异只写数量差与字段名。"""
+    """github: 链九字段语义核对（inputs 归一，按 seq 排序逐条）：一致返回 None；差异只写数量与字段名。"""
     left = sorted(ledger_events, key=lambda event: event.get("seq") or 0)
     right = sorted(runtime_events, key=lambda event: event.get("seq") or 0)
     if len(left) != len(right):
         return f"事件数量不同（账本 {len(left)} 条、运行层 {len(right)} 条）"
     for position, (expected, actual) in enumerate(zip(left, right), start=1):
-        expected, actual = _view(expected, _SEMANTIC_KEYS), _view(actual, _SEMANTIC_KEYS)
-        fields = "、".join(key for key in _SEMANTIC_KEYS if expected[key] != actual[key])
+        views = _view(expected, _SEMANTIC_KEYS), _view(actual, _SEMANTIC_KEYS)
+        fields = "、".join(key for key in _SEMANTIC_KEYS if views[0][key] != views[1][key])
         if fields:
             return f"第 {position} 条事件的字段不同：{fields}"
     return None
@@ -312,73 +304,60 @@ def _events_by_source(entries, mark_key: str) -> dict[str, list[dict]]:
     return grouped
 
 
-def _merge_events(events_by_source: dict[str, list[dict]]) -> list[dict]:
-    """分组视图里的全部 github.merge 事件（账本侧与运行层侧共用）。"""
-    return [event for group in events_by_source.values() for event in group
-            if event.get("step") == "github.merge"]
-
-
-def _projection_diff(expected: dict, candidates: list[dict]) -> list[str]:
-    """候选里与账本稳定投影不同的字段名并集（字母序）；全部相等返回空表。"""
-    return sorted({key for candidate in candidates for key, value in expected.items()
-                   if value != _view(candidate, _MERGE_FIELD_KEYS, _MERGE_OUTPUT_KEYS)[key]})
-
-
 def _merge_fact_findings(ledger_events: dict[str, list[dict]],
                          runtime_events: dict[str, list[dict]]) -> list[dict]:
-    """合并事实一致性（B121 目标终态 5，独立必检、不被同 source 通过短路）：账本每个 github.merge
-    事件对运行层同 PR（source 前缀限定）的全部合并事件核对稳定投影；候选为空与投影不同分 reason
-    （不把「读不到」说成「不同」），reason 只写字段名——merger 是 login，改名有意多报待人工确认。"""
-    runtime_merges = _merge_events(runtime_events)
+    """合并事实一致性（B121，独立必检、不被同 source 通过短路）：账本每个 github.merge 事件对运行
+    层同 PR（source 前缀限定，同分支名被另一 PR 复用不掺入）的全部合并事件核对稳定投影；候选为
+    空与投影不同分 reason（不把「读不到」说成「不同」），reason 只写字段名——merger 是 login，
+    改名有意多报待人工确认。"""
+    def merges(grouped: dict[str, list[dict]]) -> list[dict]:
+        return [event for group in grouped.values() for event in group
+                if event.get("step") == "github.merge"]
     problems: list[tuple[str, str]] = []
-    for merge in _merge_events(ledger_events):
-        source = str(merge.get("source") or "")
-        ref = f"ledger:{source}/{merge.get('trace_id')}"
-        match = _LEDGER_PR_RE.match(source)
+    for merge in merges(ledger_events):
+        ref = f"ledger:{merge.get('source')}/{merge.get('trace_id')}"
+        match = _LEDGER_PR_RE.match(str(merge.get("source") or ""))
         if match is None:
             problems.append((ref, "账本合并事件的来源形状不符（失败关闭）"))
             continue
-        candidates = [event for event in runtime_merges
+        candidates = [event for event in merges(runtime_events)
                       if str(event.get("source") or "").startswith(f"github:{match['pr']}:")]
         if not candidates:
             problems.append((ref, "运行层没有该 PR 的合并事实（可能同步失败，见同步发现）"))
             continue
-        fields = _projection_diff(_view(merge, _MERGE_FIELD_KEYS, _MERGE_OUTPUT_KEYS), candidates)
+        expected = _view(merge, _MERGE_FIELD_KEYS, _MERGE_OUTPUT_KEYS)
+        fields = sorted({key for candidate in candidates for key, value in expected.items()
+                         if value != _view(candidate, _MERGE_FIELD_KEYS, _MERGE_OUTPUT_KEYS)[key]})
         if fields:
             problems.append((ref, f"账本固定的合并事实与运行层不同（字段：{'、'.join(fields)}）"))
     return [_ledger_finding(ref, reason) for ref, reason in problems]
 
 
-def _missing_github_findings(source: str, trace, events: list[dict]) -> list[dict]:
-    """运行层没有该 github: source 时按整个事件集合判定种类（B121 目标终态 6）：合并快照由合并事实
-    一致性承担，抽审/逃逸旧快照可被取代，其余（含没有事件原文）失败关闭。"""
-    ref = f"ledger:{source}/{trace}"
-    if not events:
-        return [_ledger_finding(ref, "账本快照在运行层没有事件，且账本没有事件原文可核对")]
-    steps = [str(event.get("step")) for event in sorted(events, key=lambda event: event.get("seq") or 0)]
-    if steps[0] == "github.merge" and set(steps) <= {"github.merge", "github.merge_label"}:
-        return []  # 合并快照：事实合法变化会另起新 source，核对由合并事实一致性检查承担
-    if steps == ["github.audit_sample"] or steps == ["github.escape"]:
-        return []  # 抽审/逃逸事实本就会被后来的事实取代，旧快照缺失合法
-    return [_ledger_finding(ref, "账本快照在运行层没有事件，且种类无法识别（失败关闭）")]
-
-
 def _github_chain_findings(auditor, source: str, head, trace, known: bool,
                            ledger_events: dict[str, list[dict]],
                            runtime_events: dict[str, list[dict]]) -> list[dict]:
-    """github: 快照链（B118 目标终态 3/4）：链头相等即逐字节相同；否则语义核对，不再认「链头在
-    前缀里」（快照不可变、无合法追加）；账本没有事件原文时不放宽。"""
+    """github: 快照链：链头相等即逐字节相同；否则九字段语义核对，不再认「链头在前缀里」（快照按
+    内容寻址、事实变了另起新 source，无合法追加）；运行层没有该 source 时按整个事件集合判定种类
+    （合并快照由合并事实一致性承担、抽审/逃逸旧快照可被取代、其余失败关闭）；账本没有事件原文
+    时不放宽。"""
     ref = f"ledger:{source}/{trace}"
     if not known:
-        return _missing_github_findings(source, trace, ledger_events.get(source) or [])
+        events = ledger_events.get(source) or []
+        if not events:
+            return [_ledger_finding(ref, "账本快照在运行层没有事件，且账本没有事件原文可核对")]
+        steps = [str(row.get("step")) for row in sorted(events, key=lambda row: row.get("seq") or 0)]
+        if steps[0] == "github.merge" and set(steps) <= {"github.merge", "github.merge_label"}:
+            return []  # 合并快照：事实合法变化会另起新 source，核对由合并事实一致性检查承担
+        if steps in (["github.audit_sample"], ["github.escape"]):
+            return []  # 抽审/逃逸事实本就会被后来的事实取代，旧快照缺失合法
+        return [_ledger_finding(ref, "账本快照在运行层没有事件，且种类无法识别（失败关闭）")]
     if head == _chain_head(auditor, source, trace):
         return []
     if not ledger_events.get(source):
         return [_ledger_finding(ref, "账本只固定了链头，没有事件原文可核对，且链头与运行层不一致")]
-    diff = _semantic_diff(ledger_events[source], runtime_events.get(source) or [])
-    if diff is None:
-        return []
-    return [_ledger_finding(ref, f"账本快照与运行层不一致（{diff}）")]
+    if diff := _semantic_diff(ledger_events[source], runtime_events.get(source) or []):
+        return [_ledger_finding(ref, f"账本快照与运行层不一致（{diff}）")]
+    return []
 
 
 def _ledger(auditor) -> list[dict]:
@@ -398,17 +377,14 @@ def _ledger(auditor) -> list[dict]:
             findings.append(_ledger_finding("ledger:chains", "账本链条目形状不符"))
             continue
         source, head, trace = str(chain.get("source") or ""), chain.get("head_hash"), chain.get("trace_id")
-        if not source.startswith("github:"):
-            known = hashes.get(source)
-            if not known:
-                continue  # 运行层没有该链：链不可得由引用核对/missing_route 报告，不在这里猜
-            if head == _chain_head(auditor, source, trace) or head in known:
-                continue
+        if source.startswith("github:"):
+            findings += _github_chain_findings(auditor, source, head, trace, bool(hashes.get(source)),
+                                               ledger_events, runtime_events)
+        elif not hashes.get(source):
+            continue  # 运行层没有该链：链不可得由引用核对/missing_route 报告，不在这里猜
+        elif head != _chain_head(auditor, source, trace) and head not in hashes[source]:
             findings.append(_ledger_finding(
                 f"ledger:{source}/{trace}", "账本链头不在运行层对应链上（账本与运行层不一致）"))
-            continue
-        findings += _github_chain_findings(auditor, source, head, trace, bool(hashes.get(source)),
-                                           ledger_events, runtime_events)
     return findings
 
 
