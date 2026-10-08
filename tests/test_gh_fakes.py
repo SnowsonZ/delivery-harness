@@ -1,18 +1,17 @@
 """tests/gh_fakes.py 共用假 GitHub 客户端基类的测试（B123，T721 C 部分）。
 
-覆盖：FakeGhBase 单独实例化后十一类路由（含批量 pulls 与 actions/workflows）各有返回、
-未配置路由抛 AssertionError、fail 子串命中抛 403、评论 POST 记入 writes、_page 按 page/per_page
-切片（page_size 取更小值）；六个子类都是基类子类且不覆盖 api（基类加路由子类立即可见，逐个断言）；
-六个文件除 FakeGh 类与 import 外与 main 上的版本 AST 逐节点相同（ast.dump 比对）、FakeGh 类体不再
-含完整路由分发且总行数比重构前至少少 250 行、给基类加的路由对每个子类立即可用；三个协议不同的
-测试文件逐字节不变；bin/ci-shard 的模块集合恰为原有集合加三个新测试模块、不含 tests.gh_fakes、
-分片无重复无遗漏。
+覆盖：FakeGhBase 单独实例化后十一类路由（含批量 pulls 与 actions/workflows）各有返回、未配置路由抛
+AssertionError、fail 子串命中抛 403、评论 POST 记入 writes、_page 按 page/per_page 切片（page_size 取
+更小值）；六个子类都是基类子类且不覆盖 api（基类加路由，子类立即可见，逐个断言）；bin/ci-shard 不把
+tests.gh_fakes 当用例、会收集本任务新增的三个测试模块、分片无重复无遗漏。
+
+不在这里的：六个文件「除 FakeGh 与 import 外与重构前逐节点相同」「FakeGh 行数合计少 250」「三个不迁移
+的文件不变」「模块集合恰为旧集合加三个」都是对 main 的一次性比对，由设计方在验收时执行，不写成永久测试
+（合并后 main 就是重构后的版本，比对会自指；以后新增测试文件也会让精确集合失败）。
 """
 
 from __future__ import annotations
 
-import ast
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -39,31 +38,6 @@ SUBCLASS_MODULES = (
     test_audit_events,
     test_ledger_equivalent_head,
 )
-NON_MIGRATED = ("tests/test_trace_events_cli.py", "tests/test_gh_json_fields.py",
-                "tests/test_events_judge_runs.py")
-NEW_MODULES = {"tests.test_taskbook_headroom", "tests.test_dispatch_salvage", "tests.test_gh_fakes"}
-
-
-def origin_text(rel: str) -> str:
-    done = subprocess.run(["git", "show", f"origin/main:{rel}"], cwd=ENGINE_REPO,
-                          capture_output=True, text=True, check=True)
-    return done.stdout
-
-
-def frozen_dump(text: str) -> str:
-    """剔除 FakeGh 类定义与全部 import 后的模块 AST（C0 例外只允许改这两处）。"""
-    tree = ast.parse(text)
-    tree.body = [node for node in tree.body
-                 if not (isinstance(node, ast.ClassDef) and node.name == "FakeGh")
-                 and not isinstance(node, (ast.Import, ast.ImportFrom))]
-    return ast.dump(tree)
-
-
-def fakegh_span(text: str) -> int:
-    for node in ast.parse(text).body:
-        if isinstance(node, ast.ClassDef) and node.name == "FakeGh":
-            return node.end_lineno - node.lineno + 1
-    return 0
 
 
 def make_base(**overrides) -> FakeGhBase:
@@ -188,40 +162,19 @@ class SubclassesTest(unittest.TestCase):
                 with self.subTest(module=module.__name__):
                     self.assertEqual(module.FakeGh().api(f"repos/{REPO}/brand/new"), {"new": True})
 
-    def test_files_frozen_except_fakegh_and_imports(self):
-        for module in SUBCLASS_MODULES:
-            rel = module.__file__.replace(str(ENGINE_REPO) + "/", "")
-            with self.subTest(file=rel):
-                self.assertEqual(frozen_dump(Path(module.__file__).read_text(encoding="utf-8")),
-                                 frozen_dump(origin_text(rel)),
-                                 "除 FakeGh 类与 import 外，测试文件与 main 上的版本必须逐节点相同")
-
-    def test_fakegh_total_lines_shrink_by_250(self):
-        old_total = sum(fakegh_span(origin_text(module.__file__.replace(str(ENGINE_REPO) + "/", "")))
-                        for module in SUBCLASS_MODULES)
-        new_total = sum(fakegh_span(Path(module.__file__).read_text(encoding="utf-8"))
-                        for module in SUBCLASS_MODULES)
-        self.assertGreaterEqual(old_total - new_total, 250, (old_total, new_total))
-
-    def test_non_migrated_files_byte_identical(self):
-        for rel in NON_MIGRATED:
-            with self.subTest(file=rel):
-                self.assertEqual((ENGINE_REPO / rel).read_bytes(), origin_text(rel).encode("utf-8"))
-
-
 class ShardSetTest(unittest.TestCase):
     def setUp(self):
         self.script = runpy_load_ci_shard()
 
-    def test_module_set_is_old_plus_three_new_without_gh_fakes(self):
-        done = subprocess.run(["git", "ls-tree", "--name-only", "origin/main", "tests/"],
-                              cwd=ENGINE_REPO, capture_output=True, text=True, check=True)
-        old = {f"tests.{Path(line).stem}" for line in done.stdout.splitlines()
-               if Path(line).name.startswith("test_")}
+    def test_gh_fakes_is_not_collected_and_new_modules_are(self):
+        # 共用基类不是用例（文件名不以 test_ 开头）；本任务新增的三个测试模块会被分片收集；模块名无重复。
+        # 「与重构前集合比对」只是一次性验收（设计方做），不写成永久测试：合并后 main 就是重构后的版本，
+        # 且以后任何人新增测试文件都会让「恰好 68 个」失败。
         names = [name for name, _weight in self.script["modules"]()]
-        self.assertEqual(set(names), old | NEW_MODULES)
-        self.assertNotIn("tests.gh_fakes", names)  # 共用基类不是用例
-        self.assertEqual(len(names), len(set(names)))  # 无重复
+        self.assertNotIn("tests.gh_fakes", names)
+        for module in ("tests.test_taskbook_headroom", "tests.test_dispatch_salvage", "tests.test_gh_fakes"):
+            self.assertIn(module, names)
+        self.assertEqual(len(names), len(set(names)))
 
     def test_shards_cover_every_module_exactly_once(self):
         names = sorted(name for name, _weight in self.script["modules"]())
