@@ -418,6 +418,23 @@ class ObservabilityTaskTest(unittest.TestCase):
                          part_a_with_db, "A 的指标不因本机库存在而变化")
         self.assertIn("不可用（没有本机事件库）。", without_db)
 
+        # 两种合法口径必须分开构造；合并成一次总计会掩盖「调用数大于命中数」的误判。
+        for calls, matches in ((1, 2), (2, 0)):
+            sample = self.local_world(f"units-{calls}-{matches}")
+            self.clock.current = START + dt.timedelta(days=1)
+            events.emit("dispatch", "executor_round", "ok", trace_id=self.TRACE,
+                        outputs={"exit": "ok", "guard_denied": calls})
+            for index in range(matches):
+                self.deny("command", f"rule-{index}", "implementer")
+            week = self.empty_week()
+            week.records = [{"task": "T303", "exit": "ok", "executor_seconds": 1,
+                             "guard_denials": {f"rule-{index}": 1 for index in range(matches)}}]
+            sample_text = weekly_events.render_events(week, cwd=sample)
+            self.assertIn(f"规则命中数合计 {matches}", sample_text)
+            self.assertIn(f"被拒工具调用数：{calls}", sample_text)
+            for word in ("不一致", "违反", "相符", "相等", "一致", "匹配"):
+                self.assertNotIn(word, sample_text, f"调用 {calls}、命中 {matches} 是合法样本")
+
     # ---- 验收 4：B 按运行环境（是否 CI）启停，不按库是否存在 ----
 
     def test_local_supplement_is_disabled_by_environment_not_by_database_presence(self):
