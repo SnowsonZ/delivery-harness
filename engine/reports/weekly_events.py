@@ -1,21 +1,23 @@
 """周报「事件汇总（B46）」小节（T501）：追加在既有周报文本之后，不改旧小节与其数据来源。
 
-A 主来源只用仓库里可复取的持久数据：本周合并 PR 在 harness-audit 分支上的账本（git show
-origin/harness-audit:<合并年份>/<PR号>.json，读取回调可注入以便测试）与当前 checkout 里的运行记录；
-B 补充来源只有本机事件库，单列、绝不并入 A，按运行环境启停——CI=true 一律关闭（runner 上的临时库不是
-本机历史），非 CI 时先自己预检（只读打开读 PRAGMA user_version；无库与较新版本库都返回空，不能只看
-query 是否为空）。读不到或算不出的值写「不可用」加原因，不补造 0；执行方「规则命中数」与本机
-「被拒工具调用数」单位与纳入条件都不同，只分别列出，不做任何对账或比较。
+A 主来源是仓库里可复取的持久数据：本周合并 PR 的账本（harness-audit 分支，读取回调可注入）与当前
+checkout 里的运行记录；B 补充来源只有本机事件库，单列、不并入 A，按运行环境启停（CI=true 一律关闭），
+非 CI 先预检（只读打开读 user_version；无库与较新版本库的 query 都返回空，不能只看空）。读不到写
+「不可用」加原因、不补造 0；「规则命中数」与「被拒工具调用数」口径不同，只分别列出、不做比较。
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import json
+import os
+import sqlite3
 import subprocess
 from collections import Counter
+from contextlib import closing
 from pathlib import Path
 
+from engine.core import events_db, events_io
 from engine.core.common import ROOT, clean_git_env
 
 AUDIT_REF = "origin/harness-audit"  # 账本分支引用（quality 工作流 fetch-depth: 0，runner 上可读）
@@ -66,10 +68,7 @@ def git_show_reader(cwd: Path):
 
 
 def load_ledgers(prs: list[dict], read) -> tuple[list[dict], Counter]:
-    """逐 PR 读 <mergedAt 年份>/<PR 号>.json；返回（有效账本, 无账本原因计数）。
-
-    无账本（分支不存在、分支上无该文件、读取失败、JSON 损坏）计入原因分类，不影响其余 PR 的统计。
-    """
+    """逐 PR 读 <mergedAt 年份>/<PR 号>.json；无账本（分支/文件缺失、读取失败、JSON 损坏）计入原因分类。"""
     ledgers: list[dict] = []
     missing: Counter = Counter()
     for pr in prs:
@@ -88,17 +87,15 @@ def load_ledgers(prs: list[dict], read) -> tuple[list[dict], Counter]:
 
 
 def ledger_stage_durations(ledgers: list[dict]) -> dict[str, tuple[int, int, int]]:
-    """账本 stages 里 evidence_kind=event 且 duration_ms 非空的事件按 stage 汇总。
-
-    run_record_summary 条目与运行记录的 executor_seconds 是同一数据，不计入（避免重复）。
-    """
+    """账本 stages 里 evidence_kind=event 且 duration_ms 非空的事件按 stage 汇总（summary 不重复计入）。"""
     totals: dict[str, tuple[int, int, int]] = {}
     for ledger in ledgers:
         for entry in ledger.get("stages") or []:
-            if not isinstance(entry, dict) or entry.get("evidence_kind") != "event":
+            if not isinstance(entry, dict):
                 continue
             duration = entry.get("duration_ms")
-            if isinstance(duration, int) and not isinstance(duration, bool):
+            if entry.get("evidence_kind") == "event" and isinstance(duration, int) \
+                    and not isinstance(duration, bool):
                 _add_duration(totals, entry.get("stage"), duration)
     return totals
 
@@ -106,8 +103,8 @@ def ledger_stage_durations(ledgers: list[dict]) -> dict[str, tuple[int, int, int
 # ---- A：运行记录（当前 checkout 里 ended_at 在窗口内的尝试） ----
 
 def run_record_metrics(records: list[dict]) -> dict:
-    """执行方指标：executor_seconds 合计、尝试数（不去重）、exit/escalation 分布、规则命中数、
-    缺上下文分类；missing_context_status 异常或缺字段的历史记录计入「覆盖不足」。"""
+    """执行方指标：executor_seconds 合计、尝试数（不去重）、exit/escalation 分布、规则命中数与缺上下文
+    分类；missing_context_status 异常或缺字段的历史记录计入「覆盖不足」。"""
     exits: Counter = Counter(str(record.get("exit")) for record in records)
     escalations: Counter = Counter("无" if record.get("escalation") is None else str(record["escalation"])
                                    for record in records)
@@ -131,7 +128,7 @@ def run_record_metrics(records: list[dict]) -> dict:
 
 
 def render_events(week, *, cwd: Path = ROOT, read=None) -> str:
-    """渲染事件汇总小节（B46）：A 主来源（账本 + 运行记录）。"""
+    """渲染事件汇总小节（B46）：A 主来源（账本 + 运行记录）与 B 本机补充（单列，不并入 A）。"""
     ledgers, missing = load_ledgers(week.prs, read if read is not None else git_show_reader(cwd))
     metrics = run_record_metrics(week.records)
     no_records = "不可用（窗口内没有运行记录）"
@@ -165,4 +162,136 @@ def render_events(week, *, cwd: Path = ROOT, read=None) -> str:
          f"状态分布：{_pairs(metrics['statuses']) or no_records}"
          "（missing_context_status 异常或缺字段的历史记录计入「覆盖不足」）"),
     ]
+    supplement = local_supplement(week.start, week.end)
+    audit = ("不可用（CI 不实算审计；见本机补充）"
+             if os.environ.get("CI") == "true" or supplement["state"] == "unavailable"
+             else "不在 A 实算，见「本机补充」")
+    lines.append(f"- 审计发现数（A）：{audit}")
+    lines += ["", "#### 本机补充（B）", *_render_supplement(supplement)]
     return "\n".join(lines) + "\n"
+
+
+# ---- B：本机事件库补充（单列，绝不并入 A）----
+
+def _probe_db() -> tuple[str, str]:
+    """本机库预检（不能只看 query 是否为空：无库与较新版本库都返回空）：只读打开读 user_version。"""
+    path = events_db.db_path()
+    if path is None:
+        return "unavailable", "不在 git 仓库，没有本机事件库"
+    if not path.exists():
+        return "unavailable", "没有本机事件库"
+    version, error = None, None
+    for uri in (f"file:{path}?mode=ro", str(path)):  # WAL 库缺 -shm 时 ro 打不开，退回普通连接（只读 pragma）
+        try:
+            with closing(sqlite3.connect(uri, uri=uri.startswith("file:"))) as conn:
+                version = conn.execute("PRAGMA user_version").fetchone()[0]
+            break
+        except sqlite3.Error as exc:
+            error = exc
+    if version is None:
+        return "unavailable", f"本机事件库无法读取（{type(error).__name__}）"
+    if version > events_db.SCHEMA_VERSION:
+        return "unavailable", f"本机事件库 schema 较新（user_version={version} > {events_db.SCHEMA_VERSION}）"
+    return ("ok" if version == events_db.SCHEMA_VERSION else "empty"), ""
+
+
+def _guard_groups(events: list[dict]) -> dict[tuple[str, str], Counter]:
+    """本机 guard 阶段 deny 事件按「种类（step）×角色（actor.role，缺省 engine）」分列，按规则键汇总。"""
+    groups: dict[tuple[str, str], Counter] = {}
+    for event in events:
+        if event["stage"] != "guard" or event["status"] != "deny":
+            continue
+        role = str((event.get("actor") or {}).get("role") or "engine")
+        rule = str((event.get("decision") or {}).get("rule") or "unknown")
+        groups.setdefault((str(event["step"]), role), Counter())[rule] += 1
+    return groups
+
+
+def _denied_calls(events: list[dict]) -> int:
+    """被拒工具调用数：executor_round 事件的 guard_denied 输出合计（一次被拒调用计一次）。"""
+    total = 0
+    for event in events:
+        value = event["outputs"].get("guard_denied") if event["step"] == "executor_round" else None
+        if isinstance(value, int) and not isinstance(value, bool):
+            total += value
+    return total
+
+
+def _audit_rules(events: list[dict]) -> dict[tuple, set[str]]:
+    """同一 (PR, head) 只取最新一次 audit.summary 之后（含当次）的 audit.finding，按规则键去重；
+    同 head 重复审计不累加、最新结果无发现不残留旧 finding；更新 head 的各自成键。"""
+    latest: dict[tuple, dt.datetime] = {}
+    for event in [item for item in events if item["step"] == "audit.summary"]:
+        key = (event["outputs"].get("pr"), event["outputs"].get("head_sha"))
+        moment = _parse_utc(event["ts"])
+        if moment is not None and (key not in latest or moment >= latest[key]):
+            latest[key] = moment
+    rules = {key: set() for key in latest}
+    for event in [item for item in events if item["step"] == "audit.finding"]:
+        key = (event["outputs"].get("pr"), event["outputs"].get("head_sha"))
+        moment = _parse_utc(event["ts"])
+        if key in rules and moment is not None and moment >= latest[key]:
+            rules[key].add(str(event["outputs"].get("rule")))
+    return rules
+
+
+def local_supplement(start: dt.datetime, end: dt.datetime) -> dict:
+    """按运行环境启停（CI=true 一律关闭，不看库是否存在）；只统计 source=local 的 [start, end) 窗口事件
+    （终点在 Python 里过滤）；跨周与导入的 ci:/github: 来源不计入。"""
+    if os.environ.get("CI") == "true":
+        return {"state": "disabled"}
+    state, reason = _probe_db()
+    if state != "ok":
+        return {"state": state, "reason": reason}
+    try:
+        every = events_io.query()
+    except Exception as exc:  # noqa: BLE001  B 失败只写不可用，不影响周报其余部分
+        return {"state": "unavailable", "reason": f"本机事件库查询失败（{type(exc).__name__}）"}
+    if not every:
+        return {"state": "empty"}  # 合法空库（schema 已建但尚无任何事件）才写「0 个事件」
+    moments = [moment for moment in (_parse_utc(event["ts"]) for event in every) if moment is not None]
+    window = [event for event in every if event["source"] == "local"
+              and (moment := _parse_utc(event["ts"])) is not None and start <= moment < end]
+    durations: dict[str, tuple[int, int, int]] = {}
+    escalations: Counter = Counter()
+    for event in window:
+        duration = event.get("duration_ms")
+        if isinstance(duration, int) and not isinstance(duration, bool):
+            _add_duration(durations, event["stage"], duration)
+        if event["step"] == "escalate":
+            escalations[str(event["outputs"].get("reason"))] += 1
+    return {"state": "ok", "window": window, "durations": durations, "escalations": escalations,
+            "guards": _guard_groups(window), "denied_calls": _denied_calls(window), "audit": _audit_rules(window),
+            "sources": {event["source"] for event in every}, "earliest": min(moments), "latest": max(moments)}
+
+
+def _render_supplement(data: dict) -> list[str]:
+    """B 子小节：不可用各带原因（CI 关闭、无库、损坏、schema 较新）；合法空库才写「0 个事件」。"""
+    if data["state"] == "disabled":
+        return ["不可用（CI 环境不统计本机库）。", ""]
+    if data["state"] == "empty":
+        return ["0 个事件（本机库为空，尚无任何事件）。", ""]
+    if data["state"] != "ok":
+        return [f"不可用（{data['reason']}）。", ""]
+    classes = sorted({"ci" if source.startswith("ci") else "github" if source.startswith("github") else "local"
+                      for source in data["sources"]})
+    guards = "；".join(f"{step}×{role}{'（不可归属）' if role == 'engine' else ''}：{_pairs(rules)}"
+                       for (step, role), rules in sorted(data["guards"].items())) or "无"
+    audits = "；".join(f"PR {pr}（head {str(head)[:7]}…）：{len(rules)} 条"
+                       + (f"（{'、'.join(sorted(rules))}）" if rules else "")
+                       for (pr, head), rules in sorted(data["audit"].items(), key=str))
+    return [
+        (f"覆盖：本机库事件时间 {data['earliest'].isoformat(timespec='seconds')}"
+         f" – {data['latest'].isoformat(timespec='seconds')}，"
+         f"来源 {len(data['sources'])} 个（{'、'.join(classes)}）；窗口内 source=local 事件 "
+         f"{len(data['window'])} 个（跨周事件不计入）。"),
+        "",
+        (f"- 阶段耗时（本机阶段，含账本未覆盖的 verify、dispatch、review 等）："
+         f"{_durations(data['durations']) or '无带耗时事件'}"),
+        f"- 升级原因（本机 escalate 事件）：{_pairs(data['escalations']) or '无'}",
+        f"- 守卫拒绝（按种类×角色分列，各组分别列出、不相加）：{guards}",
+        (f"- 被拒工具调用数：{data['denied_calls']}（executor_round 事件计数，一次被拒调用计一次；"
+         "与上方「规则命中数」口径不同，二者分别统计）"),
+        f"- 审计发现数（同 PR/head 只取最新一次）：{audits or '无审计事件'}",
+        "",
+    ]

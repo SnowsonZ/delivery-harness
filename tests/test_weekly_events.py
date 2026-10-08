@@ -8,15 +8,18 @@
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
@@ -24,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from engine.agents import run_timeline  # noqa: F401  （账本夹具的真实生产者之一，保留可用性核对）
 from engine.checks import r1_checks
-from engine.core import events, events_db
+from engine.core import events, events_db, events_io
 from engine.reports import ledger, weekly, weekly_events
 from tests.gh_fakes import FakeGhBase
 
@@ -326,6 +329,307 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertNotIn("999", text)
         self.assertIn("账本阶段耗时（A）：不可用（本周没有可用账本）", text,
                       "无 harness-audit 分支时写不可用，不补造 0")
+
+    # ---- 本机事件库世界 ----
+
+    TRACE = "task/303-a"
+
+    def local_world(self, name: str = "app") -> Path:
+        """项目仓库 + 本机库：经真实 emit 写入事件（缺省 source=local、trace 固定）。"""
+        project = self.fresh_repo(name)
+        self.use_root(project)
+        self.state_files(project)
+        return project
+
+    def deny(self, step: str, rule: str, role: str | None) -> None:
+        actor = {"role": role} if role else None  # git 守卫不传 actor（缺省角色 engine）
+        self.assertIsNotNone(events.emit("guard", step, "deny", trace_id=self.TRACE,
+                                         decision={"by": "guard", "rule": rule}, actor=actor))
+
+    def empty_week(self):
+        week = weekly.Week(END)
+        return week
+
+    # ---- 验收 3：本机补充分列、口径不混淆 ----
+
+    def test_local_supplement_is_separate_and_units_are_not_conflated(self):
+        project = self.local_world()
+        # 调用 1、命中 2：一次被拒调用（guard_denied=1）命中两条理由（两条 deny 事件）
+        events.emit("dispatch", "executor_round", "ok", trace_id=self.TRACE, duration_ms=1000,
+                    outputs={"exit": "ok", "guard_denied": 1})
+        self.deny("command", "prohibit-a", "designer")
+        self.deny("command", "prohibit-share", "designer")
+        self.deny("command", "protect-engine", "implementer")
+        self.deny("git", "no-main", None)
+        self.deny("git", "no-main", None)
+        # 调用 2、命中 0：两次被拒调用（guard_denied=2）零条理由事件
+        events.emit("dispatch", "executor_round", "fail", trace_id=self.TRACE, duration_ms=1000,
+                    outputs={"exit": "error", "guard_denied": 2})
+        events.emit("verify", "tests", "ok", trace_id=self.TRACE, duration_ms=200)
+        events.emit("review", "review", "ok", trace_id=self.TRACE, duration_ms=300)
+        events.emit("dispatch", "escalate", "ok", trace_id=self.TRACE, outputs={"reason": "clarify"})
+        events.emit("dispatch", "escalate", "ok", trace_id=self.TRACE, outputs={"reason": "budget"})
+        # 跨周事件（ts 在窗口终点之后）：不计入任何统计
+        self.clock.current = dt.datetime(2026, 10, 20, 0, 0, tzinfo=dt.UTC)
+        events.emit("dispatch", "executor_round", "ok", trace_id=self.TRACE, duration_ms=500,
+                    outputs={"exit": "ok", "guard_denied": 4})
+        text = weekly_events.render_events(self.empty_week(), cwd=project)
+        section_b = text.split("#### 本机补充（B）")[1]
+        self.assertIn("窗口内 source=local 事件 11 个（跨周事件不计入）", section_b)
+        self.assertIn("dispatch：事件 2、合计 2000 ms、最大 1000 ms", section_b)
+        self.assertIn("review：事件 1、合计 300 ms、最大 300 ms", section_b)
+        self.assertIn("verify：事件 1、合计 200 ms、最大 200 ms", section_b)
+        self.assertIn("升级原因（本机 escalate 事件）：budget 1、clarify 1", section_b)
+        self.assertIn("守卫拒绝（按种类×角色分列，各组分别列出、不相加）："
+                      "command×designer：prohibit-a 1、prohibit-share 1；"
+                      "command×implementer：protect-engine 1；"
+                      "git×engine（不可归属）：no-main 2", section_b)
+        self.assertIn("被拒工具调用数：3（executor_round 事件计数，一次被拒调用计一次；"
+                      "与上方「规则命中数」口径不同，二者分别统计）", section_b)
+        for word in ("不一致", "违反", "相符", "相等", "一致", "匹配"):
+            self.assertNotIn(word, text, f"不得对两个守卫计数做比较判定：{word}")
+        # 同一事件重复导入不双算：真实 export_bundle → import_bundle 幂等
+        bundle = events_io.export_bundle(source="local", trace_id=self.TRACE)
+        result = events_io.import_bundle(bundle)
+        self.assertEqual(result, {"imported": 0, "skipped": len(bundle["events"]), "findings": []})
+        again = weekly_events.render_events(self.empty_week(), cwd=project)
+        self.assertIn("窗口内 source=local 事件 11 个", again)
+        self.assertIn("被拒工具调用数：3", again)
+        # A 的数字不因本机库存在而变化：删库前后 A 部分逐字相等，B 各写不可用/统计
+        part_a_with_db = text.split("#### 本机补充（B）")[0].split("- 审计发现数（A）")[0]
+        shutil.rmtree(project / ".git" / "harness", ignore_errors=True)
+        without_db = weekly_events.render_events(self.empty_week(), cwd=project)
+        self.assertEqual(without_db.split("#### 本机补充（B）")[0].split("- 审计发现数（A）")[0],
+                         part_a_with_db, "A 的指标不因本机库存在而变化")
+        self.assertIn("不可用（没有本机事件库）。", without_db)
+
+    # ---- 验收 4：B 按运行环境（是否 CI）启停，不按库是否存在 ----
+
+    def test_local_supplement_is_disabled_by_environment_not_by_database_presence(self):
+        project = self.local_world()
+        # 模拟 quality.yml 在周报前写进 runner 临时库的事件：本机与 ci 来源、含审计事件
+        events.emit("dispatch", "executor_round", "ok", trace_id=self.TRACE, duration_ms=100,
+                    outputs={"exit": "ok", "guard_denied": 1})
+        events.emit("dispatch", "escalate", "ok", trace_id=self.TRACE, outputs={"reason": "clarify"})
+        head = "1" * 40
+        events.emit("ci", "audit.summary", "fail", trace_id=self.TRACE, source="ci:1:1:quality",
+                    outputs={"pr": 305, "head_sha": head, "ok": False})
+        events.emit("ci", "audit.finding", "fail", trace_id=self.TRACE, source="ci:1:1:quality",
+                    outputs={"pr": 305, "head_sha": head, "rule": "missing_anchor"})
+        events.emit("verify", "tests", "ok", trace_id=self.TRACE, source="ci:9:1:job", duration_ms=777777)
+        with mock.patch.dict(os.environ, {"CI": "true"}):
+            in_ci = weekly_events.render_events(self.empty_week(), cwd=project)
+        section_b = in_ci.split("#### 本机补充（B）")[1]
+        self.assertIn("不可用（CI 环境不统计本机库）。", section_b)
+        for absent in ("被拒工具调用数", "阶段耗时", "升级原因", "审计发现数（同 PR/head", "source=local 事件"):
+            self.assertNotIn(absent, section_b)
+        self.assertIn("- 审计发现数（A）：不可用（CI 不实算审计；见本机补充）", in_ci)
+        local = weekly_events.render_events(self.empty_week(), cwd=project)
+        head_a = lambda s: s.split("#### 本机补充（B）")[0].split("- 审计发现数（A）")[0]
+        self.assertEqual(head_a(local), head_a(in_ci), "CI 只关 B，A 的指标不变")
+        section_b = local.split("#### 本机补充（B）")[1]
+        self.assertIn("来源 3 个（ci、local）", section_b)
+        self.assertIn("窗口内 source=local 事件 2 个", section_b)
+        self.assertNotIn("777777", section_b, "导入的 ci 来源事件不计入本机统计")
+        # 非 CI：无库、较新版本库写「不可用」并带原因；合法空库写「0 个事件」（表述不同）
+        no_db = self.fresh_repo("no-db")
+        self.use_root(no_db)
+        self.assertIn("不可用（没有本机事件库）。",
+                      weekly_events.render_events(self.empty_week(), cwd=no_db)
+                      .split("#### 本机补充（B）")[1])
+        newer = self.local_world("newer-db")
+        events.emit("verify", "tests", "ok", trace_id=self.TRACE)
+        with closing(sqlite3.connect(events_db.db_path())) as conn:
+            conn.execute("PRAGMA user_version=2")
+        self.assertIn("不可用（本机事件库 schema 较新（user_version=2 > 1））。",
+                      weekly_events.render_events(self.empty_week(), cwd=newer).split("#### 本机补充（B）")[1])
+        empty = self.local_world("empty-db")
+        events_db.import_rows([], [])  # 真实路径建出合法空库（schema v1、零事件）
+        empty_section = weekly_events.render_events(self.empty_week(), cwd=empty) \
+            .split("#### 本机补充（B）")[1]
+        self.assertIn("0 个事件", empty_section)
+        self.assertNotIn("不可用", empty_section)
+        corrupted = self.local_world("corrupted-db")
+        db = events_db.db_path()
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_bytes(b"this is not a sqlite database")
+        self.assertIn("不可用（本机事件库无法读取",
+                      weekly_events.render_events(self.empty_week(), cwd=corrupted)
+                      .split("#### 本机补充（B）")[1])
+
+    # ---- 验收 5：审计发现数（CI 不可用；本机同 PR/head 取最新、不残留） ----
+
+    def test_audit_findings_unavailable_in_ci_and_deduped_locally(self):
+        project = self.local_world()
+        h1, h2, h3, h4 = "1" * 40, "3" * 40, "5" * 40, "7" * 40
+
+        def summary(pr, head):
+            events.emit("ci", "audit.summary", "fail", trace_id=self.TRACE,
+                        outputs={"pr": pr, "head_sha": head, "ok": False})
+
+        def finding(pr, head, rule):
+            events.emit("ci", "audit.finding", "fail", trace_id=self.TRACE,
+                        outputs={"pr": pr, "head_sha": head, "rule": rule, "severity": "error"})
+
+        summary(305, h1)  # 旧结果有发现……
+        finding(305, h1, "missing_anchor")
+        finding(305, h1, "ledger_mismatch")
+        summary(305, h1)  # ……同 head 最新结果无发现：按无发现算，不残留旧 finding
+        summary(401, h2)  # 同 head 重复审计不累加：最新一次只有 hash_mismatch
+        finding(401, h2, "missing_review")
+        finding(401, h2, "approval_actor")
+        summary(401, h2)
+        finding(401, h2, "hash_mismatch")
+        summary(305, h3)  # 更新 head 的分别标明
+        finding(305, h3, "anchor_mismatch")
+        summary(402, h4)  # 同一规则键去重（同次两条同规则只计一条）
+        finding(402, h4, "missing_route")
+        finding(402, h4, "missing_route")
+        text = weekly_events.render_events(self.empty_week(), cwd=project)
+        section_b = text.split("#### 本机补充（B）")[1]
+        self.assertIn("审计发现数（同 PR/head 只取最新一次）："
+                      "PR 305（head 1111111…）：0 条；PR 305（head 5555555…）：1 条（anchor_mismatch）；"
+                      "PR 401（head 3333333…）：1 条（hash_mismatch）；"
+                      "PR 402（head 7777777…）：1 条（missing_route）", section_b)
+        for stale in ("missing_anchor", "ledger_mismatch", "missing_review", "approval_actor"):
+            self.assertNotIn(stale, text, f"旧结果残留：{stale}")
+        # 同一批事件重复导入不累加
+        bundle = events_io.export_bundle(source="local", trace_id=self.TRACE)
+        self.assertEqual(events_io.import_bundle(bundle)["imported"], 0)
+        again = weekly_events.render_events(self.empty_week(), cwd=project)
+        self.assertEqual(again.split("#### 本机补充（B）")[1], section_b)
+        # CI 写「不可用」，不写 0、不出任何计数
+        with mock.patch.dict(os.environ, {"CI": "true"}):
+            in_ci = weekly_events.render_events(self.empty_week(), cwd=project)
+        self.assertIn("- 审计发现数（A）：不可用（CI 不实算审计；见本机补充）", in_ci)
+        self.assertNotIn("0 条", in_ci)
+        self.assertNotIn("missing_route", in_ci)
+        # 非 CI 无库同样写「不可用」
+        no_db = self.fresh_repo("no-db")
+        self.use_root(no_db)
+        self.assertIn("- 审计发现数（A）：不可用（CI 不实算审计；见本机补充）",
+                      weekly_events.render_events(self.empty_week(), cwd=no_db))
+        # 本机库可用时 A 不实算，指向本机补充
+        self.assertIn("- 审计发现数（A）：不在 A 实算，见「本机补充」", text)
+
+    # ---- 验收 6：旧小节逐字前缀、不可用绝不写成 0、发布与历史解析不受影响 ----
+
+    def test_existing_sections_are_a_verbatim_prefix_and_unavailable_is_never_zero(self):
+        scenarios = []
+        # 场景 1：无 harness-audit 分支、无运行记录、本机库缺失
+        bare = self.fresh_repo("bare-world")
+        self.state_files(bare)
+        gh = FakeWeeklyGh(prs=[merged_pr(601, merged="2026-10-08T10:00:00Z", branch="task/601-x")])
+        scenarios.append((bare, gh, "无分支无库"))
+        # 场景 2：坏 JSON 账本 + 一份好账本（真实分支与默认 git show 读取）
+        badjson = self.fresh_repo("badjson")
+        self.bare_origin(badjson)
+        self.state_files(badjson)
+        self.git("checkout", "-q", "-b", "harness-audit", cwd=badjson)
+        (badjson / "2026").mkdir()
+        (badjson / "2026" / "601.json").write_text("{not json at all", encoding="utf-8")
+        good = {"schema_version": 1, "pr": 602, "trace_id": "task/602-x",
+                "merged_at": "2026-10-07T10:00:00Z",
+                "stages": [{"stage": "verify", "evidence_kind": "event", "duration_ms": 88}]}
+        (badjson / "2026" / "602.json").write_text(json.dumps(good), encoding="utf-8")
+        self.git("add", "2026", cwd=badjson)
+        self.git("commit", "-q", "-m", "ledgers", cwd=badjson)
+        self.git("push", "-q", "origin", "harness-audit", cwd=badjson)
+        self.git("checkout", "-q", "main", cwd=badjson)
+        self.git("fetch", "-q", "origin", cwd=badjson)
+        gh2 = FakeWeeklyGh(prs=[merged_pr(601, merged="2026-10-08T10:00:00Z", branch="task/601-x"),
+                                merged_pr(602, merged="2026-10-07T10:00:00Z", branch="task/602-x")])
+        scenarios.append((badjson, gh2, "坏 JSON"))
+        # 场景 3：本机库损坏
+        corrupted = self.fresh_repo("corrupt-db")
+        self.use_root(corrupted)
+        self.state_files(corrupted)
+        db = events_db.db_path()
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_bytes(b"garbage bytes")
+        scenarios.append((corrupted, FakeWeeklyGh(), "坏库"))
+        # 场景 4：有账本（真实 build_ledger + publish_ledger）
+        rich = self.ledger_world()
+        week_gh = self.week_for_ledgers(rich)
+        scenarios.append((rich, week_gh[1], "有账本"))
+        texts = {}
+        for project, gh, label in scenarios:
+            with self.subTest(scenario=label):
+                self.use_root(project)  # 各场景的 B 都看自己的本机库（mock 叠加，后启者生效）
+                text = weekly.build(END, gh, project)
+                texts[label] = text
+                week = weekly.collect(END, gh, project)
+                old = self.old_section(week, gh, project)
+                self.assertTrue(text.startswith(old), "旧输出必须是逐字前缀")
+                merged_total = re.search(r"（(\d+) 个合并）", old)
+                if merged_total:
+                    self.assertIn(f"本周合并 PR {merged_total[1]} 个", text)
+        # 不可用各带原因，不补造 0
+        text1 = texts["无分支无库"]
+        self.assertIn("- 账本阶段耗时（A）：不可用（本周没有可用账本）", text1)
+        self.assertIn("exit 分布：不可用（窗口内没有运行记录）", text1)
+        self.assertIn("- 审计发现数（A）：不可用（CI 不实算审计；见本机补充）", text1)
+        self.assertIn("不可用（没有本机事件库）。", text1)
+        text2 = texts["坏 JSON"]
+        self.assertIn("无账本 1 个（JSON 损坏 1）", text2)
+        self.assertIn("verify：事件 1、合计 88 ms、最大 88 ms", text2)
+        self.assertIn("不可用（本机事件库无法读取", texts["坏库"])
+        # history_from_comments 仍按旧 weekly-data 注释解析（新小节不影响）
+        key = json.loads(weekly.DATA_MARK.search(text1)[1])["week"]
+        comments = [{"body": text1},
+                    {"body": '<!-- weekly-data {"week": "2026-W40", "escapes": 1} -->'}]
+        history = weekly.history_from_comments(comments, key)
+        self.assertEqual(history, [{"week": "2026-W40", "escapes": 1}])
+        # publish（假 gh）仍创建固定议题并评论完整文本
+        publisher = FakeWeeklyGh(prs=[merged_pr(601, merged="2026-10-08T10:00:00Z", branch="task/601-x")])
+        number = weekly.publish(text1, gh=publisher)
+        self.assertEqual(number, 70)
+        created = [args for action, args in publisher.writes if action == "create"]
+        commented = [args for action, args in publisher.writes if action == "comment"]
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0][created[0].index("--title") + 1], weekly.REPORT_TITLE)
+        self.assertEqual(created[0][created[0].index("--body") + 1], text1, "议题正文是完整新文本")
+        self.assertEqual(commented[0][commented[0].index("--body") + 1], text1, "评论是完整新文本")
+
+    # ---- 验收 7：模块边界与隐私 ----
+
+    def test_module_boundaries_and_privacy(self):
+        source = Path(weekly_events.__file__).read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    self.assertFalse(alias.name == "weekly" or alias.name.endswith(".weekly")
+                                     or alias.name == "engine.reports.weekly",
+                                     f"weekly_events 不得反向导入 weekly：import {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                self.assertFalse((node.level and module.split(".")[-1] == "weekly")
+                                 or module in ("weekly", "engine.reports.weekly")
+                                 or module.endswith(".weekly"),
+                                 f"weekly_events 不得反向导入 weekly：from {module} import")
+                for alias in node.names:
+                    self.assertNotEqual(alias.name, "weekly",
+                                        "weekly_events 不得反向导入 weekly（from 包导入成员）")
+        # weekly.py 净增 ≤ 25 行、最终 ≤ 800 行
+        engine_repo = Path(weekly.__file__).resolve().parents[2]
+        done = subprocess.run(["git", "show", "HEAD:engine/reports/weekly.py"], cwd=engine_repo,
+                              capture_output=True, text=True, check=False, env={**os.environ, **GIT_ENV})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        current = len(Path(weekly.__file__).read_text(encoding="utf-8").splitlines())
+        before = len(done.stdout.splitlines())
+        self.assertLessEqual(current - before, 25, f"weekly.py 净增 {current - before} 行")
+        self.assertLessEqual(current, 800)
+        # 输出不含临时目录与本机用户目录片段
+        project = self.local_world()
+        events.emit("dispatch", "executor_round", "ok", trace_id=self.TRACE, duration_ms=10,
+                    outputs={"exit": "ok", "guard_denied": 0})
+        events.emit("guard", "command", "deny", trace_id=self.TRACE,
+                    decision={"by": "guard", "rule": "deny-rule"}, actor={"role": "designer"})
+        text = weekly_events.render_events(self.empty_week(), cwd=project)
+        self.assertNotIn(str(self.tmp), text)
+        self.assertNotIn(os.path.expanduser("~"), text)
+        self.assertNotIn("/Users/", text)
+        self.assertNotIn("/var/folders/", text)
 
 
 if __name__ == "__main__":
