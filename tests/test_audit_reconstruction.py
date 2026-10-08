@@ -21,13 +21,11 @@ import io
 import itertools
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-import urllib.parse
 import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -40,6 +38,7 @@ from engine import cli
 from engine.agents import dispatch_observation, run_timeline
 from engine.core import events, events_db
 from engine.reports import audit, ci_events, ledger
+from tests.gh_fakes import FakeGhBase
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
@@ -93,110 +92,15 @@ class _Clock:
         return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-class FakeGh:
+class FakeGh(FakeGhBase):
     """audit/ledger/load_ci/sync 共用 gh 桩：只读 API、artifact zip 下载与锚点评论写操作。
 
-    page_size 模拟更小的服务端页容量（迫使真实翻页）；fail 里的子串命中即抛 RuntimeError；
-    closed 是批量模式的已关闭 PR 列表（裸数组分页）；writes 单独记账评论写操作。
+    page_size 模拟更小的服务端页容量（迫使真实翻页）；closed 是批量模式的已关闭 PR 列表（裸数组分页）；
+    runs 按 branch 过滤，runs 与 artifacts 都分页（paginate_runs / paginate_artifacts）。
     """
 
-    def __init__(self, *, repo=REPO, pulls=None, closed=None, reviews=None, pr_commits=None,
-                 commits=None, comments=None, issues=None, runs=None, artifacts=None,
-                 downloads=None, page_size=None, fail=()):
-        self.calls: list[tuple] = []
-        self.writes: list[tuple] = []
-        self._repo = repo
-        self.pulls = pulls or {}
-        self.closed = list(closed or [])
-        self.reviews = reviews or {}
-        self.pr_commits = pr_commits or {}
-        self.commits = commits or {}
-        self.comments = list(comments or [])
-        self.issues = issues or {}
-        self.runs = runs or []
-        self.artifacts = artifacts or {}
-        self.downloads = downloads or {}
-        self.page_size = page_size
-        self.fail = tuple(fail)
-
-    def repo(self) -> str:
-        self.calls.append(("repo",))
-        return self._repo
-
-    def pr(self, pr: int) -> dict:
-        self.calls.append(("pr", pr))
-        pull = self.pulls.get(pr)
-        if pull is None:
-            raise RuntimeError(f"HTTP 404: Not Found（夹具无 PR {pr}）")
-        return {"headRefName": pull["head"]["ref"], "headRefOid": pull["head"]["sha"],
-                "repository": self._repo}
-
-    def api(self, route: str, *, method: str = "GET", payload=None):
-        self.calls.append((method, route))
-        if method != "GET":
-            return self._write(route, payload)
-        for pattern in self.fail:
-            if pattern in route:
-                raise RuntimeError("HTTP 403: 权限不足（夹具）")
-        path, _, query = route.partition("?")
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)", path):
-            pull = self.pulls.get(int(match[1]))
-            if pull is None:
-                raise RuntimeError(f"HTTP 404: Not Found（夹具无 PR {match[1]}）")
-            return pull
-        if re.fullmatch(r"repos/[^/]+/[^/]+/pulls", path):
-            return self._page(self.closed, query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)/reviews", path):
-            return self._page(self.reviews.get(int(match[1]), []), query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)/commits", path):
-            return self._page(self.pr_commits.get(int(match[1]), []), query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/commits/([0-9a-f]+)", path):
-            commit = self.commits.get(match[1])
-            if commit is None:
-                raise RuntimeError(f"HTTP 404: Not Found（夹具无提交 {match[1][:12]}）")
-            return commit
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/issues/(\d+)/comments", path):
-            return self._page(self.comments, query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/issues/comments/(\d+)", path):
-            comment = next((item for item in self.comments if item.get("id") == int(match[1])), None)
-            if comment is None:
-                raise RuntimeError(f"HTTP 404: Not Found（夹具无评论 {match[1]}）")
-            return comment
-        if re.fullmatch(r"repos/[^/]+/[^/]+/issues", path):
-            label = urllib.parse.parse_qs(query).get("labels", [""])[0]
-            return self._page(self.issues.get(label, []), query)
-        if re.fullmatch(r"repos/[^/]+/[^/]+/actions/runs", path):
-            branch = urllib.parse.unquote(urllib.parse.parse_qs(query).get("branch", [""])[0])
-            items = [item for item in self.runs if not branch or item.get("head_branch") == branch]
-            return {"total_count": len(items), "workflow_runs": self._page(items, query)}
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/actions/runs/(\d+)/artifacts", path):
-            items = self.artifacts.get(int(match[1]), [])
-            return {"total_count": len(items), "artifacts": self._page(items, query)}
-        if re.fullmatch(r"repos/[^/]+/[^/]+/actions/workflows", path):
-            return {"total_count": 0, "workflows": []}  # T720：load_ci 的第二段查询（本文件无 auto-merge 工作流）
-        raise AssertionError(f"FakeGh 未配置的路由：{path}")
-
-    def _write(self, route: str, payload) -> dict:
-        """锚点评论写操作：只允许 POST issues/N/comments；记录进 writes 与 comments。"""
-        path = route.partition("?")[0]
-        if re.fullmatch(r"repos/[^/]+/[^/]+/issues/\d+/comments", path):
-            self.writes.append(("POST", route, payload))
-            comment = {"id": 9000 + len(self.comments), "body": payload["body"], "created_at": TS,
-                       "html_url": f"{GITHUB_URL}/issues/comments/{9000 + len(self.comments)}"}
-            self.comments.append(comment)
-            return comment
-        raise AssertionError(f"FakeGh 不允许的写路由：{route}")
-
-    def download(self, url: str) -> bytes:
-        self.calls.append(("download", url))
-        return self.downloads[url]
-
-    def _page(self, items: list, query: str) -> list:
-        params = urllib.parse.parse_qs(query)
-        page = int(params.get("page", ["1"])[0])
-        cap = min(self.page_size or int(params.get("per_page", ["30"])[0]),
-                  int(params.get("per_page", ["30"])[0]))
-        return items[(page - 1) * cap:page * cap]
+    paginate_runs = True
+    paginate_artifacts = True
 
 
 class ObservabilityTaskTest(unittest.TestCase):
