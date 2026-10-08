@@ -22,7 +22,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import urllib.parse
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,6 +33,7 @@ from engine.agents import dispatch_observation
 from engine.core import events, events_db
 from engine.reports import audit, ledger
 from engine.routing import signals
+from tests.gh_fakes import FakeGhBase
 
 ENGINE_REPO = Path(__file__).resolve().parents[1]
 GIT_ENV = {
@@ -65,61 +65,21 @@ class _Clock:
         return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-class FakeGh:
-    """账本/审计共用的只读 gh 桩：pulls/reviews/commits/评论/议题/运行足够走完 sync 与 load_ci。"""
+class FakeGh(FakeGhBase):
+    """账本/审计共用的只读 gh 桩：pulls/reviews/commits/评论/议题/运行足够走完 sync 与 load_ci。
 
-    def __init__(self, *, pulls=None, reviews=None, commits=None, pr_commits=None,
-                 comments=None, issues=None, runs=None, artifacts=None, downloads=None):
-        self.calls: list[tuple] = []
-        self.pulls = pulls or {}
-        self.reviews = reviews or {}
-        self.commits = commits or {}
-        self.pr_commits = pr_commits or {}
-        self.comments = list(comments or [])
-        self.issues = issues or {}
-        self.runs = list(runs or [])
-        self.artifacts = dict(artifacts or {})
-        self.downloads = dict(downloads or {})
+    缺失提交抛 KeyError、缺失评论抛 StopIteration；runs 不按 branch 过滤；repo() 不记录调用。
+    """
+
+    runs_filter_by_branch = False
+    paginate_runs = True
+    paginate_artifacts = True
+    missing_pr = "key"
+    missing_commit = "key"
+    missing_comment = "stop"
 
     def repo(self) -> str:
         return REPO
-
-    def api(self, route: str, *, method: str = "GET", payload=None):
-        self.calls.append((method, route))
-        path, _, query = route.partition("?")
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)", path):
-            return self.pulls[int(match[1])]
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)/reviews", path):
-            return self._page(self.reviews.get(int(match[1]), []), query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)/commits", path):
-            return self._page(self.pr_commits.get(int(match[1]), []), query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/commits/([0-9a-f]+)", path):
-            return self.commits[match[1]]
-        if re.fullmatch(r"repos/[^/]+/[^/]+/issues/\d+/comments", path):
-            return self._page(self.comments, query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/issues/comments/(\d+)", path):
-            return next(item for item in self.comments if item["id"] == int(match[1]))
-        if re.fullmatch(r"repos/[^/]+/[^/]+/issues", path):
-            label = urllib.parse.parse_qs(query).get("labels", [""])[0]
-            return self._page(self.issues.get(label, []), query)
-        if re.fullmatch(r"repos/[^/]+/[^/]+/actions/runs", path):
-            return {"total_count": len(self.runs), "workflow_runs": self._page(self.runs, query)}
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/actions/runs/(\d+)/artifacts", path):
-            items = self.artifacts.get(int(match[1]), [])
-            return {"total_count": len(items), "artifacts": self._page(items, query)}
-        if re.fullmatch(r"repos/[^/]+/[^/]+/actions/workflows", path):
-            return {"total_count": 0, "workflows": []}  # T720：load_ci 的第二段查询（本文件无 auto-merge 工作流）
-        raise AssertionError(f"FakeGh 未配置的路由：{path}")
-
-    def download(self, url: str) -> bytes:
-        self.calls.append(("download", url))
-        return self.downloads[url]
-
-    def _page(self, items: list, query: str) -> list:
-        params = urllib.parse.parse_qs(query)
-        page = int(params.get("page", ["1"])[0])
-        cap = int(params.get("per_page", ["30"])[0])
-        return items[(page - 1) * cap:page * cap]
 
 
 class LedgerEquivalentHeadTest(unittest.TestCase):

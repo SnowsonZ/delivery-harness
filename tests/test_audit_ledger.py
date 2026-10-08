@@ -24,7 +24,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import urllib.parse
 import zipfile
 from pathlib import Path
 from unittest import mock
@@ -35,6 +34,7 @@ from engine import cli
 from engine.agents import dispatch_observation, run_timeline
 from engine.core import events, events_db
 from engine.reports import ci_events, ledger
+from tests.gh_fakes import FakeGhBase
 
 ENGINE_REPO = Path(__file__).resolve().parents[1]
 GIT_ENV = {
@@ -73,79 +73,29 @@ class _Clock:
         return f"2026-01-02T{3 + hour // 24:02d}:{(hour % 24 + 1):02d}:{minute:02d}.000Z"
 
 
-class FakeGh:
+class FakeGh(FakeGhBase):
     """ledger 用 gh 桩：PR/评审/提交/议题/评论/Actions 只读 API 与锚点评论 POST/PATCH，记录全部调用。
 
     page_size 模拟更小的服务端页容量（迫使真实翻页）；fail 里的子串命中即抛 RuntimeError；未配置的
     PR/路由按 404/断言失败处理；writes 单独记账评论写操作（断言只写锚点评论，不做合并/批准动作）。
+    与基类的差异：audit/escape 两个议题标签列表、runs 不按 branch 过滤且分页、没有单条评论 GET、
+    评论 id 用独立计数器（html_url 消耗下一个 id）、评论时间戳与其他文件不同、支持 PATCH。
     """
+
+    runs_filter_by_branch = False
+    paginate_runs = True
+    paginate_artifacts = True
+    get_comment_by_id = False
 
     def __init__(self, *, repo=REPO, pulls=None, reviews=None, pr_commits=None, commits=None,
                  audit=None, escape=None, comments=None, runs=None, artifacts=None, downloads=None,
                  page_size=None, fail=()):
-        self.calls: list[tuple] = []
-        self.writes: list[tuple] = []
-        self._repo = repo
-        self.pulls = pulls or {}
-        self.reviews = reviews or {}
-        self.pr_commits = pr_commits or {}
-        self.commits = commits or {}
-        self.issues = {"audit": list(audit or []), "escape": list(escape or [])}
-        self.comments = list(comments or [])
-        self.runs = runs or []
-        self.artifacts = artifacts or {}
-        self.downloads = downloads or {}
-        self.page_size = page_size
-        self.fail = tuple(fail)
+        super().__init__(repo=repo, pulls=pulls, reviews=reviews, pr_commits=pr_commits,
+                         commits=commits, comments=comments,
+                         issues={"audit": list(audit or []), "escape": list(escape or [])},
+                         runs=runs, artifacts=artifacts, downloads=downloads,
+                         page_size=page_size, fail=fail)
         self._ids = itertools.count(9000)
-
-    def repo(self) -> str:
-        self.calls.append(("repo",))
-        return self._repo
-
-    def pr(self, pr: int) -> dict:
-        self.calls.append(("pr", pr))
-        pull = self.pulls.get(pr)
-        if pull is None:
-            raise RuntimeError(f"HTTP 404: Not Found（夹具无 PR {pr}）")
-        return {"headRefName": pull["head"]["ref"], "headRefOid": pull["head"]["sha"],
-                "repository": self._repo}
-
-    def api(self, route: str, *, method: str = "GET", payload=None):
-        self.calls.append((method, route))
-        if method != "GET":
-            return self._write(route, payload)
-        for pattern in self.fail:
-            if pattern in route:
-                raise RuntimeError("HTTP 403: 权限不足（夹具）")
-        path, _, query = route.partition("?")
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)", path):
-            pull = self.pulls.get(int(match[1]))
-            if pull is None:
-                raise RuntimeError(f"HTTP 404: Not Found（夹具无 PR {match[1]}）")
-            return pull
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)/reviews", path):
-            return self._page(self.reviews.get(int(match[1]), []), query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)/commits", path):
-            return self._page(self.pr_commits.get(int(match[1]), []), query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/commits/([0-9a-f]+)", path):
-            commit = self.commits.get(match[1])
-            if commit is None:
-                raise RuntimeError(f"HTTP 404: Not Found（夹具无提交 {match[1][:12]}）")
-            return commit
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/issues/(\d+)/comments", path):
-            return self._page(self.comments, query)
-        if path.endswith("/issues"):
-            label = urllib.parse.parse_qs(query).get("labels", [""])[0]
-            return self._page(self.issues.get(label, []), query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/actions/runs", path):
-            return {"total_count": len(self.runs), "workflow_runs": self._page(self.runs, query)}
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/actions/runs/(\d+)/artifacts", path):
-            items = self.artifacts.get(int(match[1]), [])
-            return {"total_count": len(items), "artifacts": self._page(items, query)}
-        if re.fullmatch(r"repos/[^/]+/[^/]+/actions/workflows", path):
-            return {"total_count": 0, "workflows": []}  # T720：load_ci 的第二段查询（本文件无 auto-merge 工作流）
-        raise AssertionError(f"FakeGh 未配置的路由：{path}")
 
     def _write(self, route: str, payload) -> dict:
         """锚点评论写操作：只允许 POST issues/N/comments 与 PATCH issues/comments/id。"""
@@ -164,17 +114,6 @@ class FakeGh:
                     return comment
             raise AssertionError(f"PATCH 不存在的评论 {match[1]}")
         raise AssertionError(f"FakeGh 不允许的写路由：{route}")
-
-    def download(self, url: str) -> bytes:
-        self.calls.append(("download", url))
-        return self.downloads[url]
-
-    def _page(self, items: list, query: str) -> list:
-        params = urllib.parse.parse_qs(query)
-        page = int(params.get("page", ["1"])[0])
-        cap = min(self.page_size or int(params.get("per_page", ["30"])[0]),
-                  int(params.get("per_page", ["30"])[0]))
-        return items[(page - 1) * cap:page * cap]
 
 
 class ObservabilityTaskTest(unittest.TestCase):

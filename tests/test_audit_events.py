@@ -17,13 +17,11 @@ import io
 import itertools
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-import urllib.parse
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from engine import cli
 from engine.core import events, events_db, events_io
 from engine.reports import audit
+from tests.gh_fakes import FakeGhBase
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
@@ -62,57 +61,17 @@ class _Clock:
         return moment.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-class FakeGh:
-    """最小 gh 桩：合并事实、空评审/提交/议题/CI 运行列表；fail_comments 时 PR 评论列表故障。"""
+class FakeGh(FakeGhBase):
+    """最小 gh 桩：合并事实、空评审/提交/议题/CI 运行列表；fail_comments 时 PR 评论列表故障。
+
+    任何提交查询固定返回两个父节点（missing_commit = "fixed"）；runs/workflows 均为空。
+    """
+
+    missing_commit = "fixed"
 
     def __init__(self, *, pulls=None, closed=None, fail_comments=False):
-        self.calls: list[tuple] = []
-        self.pulls = pulls or {}
-        self.closed = list(closed or [])
+        super().__init__(pulls=pulls, closed=closed)
         self.fail_comments = fail_comments
-
-    def repo(self) -> str:
-        self.calls.append(("repo",))
-        return REPO
-
-    def pr(self, pr: int) -> dict:
-        self.calls.append(("pr", pr))
-        pull = self.pulls.get(pr)
-        if pull is None:
-            raise RuntimeError(f"HTTP 404: Not Found（夹具无 PR {pr}）")
-        return {"headRefName": pull["head"]["ref"], "headRefOid": pull["head"]["sha"],
-                "repository": REPO}
-
-    def api(self, route: str, *, method: str = "GET", payload=None):
-        self.calls.append(("GET", route))
-        path, _, query = route.partition("?")
-        if re.fullmatch(r"repos/[^/]+/[^/]+/pulls", path):
-            return self._page(self.closed, query)
-        if match := re.fullmatch(r"repos/[^/]+/[^/]+/pulls/(\d+)", path):
-            pull = self.pulls.get(int(match[1]))
-            if pull is None:
-                raise RuntimeError(f"HTTP 404: Not Found（夹具无 PR {match[1]}）")
-            return pull
-        if re.fullmatch(r"repos/[^/]+/[^/]+/pulls/\d+/(reviews|commits)", path):
-            return []
-        if re.fullmatch(r"repos/[^/]+/[^/]+/commits/[0-9a-f]+", path):
-            return {"parents": [{"sha": "p1"}, {"sha": "p2"}]}
-        if re.fullmatch(r"repos/[^/]+/[^/]+/issues", path):
-            return []
-        if re.fullmatch(r"repos/[^/]+/[^/]+/issues/\d+/comments", path):
-            if self.fail_comments:
-                raise RuntimeError("HTTP 403: 权限不足（夹具）")
-            return []
-        if re.fullmatch(r"repos/[^/]+/[^/]+/actions/runs", path):
-            return {"total_count": 0, "workflow_runs": []}
-        if re.fullmatch(r"repos/[^/]+/[^/]+/actions/workflows", path):
-            return {"total_count": 0, "workflows": []}  # T720：load_ci 的第二段查询（本文件无 auto-merge 工作流）
-        raise AssertionError(f"FakeGh 未配置的路由：{path}")
-
-    def _page(self, items: list, query: str) -> list:
-        page = int(urllib.parse.parse_qs(query).get("page", ["1"])[0])
-        cap = int(urllib.parse.parse_qs(query).get("per_page", ["30"])[0])
-        return items[(page - 1) * cap:page * cap]
 
 
 class ObservabilityTaskTest(unittest.TestCase):
