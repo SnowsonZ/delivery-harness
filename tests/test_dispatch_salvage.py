@@ -347,7 +347,8 @@ rollback: git revert
     def test_write_record_raises_stop_with_hook_tail(self):
         self.install_rejecting_hook()
         slot = self.make_slot("task/230-a")
-        runner = dispatch.Dispatcher(self.repo, self.config, FakeGitHub(), dispatch_host.PiHost(),
+        # 假 host：PiHost.version() 依赖 pi 二进制（CI 上没有），write_record 只用 name 与 version
+        runner = dispatch.Dispatcher(self.repo, self.config, FakeGitHub(), RecordingHost(""),
                                      identity=dict(GIT_ENV))
         task = dispatch.Task(REL, "T230", "K7", "R3",
                              {"wall_clock_min": 5, "retries": 0, "ci_rounds": 2, "tokens": None},
