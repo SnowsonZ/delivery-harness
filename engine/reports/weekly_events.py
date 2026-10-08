@@ -55,8 +55,11 @@ def git_show_reader(cwd: Path):
     """缺省账本读取回调：git show origin/harness-audit:<路径>；返回 (状态, 字节|stderr)。"""
 
     def read(path: str) -> tuple[str, bytes | str]:
-        done = subprocess.run(["git", "show", f"{AUDIT_REF}:{path}"], cwd=cwd, capture_output=True,
-                              env=clean_git_env(), check=False)
+        try:
+            done = subprocess.run(["git", "show", f"{AUDIT_REF}:{path}"], cwd=cwd, capture_output=True,
+                                  env=clean_git_env(), check=False)
+        except OSError as exc:
+            return "error", type(exc).__name__  # 读取失败只保留类别，不回显异常中的本机路径
         if done.returncode == 0:
             return "ok", done.stdout
         err = done.stderr.decode("utf-8", "replace")
@@ -220,17 +223,18 @@ def _denied_calls(events: list[dict]) -> int:
 def _audit_rules(events: list[dict]) -> dict[tuple, set[str]]:
     """同一 (PR, head) 只取最新一次 audit.summary 之后（含当次）的 audit.finding，按规则键去重；
     同 head 重复审计不累加、最新结果无发现不残留旧 finding；更新 head 的各自成键。"""
-    latest: dict[tuple, dt.datetime] = {}
+    latest: dict[tuple, tuple[dt.datetime, int]] = {}
     for event in [item for item in events if item["step"] == "audit.summary"]:
         key = (event["outputs"].get("pr"), event["outputs"].get("head_sha"))
         moment = _parse_utc(event["ts"])
-        if moment is not None and (key not in latest or moment >= latest[key]):
-            latest[key] = moment
+        order = (moment, event["id"]) if moment is not None else None
+        if order is not None and (key not in latest or order >= latest[key]):
+            latest[key] = order  # 同毫秒以本机插入 id 判先后；查询按来源链排序，不能用列表位置
     rules = {key: set() for key in latest}
     for event in [item for item in events if item["step"] == "audit.finding"]:
         key = (event["outputs"].get("pr"), event["outputs"].get("head_sha"))
         moment = _parse_utc(event["ts"])
-        if key in rules and moment is not None and moment >= latest[key]:
+        if key in rules and moment is not None and (moment, event["id"]) >= latest[key]:
             rules[key].add(str(event["outputs"].get("rule")))
     return rules
 
