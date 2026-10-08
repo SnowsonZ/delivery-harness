@@ -1,0 +1,73 @@
+{
+  "task": "T721",
+  "class": "K5",
+  "attempt": 2,
+  "branch": "task/721-dispatch-hardening-and-shared-fixture",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "db1d2ed801fe8c05232cdc78657424570997a1b4dc005001279421fe610cf9cf",
+  "prompt_path": "docs/runs/task-721-dispatch-hardening-and-shared-fixture/2.prompt.md",
+  "guard_ref": "fde66e6747ca1730364118957cd43870350ed6c1",
+  "started_at": "2026-10-08T02:07:46+00:00",
+  "ended_at": "2026-10-08T02:32:39+00:00",
+  "executor_seconds": 788.8,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 1,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 495962,
+  "gen_ai.usage.output_tokens": 5441,
+  "cost": 0.022042,
+  "escalation": null,
+  "trace_id": "task/721-dispatch-hardening-and-shared-fixture",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "push_pr",
+      "status": "prior",
+      "ts": "2026-10-08T02:04:00.485Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "ci_wait",
+      "status": "prior",
+      "ts": "2026-10-08T02:07:46.956Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-08T02:20:56.080Z",
+      "duration_ms": 788777,
+      "attempt": 2,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-08T02:32:39.556Z",
+      "duration_ms": null,
+      "attempt": 2,
+      "round": 1
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "f64a82519042c6c39e3f11c939a478fcb2e409d1b46c0efcd01b16a484457302",
+      "fixed_in": "run_record"
+    }
+  ]
+}
