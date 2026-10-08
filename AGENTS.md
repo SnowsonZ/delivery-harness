@@ -12,12 +12,20 @@ AI 编码 Agent 的可验证交付引擎：判定器、护栏、风险判级与�
 ## 开发与验证
 
 - 引擎在 `engine/`，只依赖 Python 标准库（≥ 3.11）；安装模板在 `templates/`；测试在 `tests/`。
-- 验证：`bin/verify --full`（含下面两条）；或直接 `python3 -m ruff check engine tests`（版本 0.16.8）与 `python3 -W error::ResourceWarning -m unittest discover -s tests -v`，与 CI（Ubuntu、macOS）同口径。通过与否只认命令与 CI 输出，不手写。
+- 验证：`bin/verify --full`（含下面两条）；或直接 `python3 -m ruff check engine tests`（版本 0.16.8）与 `python3 -W error::ResourceWarning -m unittest discover -s tests -v`，Linux 覆盖由 harness 的完整验证提供，macOS 由 CI 分片覆盖；以对应命令/平台为准。通过与否只认命令与 CI 输出，不手写。
 - 在真实项目上验证（改判定逻辑、守卫、派发、配置读取时必做）：在 Agent-Notification 的独立 worktree 中运行 `python3 <本仓库>/engine/cli.py upgrade --target <worktree> --allow-dirty`，再跑它的 `bin/verify --full`（harness 契约测试 `tests/test_harness*.py` 暂在那边，待办 B42）。不在其主目录试装。
 - 一个设计拆成多个派发任务时按 `docs/task-splitting.md`：先跑通第一个任务，再拆完其余并做追溯表与独立拆分评审，一并提交。
 - 升级已接入的项目（如 Agent-Notification）按 `docs/upgrading.md`；改配置项、命令接口或模板配合方式时，在 CHANGELOG 写 `**Migration:**` 条目，`upgrade` 靠它提示。
 - 引擎与模板里不得出现使用者自己的值（账号、邮箱、模型、App、本机路径、项目名）：`tests/test_install.py` 的 OwnValuesTest 拦截；新增项目相关的值一律走 `.harness/config/` 配置，缺必填项明确报错。
 - 引擎运行时的提示与文案目前为中文，国际化见待办；代码注释、提交说明沿用中文，README.md、SECURITY.md、CHANGELOG.md 用英文。
+
+## 可观测性与阶段收尾
+
+- 使用与安全边界见 README 双语「可观测性 / Observability」、SECURITY「Observability evidence」与 `docs/upgrading.md`。示例告警会真实发布，文档验收只用假平台或 `--help`；平台设置由用户执行。
+- `events` 导出/导入是整库模式，不能与查询过滤参数混用；`trace --ci` 的合法旧 head 信息不算失败，其余导入发现仍核对。`audit` 仅审已合并 PR，缺失/过期证据明确报告，不能把不可得写成 0 或核验成功。
+- `docs/runs/<任务书名>/<序号>.json` 记录派发尝试（attempt），由 dispatcher 在执行轮结束后生成；不同编号不等于任务书计划步骤。历史 stopped/clarify 保留，正常成功记录、CI/PR/合并资料共同构成完成证据。
+- 阶段门禁按实际输出认定：源码/模板未变的测试或文档收尾，G1 核对内置副本无需再升级，G2 不重复相同消费方等价验证。G4 平台证据不足则保留 B46 未完成状态；G5 版本/tag 只在用户发版决定后执行。
+- 续派前确认没有存活的旧执行方占用槽位，核对实际等待对象与输出；父编排进程退出不代表其 Pi 子进程结束。相关残余问题见待办 B77。
 
 ## 提交与发布
 

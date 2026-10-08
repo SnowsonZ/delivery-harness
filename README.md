@@ -10,7 +10,7 @@ A verifiable delivery harness for AI coding agents. It turns "the agent says it 
 - **Checks that check themselves.** Fixes carrying a `Defect:` trailer must fail before the fix and pass after it; existing tests run at their base version so an agent cannot weaken them; historic incidents are re-injected (replay) and must be caught; mutation scores and quality baselines only move in one direction.
 - **Risk routing instead of trust.** Every change is classified R0–R3 from the paths it touches, not from what the author claims. Low-risk, well-verified classes merge automatically; everything else goes to a human. Autonomy is granted per task class with an error budget and is withdrawn automatically when the budget is exceeded.
 - **Three layers of guards.** Agent-tool hooks (Claude Code, Codex, OpenCode, Pi, Zcode) refuse destructive commands and edits to the harness itself; git hooks protect branches and tags regardless of which agent is used; server-side rulesets and a separate agent account are the backstop.
-- **Local event log.** Gates, dispatch, guards and routing write a structured, privacy-filtered event trail to a local per-repository log (inside the git directory, untracked), chained per source and trace id so edits are detectable. Events never affect judgments; the environment switch turns them off. Trace, audit and alert commands are planned next.
+- **Observability and evidence.** Privacy-filtered events are chained per source and trace id. `events` exports/imports safe bundles; `trace --ci` reconstructs timelines; `audit` checks merged-PR references and required stages; `alert` publishes deduplicated warnings. Merge ledgers and fixed anchors make evidence retrievable across machines. Observation and publication failures never change gate or routing decisions.
 - **Dispatch and independent review.** `dispatch` hands a merged task brief to an executor agent in an isolated worktree slot, runs the gates outside the executor, opens the PR and escalates when stuck. `dispatch review` has a different agent review R2+ PRs read-only.
 
 ## How it is installed
@@ -88,16 +88,96 @@ All commands run through `bin/harness <command>` (or `python3 .harness/engine/cl
 | `evidence`, `base-tests`, `replay`, `mutate` | Checks on the checks |
 | `guard-command`, `guard-git` | Agent-tool and git guards (called by hooks) |
 | `dispatch run\|status\|stop\|review` | Executor dispatch and independent review |
-| `metrics`, `weekly` | Delivery metrics and the weekly report |
+| `events [--since 1d] [--stage verify] [--status fail] [--json]` | Filter local events and show counts |
+| `events --export <file>` / `events --import <file>` | Export the complete store / validate and idempotently import an EventBundle |
+| `trace <task-id\|PR\|branch> [--ci] [--json]` | Reconstruct the timeline; `--ci` downloads CI packages |
+| `audit <PR> [--json]` / `audit --all-merged [--since 30d] [--json]` | Audit one merged PR or the merged-PR window |
+| `alert <reason> [--pr <n>] [--trace <branch>] [--task <id>] [--bundle <dir\|file>] [--json]` | Publish an evidence-backed, deduplicated alert |
+| `metrics`, `weekly` | Delivery metrics and the weekly report, including the event summary |
 | `release-check` | Tag matches the project version and is on `main` |
 | `install`, `upgrade` | Run from a checkout of this repository |
 
+## Observability
+
+### Inspect and reconstruct
+
+Run these in an installed project, replacing the task and PR ids with local project ids:
+
+```sh
+bin/harness events --since 1d --stage verify --json
+bin/harness events --export build/harness-events.json
+bin/harness events --import build/harness-events.json
+bin/harness trace T001 --json
+bin/harness trace 42 --ci --json
+bin/harness audit 42 --json
+bin/harness audit --all-merged --since 30d --json
+```
+
+`events --export` exports the complete store and complete chain prefixes. Export/import cannot be combined with display filters; such combinations exit 2. An EventBundle contains safe structured data and content hashes; it does not copy SQLite, WAL/SHM files, raw verify logs or agent conversations. Import checks schema, privacy and chain hashes, deduplicates by hash and refuses conflicts. CI downloads also bind repository, workflow, run/attempt/job and head to API facts. Judge runs are linked by the default-branch `run-name`, with packages checked against the API identity of that run.
+
+`trace` accepts a task id, PR number (also `#42`) or full branch name, reports the longest stage and first failure, and preserves missing-data diagnostics. `head_mismatch` means a legal older head was not imported; it remains visible but is informational. Missing/malformed heads and other import findings remain failures. `audit` covers **merged PRs only**: exit 0 means applicable checks passed, 1 means findings, and 2 means bad arguments, invalid audit configuration or an overall API/un-auditable-PR failure. Missing/expired evidence is never counted as verified. References are parsed as data, never executed.
+
+### Stores, retention and anchors
+
+| Source | Location and lifetime | Scope |
+|---|---|---|
+| Local observations | `<git common dir>/harness/harness.db`; shared by worktrees, untracked | Events, references and anchors have no automatic retention deletion |
+| Local content and raw dispatch streams | `harness/artifacts/` and `dispatch/runs/` under the git common directory | Default 30 days; cleanup on the first emit each day; terminated raw runs stay local |
+| CI event packages | Actions artifacts `harness-events-<run>-<attempt>-<job>` | Template retention 90 days; uploads and summaries also run after failures |
+| Merge ledger | `harness-audit:<merged UTC year>/<PR>.json` | Merged PRs only; retained in Git without automatic expiry |
+
+Run records fix already-observed stage prefixes; CI packages carry anchors. A `harness-audit:<PR>` PR comment fixes the ledger path, commit, file SHA-256 and chain heads. The writer uses normal fast-forward, accepts identical bytes idempotently and refuses different bytes for the same PR. The ruleset prevents deletion/history rewrite, but permits ordinary commits replacing old files. `audit` checks fixed expectations, including tail deletions whose remaining internal chain is valid. See [SECURITY](SECURITY.md#observability-evidence) for the same-user tampering window and expiry limits.
+
+Optional defaults in `.harness/config/checks.toml`:
+
+```toml
+[events]
+enabled = true
+artifact_days = 30
+
+[audit]
+require_review_risk = 2
+require_route_for_auto = true
+require_run_record_for_task = true
+verify_anchors = true
+```
+
+The event environment switch documented in [CHANGELOG](CHANGELOG.md) takes precedence over configuration. Invalid `artifact_days` warns and falls back to 30; unknown/invalid audit keys are configuration errors. Audit settings affect reports only. Designer PRs need no dispatch records; task PRs do. Review and approval checks follow the applicable risk/route and platform approval mode.
+
+### Alerts and the weekly report
+
+`alert` writes a PR comment plus an `escalation` label, or an escalation issue without `--pr`. Remote `(trace, reason)` markers deduplicate across machines. Supported reasons are listed by `bin/harness alert --help`. **The following publishes a real alert; run it only with a triggering package and intended publication:**
+
+```sh
+bin/harness alert audit_anchor_mismatch --pr 42 --bundle build/harness-events.json --json
+```
+
+`--bundle` checks trigger evidence without importing/executing the package; no trigger means no publication. `--help` is a harmless syntax check. Publishing failures do not change original judgments. Trusted default-branch jobs carry alerts after success or failure; PR checks keep read-only tokens. No resident daemon, OTLP endpoint or extra notification channel is added.
+
+Dispatch warnings are optional in `.harness/config/rules.toml`: omitting `[alerts]` disables them; adding the section enables the last-CI-round warning. `guard_denials_threshold` has no enabled default: a positive integer enables the per-round denied-tool-call warning, while an absent/invalid value disables that warning (invalid values emit a notice). These settings do not change the budget or guard decisions.
+
+The weekly report preserves its old sections and sources, then appends two separate parts. **A** uses merged-PR ledgers (event durations only, excluding duplicate record summaries) and checkout run records whose `ended_at` is in the UTC week. **B** is local-only and is always unavailable under `CI=true`. The coverage PR count matches the old human-intervention section. Rule hits and denied tool calls are different units, never cross-checked or summed together. Designer guard denials are unavailable from A; CI does not calculate a local audit-finding count. Missing/unreadable evidence is unavailable, not fabricated as zero.
+
+### Ledger platform setup — owner actions
+
+`install` supplies `.github/rulesets/harness-audit.json`. Upgrades need deliberate template copies; see [upgrade instructions](docs/upgrading.md). In repository **Settings**, the owner opens **Rulesets**, selects **New ruleset → Import a ruleset**, opens the JSON, reviews it and clicks **Create**; update an existing ledger ruleset instead of duplicating it. See [GitHub's import instructions](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/managing-rulesets-for-a-repository#importing-a-ruleset). Confirm branch coverage, active enforcement, deletion/history-rewrite restrictions and bypass actors.
+
+The first successful ledger writer run creates the branch. The trusted `harness.yml` job needs `contents: write`, `pull-requests: write`, full checkout history, git author/committer identity and `gh auth setup-git` for its temporary clone. After a real merge, the owner checks:
+
+```sh
+gh api repos/OWNER/REPO/rulesets --paginate
+gh api repos/OWNER/REPO/branches/harness-audit
+gh api repos/OWNER/REPO/actions/permissions/workflow
+```
+
+Confirm the active ledger ruleset contains `deletion` and `non_fast_forward` rules with no unintended bypass, and inspect workflow permissions plus the ledger file/anchor comment. A permission error means that setting was not verified; use authorized owner read access, not a broader agent token. Green main checks alone are insufficient because ledger publication can fail under `continue-on-error`.
+
 ## Status
 
-Version 0.1 extracts the engine from the project where it was built and proven ([Agent-Notification](https://github.com/SnowsonZ/Agent-Notification)); behaviour is unchanged there, verified by identical test counts, quality metrics and mutation scores before and after. Messages and prompts are in Chinese for now; English localisation, configurable directory conventions, a TypeScript language plugin are planned, and the local event log (observability phase 1) has landed - trace, audit and alert commands are next — see [CHANGELOG](CHANGELOG.md).
+The engine version remains 0.1.0; the maintainer decides the release version and tag. B46 observability implementation is merged, including T501/T502 and the T601 complete-chain fixtures. Phase upgrades, consumer equivalence and real R0/R2 PR reconstruction/audits have been verified; final documentation and owner platform evidence are the remaining closeout gates. This does not claim a new release. English messages/prompts, configurable directories, a TypeScript plugin and project adoption remain planned — see [CHANGELOG](CHANGELOG.md).
 
 This repository develops itself with its own engine: `.harness/`, `bin/`, the git and agent hooks and `.github/workflows/` are this project's own instance (with `.harness/engine/` a vendored copy of the previous merged engine), not part of the product. The product is `engine/` and `templates/`.
 
 Security model and limits: [SECURITY.md](SECURITY.md). License: [MIT](LICENSE). Development rules, backlog and roadmap (in Chinese): [AGENTS.md](AGENTS.md), [docs/backlog.md](docs/backlog.md), [docs/plans/2026-09-29-roadmap.md](docs/plans/2026-09-29-roadmap.md).
 
-B46 observability implementation planning (draft, in Chinese): [execution plan](docs/plans/2026-09-29-observability-execution-plan.md), [task contracts](docs/plans/2026-09-29-observability-task-contracts.md), [requirements traceability](docs/plans/2026-09-29-observability-traceability.md).
+B46 observability design, implementation contracts and gate definitions (in Chinese): [execution plan](docs/plans/2026-09-29-observability-execution-plan.md), [task contracts](docs/plans/2026-09-29-observability-task-contracts.md), [requirements traceability](docs/plans/2026-09-29-observability-traceability.md).
