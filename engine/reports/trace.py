@@ -414,7 +414,9 @@ def _with_ci(view: dict, trace_id: str, pr_number: int | None) -> int:
     view["ci"] = result
     for finding in result["findings"]:
         print(f"CI 发现 {finding['code']}：{finding['detail']}", file=sys.stderr)
-    return 1 if result["findings"] else 0
+    blocking = [item for item in result["findings"]
+                if item.get("code") not in events_io.INFORMATIONAL_FINDINGS]  # B124：旧 head 运行不算受阻
+    return 1 if blocking else 0
 
 
 def trace_main(argv: list[str] | None = None) -> int:
