@@ -1,0 +1,82 @@
+{
+  "task": "T601",
+  "class": "K2",
+  "attempt": 1,
+  "branch": "task/601-observability-e2e",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3-flash",
+  "prompt_sha256": "99995cdf432805d7a1d6f769cc793b920af869af1c4f01d409ece4dac8f988f7",
+  "prompt_path": "docs/runs/task-601-observability-e2e/1.prompt.md",
+  "guard_ref": "77f1ae4107f85ec33af8458ec3b3ccb21679594e",
+  "started_at": "2026-10-08T14:56:48+00:00",
+  "ended_at": "2026-10-08T15:40:51+00:00",
+  "executor_seconds": 2641.0,
+  "exit": "stopped",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "unknown",
+  "gen_ai.usage.input_tokens": 11336367,
+  "gen_ai.usage.output_tokens": 73546,
+  "cost": 0.407682,
+  "escalation": "stopped",
+  "trace_id": "task/601-observability-e2e",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-08T14:56:37.977Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-08T14:56:39.993Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-08T14:56:43.173Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "claim",
+      "status": "ok",
+      "ts": "2026-10-08T14:56:48.869Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "fail",
+      "ts": "2026-10-08T15:40:51.264Z",
+      "duration_ms": 2640977,
+      "attempt": 1,
+      "round": 1
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "bc7fd5a5ea45bbe53b3577b7f9375d669834e10515930d79954f16c9311b5c04",
+      "fixed_in": "run_record"
+    }
+  ]
+}
