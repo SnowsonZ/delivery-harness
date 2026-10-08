@@ -950,9 +950,17 @@ class ObservabilityTaskTest(unittest.TestCase):
         rounds = sorted(item["round"] for item in record["stages"] if item["step"] == "local_verify")
         self.assertEqual(rounds, [1, 2])
 
-        # CI 两种来源 + 重跑 + 判定运行都经真实 load_ci 导入；旧 head 只留信息性发现
+        # CI 两种来源 + 重跑 + 判定运行都经真实 load_ci 导入；旧 head 只留信息性发现。
+        # 判定运行的事件在夹具生成包时已由进程内 policy.main 写进本库，会掩盖导入断言：先只清除
+        # judge 来源的 events/refs/anchors 并断言为空，再经真实 load_ci 从实际生成的包导入恢复。
+        self.db_exec("DELETE FROM refs WHERE event_id IN "
+                     "(SELECT id FROM events WHERE source LIKE 'ci:9003:%')")
+        self.db_exec("DELETE FROM events WHERE source LIKE 'ci:9003:%'")
+        self.db_exec("DELETE FROM anchors WHERE source LIKE 'ci:9003:%'")
+        self.assertEqual(self.rows(branch, source="ci:9003:1:judge"), [])
         result = events_io.load_ci(fx.pr, head=fx.branch_head, gh=fx.platform)
         self.assertEqual(sorted(item["code"] for item in result["findings"]), ["head_mismatch"])
+        self.assertGreater(result["imported"], 0)  # 清掉的判定链只能由这次真实导入恢复
         for source in ("ci:9001:1:job_x", "ci:9002:2:job_y", "ci:9003:1:judge"):
             self.assertTrue(self.rows(branch, source=source), source)
         judge = self.rows(branch, source="ci:9003:1:judge")
@@ -1211,6 +1219,35 @@ class ObservabilityTaskTest(unittest.TestCase):
         self.assertNotIn("ledger_mismatch", [item["rule"] for item in report["findings"]])
         self.db_exec("UPDATE events SET outputs=json_set(outputs,'$.merger','mallory') WHERE step='github.merge'")
         self.assertIn("ledger_mismatch", [item["rule"] for item in self.inspect(fx)["findings"]])
+
+        # (j) 九字段语义核对独立注入：账本里合并投影管不到的 label 事件被改、固定链头另指别处，
+        # 只有 _semantic_diff 路径能发现；断言 ledger_mismatch 的具体原因与差异字段，重建未篡改
+        # 账本发布后恢复（不 mock 判定、不绕过产品入口）
+        def tamper_snapshot(doc: dict) -> None:
+            label = next(item for item in doc["stages"]
+                         if item.get("evidence_kind") == "event" and item.get("step") == "github.merge_label")
+            label["step"] = "github.merge_label.tampered"
+            next(chain for chain in doc["chains"] if chain["source"] == label["source"])["head_hash"] = "f" * 64
+
+        fx = self.build_task_world(mutate_ledger=tamper_snapshot)
+        report = self.inspect(fx)
+        self.assertEqual([item["rule"] for item in report["findings"]], ["ledger_mismatch"])
+        self.assertEqual((report["findings"][0]["source"], report["findings"][0]["stage"]),
+                         ("github", "merge"))
+        self.assertIn("账本快照与运行层不一致", report["findings"][0]["reason"])
+        self.assertIn("第 2 条", report["findings"][0]["reason"])
+        self.assertIn("step", report["findings"][0]["reason"])
+        self.git("update-ref", "-d", "refs/heads/harness-audit", cwd=fx.origin)
+        rebuilt = ledger.build_ledger(fx.pr, gh=fx.platform, cwd=fx.project)
+        republish = self.platform(fx, comments=[self.as_comment(500, fx.review_body)],
+                                  runs=fx.platform.runs, artifacts=fx.platform.artifacts,
+                                  downloads=fx.platform.downloads)
+        result = ledger.publish_ledger(rebuilt, gh=republish)
+        self.assertTrue(result["ok"], result["findings"])
+        gh = self.platform(fx, comments=[self.as_comment(500, fx.review_body), republish.comments[-1]],
+                           runs=fx.platform.runs, artifacts=fx.platform.artifacts,
+                           downloads=fx.platform.downloads)
+        self.assertEqual(self.inspect(fx, gh)["findings"], [])
 
         # (h) 引用哈希不符：账本里的运行记录引用指向别的内容 → hash_mismatch(local/dispatch)；修正后通过
         def mutate(doc: dict) -> None:
