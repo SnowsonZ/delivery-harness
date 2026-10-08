@@ -1,5 +1,5 @@
 ---
-task: T722
+task: T502
 class: K5
 risk: R2
 designer: claude-code
@@ -15,9 +15,11 @@ budget:
 rollback: git revert（仅在用户授权后）
 ---
 
-# T722：`audit` 与 `trace --ci` 不再把「旧 head 的运行未导入」当成失败（B124）
+# T502：`audit` 与 `trace --ci` 不再把「旧 head 的运行未导入」当成失败（B124）
 
 负责方：**派发任务**。设计方：claude-code；独立评审方：Codex（单会话）。依据：待办 B124。**路径全部落在 `autonomy.toml [contract_route] allowed` 内**（`engine/**`、`tests/**`、`CHANGELOG.md`）。
+
+**编号与所属期**：属 B46 的 **P5**，编号 `T502`（P5 已有 T501）。它修的是 P4 交付的 `audit`，由回主线前预演 P6 的 G3 时发现，且必须先于 P6 的 T601（T601 的全链夹具含「CI 重跑」，旧 head 运行会让「audit 无发现」断言失败）；与 T501 互不依赖、可并行。编号依据见 `docs/task-splitting.md`「任务编号」。
 
 ## 病灶（真实 GitHub 上的预演，设计方 2026-10-08）
 
