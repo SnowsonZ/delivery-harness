@@ -157,6 +157,9 @@ def admit(path: str, root: Path = ROOT, require_on_main: bool = True) -> Task:
         problem = taskbook.on_main(rel, root)
         if problem:
             report.errors.append(problem)
+    report.errors += taskbook.headroom_errors(rel, root)  # B119：白名单行数余量只在准入与显式路径检查
+    for warning in report.warnings:  # 体量提示（B119）：不阻断，不并入错误
+        print(f"提示：{rel}：{warning}", file=sys.stderr)
     if report.errors:
         observation.admit(rel, root, problems=report.errors)
         raise Stop("准入未通过：\n" + "\n".join(f"  - {error}" for error in report.errors))
