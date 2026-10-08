@@ -157,6 +157,9 @@ def admit(path: str, root: Path = ROOT, require_on_main: bool = True) -> Task:
         problem = taskbook.on_main(rel, root)
         if problem:
             report.errors.append(problem)
+    report.errors += taskbook.headroom_errors(rel, root)  # B119：白名单行数余量只在准入与显式路径检查
+    for warning in report.warnings:  # 体量提示（B119）：不阻断，不并入错误
+        print(f"提示：{rel}：{warning}", file=sys.stderr)
     if report.errors:
         observation.admit(rel, root, problems=report.errors)
         raise Stop("准入未通过：\n" + "\n".join(f"  - {error}" for error in report.errors))
@@ -413,8 +416,15 @@ class Dispatcher:
         message = f"run：{task.id} 第 {number} 次派发记录（{attempt.exit}）\n\nTask: {task.id}\n"
         if claims_r1 and attempt.ok:
             message += "Risk: R1\n"  # 与执行方的提交一致，否则 R1 声明会被这次记录提交打断
-        subprocess.run(["git", "commit", "--quiet", "-m", message], cwd=slot, env={**os.environ, **self.identity},
-                       check=True)
+        # B122：钩子拒绝（如 pre-commit 对整个工作区 lint）不再回溯崩溃；finally 里的 return_slot
+        # 会先把槽位里的未提交改动备份到 refs/backup/dispatch/…，不丢执行方成果。
+        committed = subprocess.run(["git", "commit", "--quiet", "-m", message], cwd=slot,
+                                   env={**os.environ, **self.identity}, capture_output=True, text=True,
+                                   check=False)
+        if committed.returncode != 0:
+            tail = (committed.stderr or committed.stdout or "").strip()[-600:]
+            raise Stop("派发记录提交被钩子拒绝：" + tail
+                       + "；执行方的未提交改动会在归还槽位时备份到 refs/backup/dispatch/…")
         run_timeline.fix_anchor(task.branch, head)
         return record["prompt_sha256"]
 
@@ -432,7 +442,7 @@ class Dispatcher:
         index, slot = acquire_slot(self.root, self.config, task)
         self.acquired = index
         try:
-            prepare_slot(self.root, slot, task.branch, resume)
+            prepare_slot(self.root, slot, task.branch, resume, {**os.environ, **self.identity})
             observation.slot(task.branch, index, git("rev-parse", "HEAD", cwd=slot),
                              git("rev-parse", "origin/main", cwd=self.root))
             if not resume:
