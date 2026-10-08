@@ -200,10 +200,16 @@ class BackupTest(GitFixture):
         self.assertEqual(self.index_path(self.slot).read_bytes(), self.index_before)
         self.assertEqual(self.git("status", "--porcelain", cwd=self.slot), status_before)
         self.assertEqual(self.git("show", f"{ref}:tracked-modified.txt"), "modified")
+        # 备份提交以槽位 HEAD 为父节点：`git diff HEAD <引用>` 与恢复说明才有意义（设计方变异 B5 曾漏网）
+        self.assertEqual(self.git("rev-parse", f"{ref}^", cwd=self.slot), self.head_before)
 
     def test_timestamp_only_change_with_untracked_still_leaves_index_untouched(self):
         # 普通git status 会刷新并写回真实索引的 stat 缓存；--no-optional-locks 不会（B122 验收点）
-        os.utime(self.slot / "tracked-modified.txt", (1234567890, 1234567890))
+        # 评审：必须是「内容没变、只有时间戳变」的已跟踪文件——普通 git status 会刷新它的 stat 缓存并
+        # 写回真实索引；已被改动的文件刷新不动索引字节，起不到检验作用（设计方变异 B1 曾漏网）。
+        os.utime(self.slot / "README.md", (1234567890, 1234567890))
+        # 内容确实没变：直接读文件，不能用 git diff/status 检查（它们也会刷新并写回索引，污染本用例的前提）
+        self.assertEqual((self.slot / "README.md").read_text(encoding="utf-8"), "# app\n")
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertIsNotNone(dispatch_slots.backup_uncommitted(self.slot, "task/salvage"))
         self.assertEqual(self.index_path(self.slot).read_bytes(), self.index_before)
@@ -479,6 +485,52 @@ class ResumeMergeTest(GitFixture):
         self.assertEqual(self.git("rev-parse", "HEAD", cwd=slot), branch_sha)  # 分支未被破坏
         self.assertEqual(self.git("rev-parse", "-q", "--verify", "MERGE_HEAD", cwd=slot, check=False),
                          "")  # 没有残留合并状态
+
+    def test_ancestry_probe_failure_raises_instead_of_merging(self):
+        # 评审：merge-base 返回 128（如 origin/main 不存在）不是「未含」，不能当作需要合并去尝试；
+        # 设计方变异 B15（把 128 当 1）曾漏网
+        base = self.git("rev-parse", "HEAD")
+        self.git("push", "-q", "origin", f"{base}:refs/heads/task/x")
+        slot = self.tmp / "slot-probe"
+        calls: list[list[str]] = []
+        real_run = subprocess.run
+
+        def spy(args, **kwargs):
+            calls.append(list(args))
+            if args[:3] == ["git", "merge-base", "--is-ancestor"]:
+                return subprocess.CompletedProcess(args, 128, "", "fatal: Not a valid object name origin/main")
+            return real_run(args, **kwargs)
+
+        with (mock.patch.object(dispatch_slots.subprocess, "run", side_effect=spy),
+              self.assertRaises(RuntimeError) as caught):
+            dispatch_slots.prepare_slot(self.repo, slot, "task/x", True, None)
+        self.assertIn("无法判定", str(caught.exception))
+        self.assertEqual([args for args in calls if args[:2] == ["git", "merge"]], [])  # 没有尝试合并
+
+    def test_dispatcher_passes_identity_env_to_prepare_slot(self):
+        # 评审：env 经 Dispatcher.run 传给 prepare_slot（合并提交的身份来源）；直接调用 prepare_slot 的
+        # 用例覆盖不到调用点，设计方变异 B11（调用点不传 env）曾漏网
+        seen = {}
+
+        def record(root, slot, branch, resume, env=None):
+            seen["env"] = env
+            raise dispatch.Stop("probe")
+
+        runner = dispatch.Dispatcher(self.repo, dispatch.Config(slots=1, stall_seconds=1, poll_seconds=0.01,
+                                                                ci_timeout_seconds=1, verify=[]),
+                                     FakeGitHub(), RecordingHost(""), identity={"GIT_AUTHOR_NAME": "agent-bot"})
+        task = dispatch.Task("docs/plans/task-x.md", "T1", "K5", "R2", {}, [], "task/x")
+        patches = (mock.patch.object(dispatch, "admit", lambda *a, **k: task),
+                   mock.patch.object(dispatch, "reclaim_stale_slots", lambda *a, **k: []),
+                   mock.patch.object(dispatch, "prepare_guard", lambda *a, **k: (self.repo, "ref")),
+                   mock.patch.object(dispatch, "prepare_slot", record))
+        with contextlib.ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            with self.assertRaises(dispatch.Stop):
+                runner.run("docs/plans/task-x.md", resume=True)
+            dispatch.return_slot(self.repo, runner.config, runner.acquired, lambda *a, **k: None)
+        self.assertEqual(seen["env"]["GIT_AUTHOR_NAME"], "agent-bot")  # 身份进了 env，且不是 None
 
     def test_no_merge_without_resume(self):
         self.advance_main({"other.txt": "advanced\n"}, "chore：main 前进")

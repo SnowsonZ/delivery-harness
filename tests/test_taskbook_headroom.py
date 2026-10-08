@@ -123,6 +123,18 @@ class HeadroomTest(HeadroomFixture):
         rel = self.whitelist(self.declared_entry(797, word="不得超过"))
         self.assertEqual(len(self.errors(rel)), 1)
 
+    def test_both_declaration_wordings_are_parsed_not_just_flagged_by_the_margin_rule(self):
+        # 评审：797 行时，即使声明没被解析，「距上限不足 100 行未声明」那条也会报错，掩盖写法漏认。
+        # 用 650 行（未声明时不报）+ 声明净增 200（650+200>800）：只有声明路径能报错。
+        for word in ("不超过", "不得超过"):
+            with self.subTest(word=word):
+                self.lines("engine/x.py", 650)
+                entry = self.ENTRY.replace("{{current}}", "650").replace("{{word}}", word).replace("20 行", "200 行")
+                errors = self.errors(self.whitelist(entry))
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn("声明净增不超过 200 行", errors[0])
+                self.assertIn("650+200=850", errors[0])
+
     def test_declared_small_addition_passes(self):
         self.lines("engine/x.py", 797)  # 797+3=800，不超上限
         rel = self.whitelist(self.declared_entry(797).replace("20 行", "3 行"))
