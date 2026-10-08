@@ -1,0 +1,181 @@
+{
+  "task": "T502",
+  "class": "K5",
+  "attempt": 1,
+  "branch": "task/502-audit-head-mismatch-informational",
+  "gen_ai.agent.name": "pi",
+  "host_version": "0.85.1",
+  "gen_ai.request.model": "glm-5.3",
+  "prompt_sha256": "9e5f40feb076264b3e4a3d6cd2768c86061b9ffa6a734366a578349c6c510bd0",
+  "prompt_path": "docs/runs/task-502-audit-head-mismatch-informational/1.prompt.md",
+  "guard_ref": "42101e7309c7ee69d46eb6ef712be7ba9663c247",
+  "started_at": "2026-10-08T09:53:41+00:00",
+  "ended_at": "2026-10-08T11:01:50+00:00",
+  "executor_seconds": 3527.5,
+  "exit": "ok",
+  "retries": 0,
+  "failure_signatures": [],
+  "ci_rounds_before": 0,
+  "guard_denials": {},
+  "missing_context": [],
+  "missing_context_status": "reported",
+  "gen_ai.usage.input_tokens": 8745152,
+  "gen_ai.usage.output_tokens": 70524,
+  "cost": 2.772866,
+  "escalation": null,
+  "trace_id": "task/502-audit-head-mismatch-informational",
+  "stages": [
+    {
+      "stage": "dispatch",
+      "step": "admit",
+      "status": "ok",
+      "ts": "2026-10-08T09:53:27.766Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "guard_preflight",
+      "status": "ok",
+      "ts": "2026-10-08T09:53:30.441Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "slot",
+      "status": "ok",
+      "ts": "2026-10-08T09:53:34.986Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "claim",
+      "status": "ok",
+      "ts": "2026-10-08T09:53:41.258Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "fail",
+      "ts": "2026-10-08T10:10:12.554Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.quality",
+      "status": "fail",
+      "ts": "2026-10-08T10:10:12.713Z",
+      "duration_ms": 221,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.quality",
+      "status": "fail",
+      "ts": "2026-10-08T10:10:12.760Z",
+      "duration_ms": 267,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "fail",
+      "ts": "2026-10-08T10:17:53.778Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "fail",
+      "ts": "2026-10-08T10:17:53.804Z",
+      "duration_ms": 462220,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "quality",
+      "status": "fail",
+      "ts": "2026-10-08T10:17:59.676Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "ci",
+      "step": "cli.quality",
+      "status": "fail",
+      "ts": "2026-10-08T10:17:59.827Z",
+      "duration_ms": 211,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.quality",
+      "status": "fail",
+      "ts": "2026-10-08T10:17:59.872Z",
+      "duration_ms": 256,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "verify.summary",
+      "status": "fail",
+      "ts": "2026-10-08T10:26:15.283Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "verify",
+      "step": "cli.verify",
+      "status": "fail",
+      "ts": "2026-10-08T10:26:15.312Z",
+      "duration_ms": 496551,
+      "attempt": 1,
+      "round": 0
+    },
+    {
+      "stage": "dispatch",
+      "step": "executor_round",
+      "status": "ok",
+      "ts": "2026-10-08T10:52:29.766Z",
+      "duration_ms": 3527497,
+      "attempt": 1,
+      "round": 1
+    },
+    {
+      "stage": "dispatch",
+      "step": "local_verify",
+      "status": "ok",
+      "ts": "2026-10-08T11:01:50.789Z",
+      "duration_ms": null,
+      "attempt": 1,
+      "round": 1
+    }
+  ],
+  "anchors": [
+    {
+      "source": "local",
+      "stage": "dispatch",
+      "head_hash": "e5f74bb699148ee5e80b4a03ef8ca63f0c6c2d05d7c44828862c011dcb867a6a",
+      "fixed_in": "run_record"
+    }
+  ]
+}
