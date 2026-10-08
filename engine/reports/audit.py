@@ -517,6 +517,8 @@ class _Auditor:
             result = {"findings": [{"code": "api", "detail": str(exc)}]}
         for item in result.get("findings") or []:
             code = item.get("code")
+            if code in events_io.INFORMATIONAL_FINDINGS:
+                continue  # B124：旧 head 的可信运行是预期历史，不算审计失败
             if code == "artifact_expired":
                 rule, reason = "reference_expired", "CI 事件包 artifact 已过保留期，未下载"
             elif code == "hash_mismatch":

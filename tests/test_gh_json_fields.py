@@ -429,7 +429,7 @@ class LoadCiRestShapeTest(unittest.TestCase):
         mismatched = [item for item in result["findings"] if item["code"] == "head_mismatch"]
         self.assertEqual(len(mismatched), 1)
         self.assertIn("1 个其他 head", mismatched[0]["detail"])
-        # 旧形状：gh 命令行写法的 headSha 在 REST 响应里不存在，所有运行都是 None head，一个也匹配不上
+        # 旧形状：gh 命令行写法的 headSha 在 REST 响应里不存在，所有运行都是缺失 head 的畸形记录
         legacy = _RunsStub([
             {"id": 9100, "run_attempt": 1, "headSha": HEAD, "path": ".github/workflows/harness.yml"},
             {"id": 9101, "run_attempt": 1, "headSha": "e" * 40, "path": ".github/workflows/harness.yml"},
@@ -437,9 +437,11 @@ class LoadCiRestShapeTest(unittest.TestCase):
         result = events_io.load_ci(PR_NUMBER, gh=legacy)
         self.assertEqual(legacy.artifact_routes, [], "旧形状下没有任何运行被处理")
         mismatched = [item for item in result["findings"] if item["code"] == "head_mismatch"]
-        self.assertEqual(len(mismatched), 1)
-        # 全部运行都落到 None head，去重后只报一次；关键是一个都导入不了
-        self.assertIn("1 个其他 head", mismatched[0]["detail"])
+        self.assertEqual(mismatched, [], "畸形记录不是旧 head 的预期历史（T502）")
+        malformed = [item for item in result["findings"] if item["code"] == "api"]
+        self.assertEqual(len(malformed), 1)
+        # 两个运行的 head_sha 都缺失：汇总一条 api 发现；关键是一个都导入不了
+        self.assertIn("2 个运行的 head_sha 缺失或形状不符", malformed[0]["detail"])
 
 
 GIT_ENV = {

@@ -609,6 +609,7 @@ def import_bundle(bundle: dict) -> dict:
 _TRUSTED_PATHS = frozenset(f".github/workflows/{name}{ext}"
                            for name in ("harness", "auto-merge") for ext in (".yml", ".yaml"))
 _PACKAGE_RE = re.compile(r"harness-events-(\d+)-(\d+)-(.+)\Z")
+INFORMATIONAL_FINDINGS = frozenset({"head_mismatch"})  # 信息性（B124/T502）：旧 head 运行是预期历史，不导入也不算失败；调用方共用
 
 
 class GhClient:
@@ -771,7 +772,11 @@ def load_ci(pr: int, *, head: str | None = None, gh=None) -> dict:
 
     imported = skipped = 0
     trusted = [run for run in runs if run.get("path") in _TRUSTED_PATHS]
-    stale = {str(run.get("head_sha")) for run in trusted if run.get("head_sha") != resolved}
+    heads = [run.get("head_sha") for run in trusted]
+    good = [head for head in heads if isinstance(head, str) and _SHA_RE.fullmatch(head)]
+    stale = set(good) - {resolved}
+    findings.extend([_finding("api", f"{bad} 个运行的 head_sha 缺失或形状不符，未导入")]
+                    if (bad := len(heads) - len(good)) else [])  # 畸形记录非旧 head 历史（B124/T502）
     for run in sorted(trusted, key=lambda item: str(item.get("id"))):
         if run.get("head_sha") == resolved:
             import_run(run, branch, resolved)
