@@ -7,10 +7,12 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -60,6 +62,49 @@ def release_slot(root: Path, index: int) -> None:
     (dispatch.state_dir(root) / "slots" / f"{index}.json").unlink(missing_ok=True)
 
 
+def backup_uncommitted(slot: Path, branch: str) -> str | None:
+    """槽位有未提交改动时先备份成引用再返回引用名，干净时返回 None（B122）。
+
+    备份树反映工作区完整状态：已暂存与未暂存改动、未跟踪文件、被删除的已跟踪文件；遵守
+    .gitignore（被忽略的未跟踪文件不进备份），已跟踪但匹配忽略规则的文件照常保留。实现只用
+    临时索引（GIT_INDEX_FILE 指向临时文件，先 read-tree HEAD 再 add -A）+ commit-tree +
+    update-ref，不碰真实索引与分支；引用在主仓库（worktree 共享）。状态检测必须用
+    `git --no-optional-locks status`：普通 status 会刷新并写回真实索引的 stat 缓存。备份失败抛
+    RuntimeError，调用方（return_slot / 回收路径）按「归还未完成（工作树保留）」处理，不删工作树。
+    """
+    status = subprocess.run(["git", "--no-optional-locks", "status", "--porcelain"],
+                            cwd=slot, capture_output=True, text=True, check=False)
+    if status.returncode != 0:
+        raise RuntimeError(f"读取槽位状态失败：{status.stderr.strip()}")
+    if not status.stdout.strip():
+        return None
+
+    def run(args: list[str], env: dict[str, str]) -> str:
+        try:
+            done = subprocess.run(args, cwd=slot, env=env, capture_output=True, text=True, check=False)
+        except subprocess.CalledProcessError as error:  # 注入或环境异常时也归一为 RuntimeError（B122）
+            raise RuntimeError(f"备份失败（git {' '.join(args)}）：{error}") from error
+        if done.returncode != 0:
+            raise RuntimeError(f"备份失败（git {' '.join(args)}）：{done.stderr.strip()}")
+        return done.stdout.strip()
+
+    stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%S")
+    ref = f"refs/backup/dispatch/{(branch or 'detached').replace('/', '-')}/{stamp}"
+    with tempfile.TemporaryDirectory(prefix="dispatch-backup-") as folder:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(folder) / "index")}
+        run(["git", "read-tree", "HEAD"], env)
+        run(["git", "add", "-A"], env)
+        tree = run(["git", "write-tree"], env)
+        commit = run(["git", "-c", "user.name=harness-backup", "-c", "user.email=harness-backup@localhost",
+                      "commit-tree", tree, "-p", "HEAD",
+                      "-m", f"dispatch backup：{branch} 槽位未提交改动（{stamp}）"], env)
+        run(["git", "update-ref", ref, commit], env)
+    print(f"已把未提交改动备份到 {ref}", file=sys.stderr)
+    print(f"查看差异：git diff --name-status HEAD {ref}（D 项是执行方删除的文件）", file=sys.stderr)
+    print(f"整体还原：git restore --source={ref} --worktree --staged :/", file=sys.stderr)
+    return ref
+
+
 def _registered_worktrees(root: Path) -> set[str]:
     """登记在案的工作树绝对路径（porcelain 输出是规范化路径，按 resolve 后比对，免符号路径误差）。"""
     out = git("worktree", "list", "--porcelain", cwd=root)
@@ -88,6 +133,7 @@ def _salvage_and_remove(root: Path, slot: Path, push) -> None:
                      cwd=slot, check=False)
         if not pushed or git("rev-list", f"origin/{branch}..{branch}", cwd=slot).split():
             push(slot, branch)
+    backup_uncommitted(slot, branch)  # B122：删除前先把未提交改动备份成引用；失败则不删（RuntimeError 上抛）
     git("worktree", "remove", "--force", str(slot), cwd=root)
 
 
@@ -145,7 +191,32 @@ def return_slot(root: Path, config: Config, index: int, push) -> None:
         release_slot(root, index)
 
 
-def prepare_slot(root: Path, slot: Path, branch: str, resume: bool) -> None:
+def _merge_main_into_branch(slot: Path, env: dict[str, str] | None) -> None:
+    """续做前把 origin/main 合进任务分支（B122）：只落后时快进，分叉时产生合并提交，已含时不动。
+
+    祖先判定用 subprocess.run 直接调 git：common.git() 不接受 env，且 check=False 会把
+    merge-base --is-ancestor 的 0、1、128 返回码都压成空字符串。冲突时 merge --abort 并抛 Stop。
+    合并提交身份取调用方传入的 env（Dispatcher.run 传 {**os.environ, **self.identity}）。
+    """
+    from engine.agents import dispatch  # Stop 留在原模块，按需导入（T707）
+
+    probe = subprocess.run(["git", "merge-base", "--is-ancestor", "origin/main", "HEAD"],
+                           cwd=slot, capture_output=True, text=True, check=False)
+    if probe.returncode == 0:
+        return
+    if probe.returncode != 1:
+        raise RuntimeError(f"无法判定 origin/main 与 HEAD 的祖先关系：{probe.stderr.strip()}")
+    merged = subprocess.run(["git", "merge", "--no-edit", "origin/main"], cwd=slot,
+                            env={**os.environ, **(env or {})}, capture_output=True, text=True, check=False)
+    if merged.returncode == 0:
+        return
+    subprocess.run(["git", "merge", "--abort"], cwd=slot, capture_output=True, text=True, check=False)
+    raise dispatch.Stop("续做前合并 origin/main 冲突，请设计方先解决冲突："
+                        + (merged.stdout + merged.stderr).strip()[-600:])
+
+
+def prepare_slot(root: Path, slot: Path, branch: str, resume: bool,
+                 env: dict[str, str] | None = None) -> None:
     from engine.agents import dispatch  # preserved_paths 留在原模块，按需导入（T707）
 
     if not slot.exists():
@@ -153,6 +224,8 @@ def prepare_slot(root: Path, slot: Path, branch: str, resume: bool) -> None:
     git("fetch", "--quiet", "origin", cwd=slot)
     start = f"origin/{branch}" if resume else "origin/main"
     git("checkout", "--quiet", "--force", "-B", branch, start, cwd=slot)
+    if resume:  # B122：任务书修订合进 main 后，续做先把默认分支合进来，避免读到过期任务书
+        _merge_main_into_branch(slot, env)
     keep = dispatch.preserved_paths()
     git("clean", "-ffdxq", *[arg for path in keep for arg in ("-e", path)], cwd=slot)
     for path in keep:

@@ -39,7 +39,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from engine.checks import acceptance
+from engine.checks import acceptance, quality
 from engine.core import events
 from engine.core.common import ROOT, STATE_DIR, git, load_rules, path_matches
 
@@ -158,6 +158,7 @@ class Report:
     path: str
     header: dict = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)  # 体量提示（B119）：不参与合格判定、不改退出码
 
     @property
     def needs_user_review(self) -> bool:
@@ -302,6 +303,52 @@ def check_steps(steps: str, header: dict, rules: dict) -> list[str]:
     return errors
 
 
+HEADROOM_MARGIN = 100  # 白名单未声明净增时，距质量棘轮上限不足这个行数就必须声明（B119）
+
+
+def _ratchet_files(root: Path) -> list[Path]:
+    """质量棘轮统计范围内的文件：目录与通配取自 quality.sources()，与 quality.measure 同口径（B119）。"""
+    return [path for directory, pattern in quality.sources() for path in (root / directory).glob(pattern)]
+
+
+def headroom_errors(path: str, root: Path = ROOT) -> list[str]:
+    """白名单里已存在 Python 文件的行数余量（B119）：声明净增会撞或距上限不足 HEADROOM_MARGIN 行即报错。
+
+    只在派发准入（dispatch.admit）与显式传路径的 `bin/harness taskbook <路径>` 调用，不进 check_all：
+    历史任务书里「当前 N 行」的陈述会随文件增长过期，verify 扫全部任务书时不能因它失败。
+    行数口径与 quality.measure 相同（len(text.splitlines())），上限取 quality.LONG_FILE。
+    """
+    try:
+        text = (root / path).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    scope = _ratchet_files(root)
+    limit = quality.LONG_FILE
+    errors = []
+    for line in sections(text).get("白名单", "").splitlines():
+        entry = line.strip()
+        if not entry.startswith("- "):
+            continue
+        match = re.search(r"`([^`]+)`", entry)  # 同一条目里有多个路径时只看第一个，其余忽略
+        if not match or not match[1].endswith(".py"):
+            continue
+        target = root / match[1]
+        if target not in scope or not target.is_file():
+            continue
+        current = len(target.read_text(encoding="utf-8").splitlines())
+        declared = re.search(r"净增(?:不超过|不得超过)\s*(\d+)\s*行", entry)
+        if declared:
+            added = int(declared[1])
+            if current + added > limit:
+                errors.append(f"白名单 {match[1]}：当前 {current} 行，声明净增不超过 {added} 行，"
+                              f"{current}+{added}={current + added} 超过质量棘轮上限 {limit} 行："
+                              "先写明把代码放进新模块或搬迁的步骤，或降低净增")
+        elif current >= limit - HEADROOM_MARGIN:
+            errors.append(f"白名单 {match[1]}：当前 {current} 行，距质量棘轮上限 {limit} 行不足 "
+                          f"{HEADROOM_MARGIN} 行：请写明「净增不超过 N 行」且 当前+N ≤ {limit}")
+    return errors
+
+
 def check_text(text: str, path: str, spec_ids: dict[str, str], root: Path = ROOT, rules: dict | None = None,
                exempt: bool = False) -> Report:
     rules = rules or load_rules()
@@ -318,7 +365,11 @@ def check_text(text: str, path: str, spec_ids: dict[str, str], root: Path = ROOT
     parts = sections(body)
     if _section(parts, "目标终态") is None:
         report.errors.append("缺少「目标终态」")
-    report.errors += check_rows(acceptance_rows(_section(parts, "验收") or ""), report.header, spec_ids, root)
+    rows = acceptance_rows(_section(parts, "验收") or "")
+    report.errors += check_rows(rows, report.header, spec_ids, root)
+    if len(rows) >= 10:
+        report.warnings.append(f"验收表 {len(rows)} 行，T718、T719 均因体量超出一次派发预算而多轮返工，"
+                               "考虑拆分（或确认已拆到无法再拆）")
     if report.header.get("size") in {"medium", "large"}:
         for name in ("非目标", "前置条件", "步骤与提交顺序"):
             if _section(parts, name) is None:
@@ -371,6 +422,7 @@ def on_main(path: str, root: Path = ROOT) -> str | None:
 
 # 问题文案前缀 → 稳定规则键（观察侧归類用，不参与判定；顺序即优先级，前缀长的在前）。
 _PROBLEM_RULES = (
+    ("白名单", "taskbook.headroom"),
     ("class 取值非法", "header.class"),
     ("class ", "header.class_risk"),
     ("spec_refs 中的", "acceptance.link"),
@@ -453,8 +505,9 @@ def main(argv: list[str] | None = None) -> int:
         reports = [report for report in reports if report.path in wanted]
         missing = wanted - {report.path for report in reports}
         reports += [Report(path, errors=["不是 docs/plans/task-*.md 下的任务书"]) for path in sorted(missing)]
-        if args.on_main:
-            for report in reports:
+        for report in reports:  # 显式传路径时才查行数余量（B119），check_all 不查
+            report.errors += headroom_errors(report.path, ROOT)
+            if args.on_main:
                 problem = on_main(report.path)
                 if problem:
                     report.errors.append(problem)
@@ -463,6 +516,9 @@ def main(argv: list[str] | None = None) -> int:
     for report in failed:
         for error in report.errors:
             print(f"✗ {report.path}：{error}")
+    for report in reports:
+        for warning in report.warnings:
+            print(f"提示：{report.path}：{warning}")
     _record_admission(reports, ROOT)  # 观察：不合格逐份引用与计数，另加一条汇总
     return 1 if failed else 0
 
