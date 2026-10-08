@@ -2,7 +2,7 @@
 task: T501
 class: K7
 risk: R3
-designer: claude-code
+designer: codex
 size: medium
 architecture: true
 spec_refs: []
@@ -19,7 +19,7 @@ rollback: git revert（仅在用户授权后）
 
 > 「对账」在本任务里**只有一个对账点**：覆盖说明里的本周合并 PR 数 N 必须等于旧文本「人工干预率」里的合并数。守卫拒绝的两个计数口径不同，不做任何对账或比较（见指标表）。
 
-负责方：**派发任务**。设计方：claude-code；独立评审方：Codex（单会话）。派发、提交、推送、开PR由用户逐次明确授权。
+负责方：**派发任务**。设计方：Codex；独立评审由现行评审链中的非 Codex 席位承担（Claude Code 优先、OpenCode 候补）。2026-10-08 用户确认 Codex 接手 P5，故修订设计方席位；任务实现与验收范围不变。
 
 依据：[已审定设计](2026-09-29-observability-design.md)、[共用合同](2026-09-29-observability-task-contracts.md)（C7）、[追溯表](2026-09-29-observability-traceability.md)。先读共用合同C0，再读本任务所引用的接口；本任务白名单与验收不能由执行方扩大或缩减。
 
