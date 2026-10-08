@@ -23,7 +23,7 @@ from pathlib import Path
 
 from engine.checks import r1_checks
 from engine.core.common import ROOT, ci_workflows, git, setting
-from engine.reports import metrics
+from engine.reports import metrics, weekly_events
 from engine.routing import policy, risk
 
 REPORT_TITLE = setting("reports", "weekly_title", "每周质量报告")
@@ -388,8 +388,9 @@ def build(end: dt.datetime, gh=_gh, cwd: Path = ROOT, comments: list[dict] | Non
     history = history_from_comments(comments or [], week.key)
     history_map = json.loads((cwd / "docs" / "runs" / "history.json").read_text()) \
         if (cwd / "docs" / "runs" / "history.json").exists() else {}
+    # 事件汇总（B46）只追加在旧文本之后：旧小节的文本、数据来源与 weekly-data 注释不变。
     return render(week, data, spikes(data["_signals"], history), budget_rows(r1_checks.load_autonomy(), gh),
-                  trial_rows(history_map, week.records, gh))
+                  trial_rows(history_map, week.records, gh)) + weekly_events.render_events(week, cwd=cwd)
 
 
 def main(argv: list[str] | None = None) -> int:
