@@ -1,6 +1,6 @@
 # 可观测性执行计划（B46 实现，路径 A：先自举，再用 Pi 派发）
 
-状态：**执行中**（2026-10-08 更新）。阶段 0 与 P1–P4 已合并；P5 的 T501（#211）/T502（#212）已合并、G2 已验证，G1 自举升级在本 PR、待合并生效；P6 待 T601 → G3 → T602，具体状态见[追溯表](2026-09-29-observability-traceability.md)。原整包拆分评审、C8 决策及早期数量为历史材料，见[评审原文/处理](../review/2026-09-29-observability-split-review.md)与[结构核对证据](../review/2026-09-29-observability-split-structure-check.md)；不把已完成任务仍计入「剩余」。依据：[可观测性与审计设计](2026-09-29-observability-design.md)（已审定）。
+状态：**已完成**（2026-10-09）。阶段 0 与 P1–P6 已全部合并，门禁 G1–G4 完成，最后一项 T602 为 #219；G5 版本与发布由维护者在发版时做，不阻塞完成（见[追溯表](2026-09-29-observability-traceability.md) G5）。下文为执行期记录，保留备查。原整包拆分评审、C8 决策及早期数量为历史材料，见[评审原文/处理](../review/2026-09-29-observability-split-review.md)与[结构核对证据](../review/2026-09-29-observability-split-structure-check.md)；不把已完成任务仍计入「剩余」。依据：[可观测性与审计设计](2026-09-29-observability-design.md)（已审定）。
 
 ## 1. 路径与前提
 
