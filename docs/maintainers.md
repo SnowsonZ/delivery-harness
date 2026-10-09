@@ -15,7 +15,8 @@
 
 ## 角色与派发
 
-- 设计方（Claude Code 或 Codex）写设计与任务书、做设计方复核；执行方 Pi 经 `bin/dispatch` 在槽位工作树里实现；独立评审用 `bin/harness review pr <n>`，按 `rules.toml [review] chain` 选与设计方不同家的评审方。评审方只拿材料路径自行读取，不内联发送正文。
+- 设计方（Claude Code 或 Codex）写设计与任务书、做设计方复核；执行方 Pi 经 `bin/dispatch` 在槽位工作树里实现。
+- 独立评审须由与设计方不同家的评审方做：派发的任务 PR 在 CI 通过后由 dispatcher 按 `rules.toml [review] chain` 自动接上；设计方直接开的 PR（如文档、升级）用 `bin/harness review pr <n> [--reviewer <评审方>]` 手动发起，它只用指定或配置的评审方，不沿 chain 换家。评审方只拿材料路径自行读取，不内联发送正文。
 - 一个设计拆成多个派发任务时按 [docs/task-splitting.md](task-splitting.md)：先跑通第一个任务，再拆完其余并做追溯表与独立拆分评审，一并提交。
 - `docs/runs/<任务书名>/<序号>.json` 记录一次派发尝试，只由 dispatcher 生成：不手改 exit，历史 stopped/clarify 保留；完成证据是成功记录加 CI、PR、合并资料。
 - 续派前确认没有存活的旧执行方占用槽位，核对实际等待对象与输出；父编排进程退出不代表其 Pi 子进程结束（B77）。

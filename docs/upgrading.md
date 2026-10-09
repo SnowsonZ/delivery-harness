@@ -30,7 +30,7 @@
 ## 发版方的义务
 
 - 改变配置项、命令接口或模板与引擎的配合方式时，在 CHANGELOG 对应版本段写一条以 `**Migration:**` 开头的条目，写明业务仓库要做什么；`upgrade` 靠它提示。
-- 改动判定、守卫、派发、配置读取时，先在业务仓库的 worktree 里升级并跑 `bin/verify --full`（见 [docs/maintainers.md](maintainers.md)）。
+- 改动判定、守卫、派发、配置读取时，先在业务仓库的 worktree 里升级并跑 `bin/verify --full`。本仓库由 CI 的 `consumer-contract` 对 Agent-Notification 自动完成这一步，CI 覆盖不到、仍需本地比对的情形见 [docs/maintainers.md](maintainers.md)。
 
 ## 已知缺口
 
