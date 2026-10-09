@@ -31,4 +31,4 @@ AI 编码 Agent 的可验证交付引擎：判定器、护栏、风险判级与�
 ## 提交与合并
 
 - 所有改动经 PR，`harness` 与 `test (macos-latest)` 两项 CI 必过；main 禁止改写与删除。
-- 风险等级以 `.harness/config/rules.toml` 为准：`.github/`、`.harness/`、`bin/` 与各 Agent 钩子目录是 R3（护栏），`engine/`、`templates/`、AGENTS.md 是 R2，README、CHANGELOG、`docs/plans/`、`docs/backlog.md` 等是 R0。护栏改动必须由维护者审。
+- 风险等级以 `.harness/config/rules.toml` 为准：`.github/`、`.harness/`、`bin/` 与各 Agent 钩子目录是 R3（护栏），`engine/`、`templates/`、AGENTS.md 是 R2，`docs/specs/`、`docs/templates/` 与 `docs/plans/` 下日期前缀的设计与计划文档是合同（R2），任务书 `docs/plans/task-*.md` 另按其类别判级，README、CHANGELOG、`docs/backlog.md` 等是 R0。护栏改动必须由维护者审。
