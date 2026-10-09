@@ -40,7 +40,7 @@
 | `checks/` | `verify` 与各项判定器：卫生、质量棘轮、文档链接、验收映射、任务书准入、完整性、修复证据、base 版本测试、R1 加强判定、事故回放、变异测试、发版核对 |
 | `routing/` | 风险判级、合并路由、运行记录复核 |
 | `agents/` | 派发、执行方运行层、独立评审与证据包、Agent 身份 |
-| `reports/` | 交付度量、周报 |
+| `reports/` | 事件时间线、CI 包、GitHub 事实、合并账本、审计、交付度量与周报 |
 | `lang/` | 语言插件（Python、Swift）：签名比对、新增依赖识别、函数体量与嵌套深度 |
 | `prompts/` | 执行方与评审方的提示词模板 |
 
@@ -61,12 +61,98 @@
 | Agent 层 | `guard-command`，由各宿主钩子调用（`.claude/`、`.codex/`、`.opencode/`、`.pi/`、`.zcode/`） | 改写历史、推 tag、强推 main、合并或批准 PR、设置覆盖变量、删除议题与撤登记标签；执行方不能编辑判定器、合同与运行记录 |
 | git 层 | `guard-git` + `.githooks/`，规则读 origin/main 上的版本 | 与用哪家 Agent 无关：保护分支上提交、改写、推送卫生 |
 | 服务端 | ruleset、CI、单独的 Agent 账号与批准 App | 本机两层都被绕过时的兜底：必须经 PR、必需检查、非推送者批准 |
-**本地事件日志**（可观测性一期）：判定、派发、守卫与路由把结构化事件写入 git 公共目录下的本地库（`harness/harness.db`，不入版本控制）与内容寻址产物目录；按 `(来源, 追踪 ID)` 哈希链串联，事后可校验是否被改动。事件只作观察，不参与任何判定与合并路由；环境变量 `HARNESS_EVENTS=off` 或 `checks.toml` 的 `[events] enabled = false` 可关闭。trace/audit 等查询命令在后续阶段。
+**可观测性证据**：事件按来源和追踪 ID 串联，运行记录、CI 包与合并账本固定锚点。`events` 导出/导入安全包，`trace --ci` 复原时间线，`audit` 核对已合并 PR 的引用与完整性，`alert` 发布去重告警；观察或发布故障不改变原判定。
 
 
 ## 安装与使用
 
 见 [README.md](README.md) 的 Quick start 与「Platform setup」（GitHub：ruleset、批准 App、单账号模式；`install` 同时写入 `.github/` 下的工作流与 ruleset 模板，批准方式由 `checks.toml [platform] approval` 选择）。要点：引擎以带锁文件的内置副本装进业务仓库（`.harness/engine/` 与 `.harness/engine.lock`），升级只能经 `upgrade` 整体替换并由用户批准的 PR 合并；引擎不带任何使用者自己的默认值，缺必填配置时明确报错。
+
+## 可观测性命令
+
+命令经 `bin/harness` 或内置引擎入口执行。任务编号与 PR 号使用当前项目的值：
+
+| 命令 | 用途 |
+|---|---|
+| `events [--since 1d] [--stage verify] [--status fail] [--json]` | 过滤展示本机事件及计数 |
+| `events --export <文件>` / `events --import <文件>` | 导出整库 EventBundle / 校验并幂等导入 |
+| `trace <任务编号\|PR号\|完整分支> [--ci] [--json]` | 复原时间线、最长阶段与首失败；`--ci` 下载 PR 的 CI 包 |
+| `audit <PR> [--json]` / `audit --all-merged [--since 30d] [--json]` | 审计已合并 PR 的引用、完整性与锚点 |
+| `alert <reason> [--pr <号>] [--trace <分支>] [--task <任务>] [--bundle <目录\|JSON文件>] [--json]` | 按触发证据发布去重告警 |
+| `weekly` | 旧指标之后追加事件汇总；本机补充单列 |
+
+```sh
+bin/harness events --since 1d --stage verify --json
+bin/harness events --export build/harness-events.json
+bin/harness events --import build/harness-events.json
+bin/harness trace T001 --json
+bin/harness trace 42 --ci --json
+bin/harness audit 42 --json
+bin/harness audit --all-merged --since 30d --json
+```
+
+`--export` 导出整库完整链前缀；导出/导入不能与展示过滤参数同用，混用退出 2。包只含安全结构化数据与内容哈希，不复制 SQLite、WAL/SHM、原始验证日志或会话。导入核对 schema、隐私与链哈希，按哈希去重，不覆盖冲突；CI 下载还按 API 核对仓库、工作流、run/attempt/job 与 head。默认分支工作流的 `run-name` 关联判定运行，包按该运行自己的 API 身份核对。
+
+合法旧 head 未导入会显示信息性的 `head_mismatch`，不使 trace/audit 失败；缺失、畸形 head 和其他导入发现仍是失败。`audit` 只覆盖已合并 PR：退出 0 表示适用检查通过，1 表示有发现，2 表示参数/审计配置错误或整体 API/不可审计 PR 故障。缺失和过期资料不当作已核验，引用只按数据解析，不执行。
+
+### 数据、留存与配置
+
+| 来源 | 位置与留存 | 范围 |
+|---|---|---|
+| 本机观察 | git 公共目录下 `harness/harness.db`，worktree 共用、不入库 | 事件、引用、锚点不按保留期自动删除 |
+| 本机产物与派发原始流 | 公共目录下 `harness/artifacts/`、`dispatch/runs/` | 默认 30 天；每天首次 emit 清理，已终止的原始流仅留本机 |
+| CI 包 | Actions artifact：`harness-events-<run>-<attempt>-<job>` | 模板保留 90 天，失败后也上传并生成 summary |
+| 合并账本 | `harness-audit:<合并UTC年份>/<PR号>.json` | 只写已合并 PR，Git 中无自动过期 |
+
+运行记录固定已发生阶段的前缀锚点，CI 包携带锚点；PR 的 `harness-audit:<PR>` 评论固定账本路径、提交、文件 SHA-256 与链头。writer 正常 fast-forward 追加，同字节幂等、同 PR 不同字节拒绝。ruleset 禁删除和改写历史，仍允许普通提交覆盖旧文件；审计以固定期望核对，内部链仍合法的删尾也能被发现。安全边界见 [SECURITY](SECURITY.md#observability-evidence)。
+
+`.harness/config/checks.toml` 的可选默认值：
+
+```toml
+[events]
+enabled = true
+artifact_days = 30
+
+[audit]
+require_review_risk = 2
+require_route_for_auto = true
+require_run_record_for_task = true
+verify_anchors = true
+```
+
+事件环境开关见 [CHANGELOG](CHANGELOG.md)，优先于配置；非法 `artifact_days` 提示后按 30 处理。未知/非法 audit 配置报错，不静默放宽；该配置只影响审计报告。设计方 PR 豁免派发记录，任务 PR 要有记录；评审、批准要求按当时适用的风险/路由与平台批准模式核对。
+
+### 告警与周报
+
+告警使用 PR 评论加 `escalation` 标签，无 PR 时复用升级议题；远端 `(trace, reason)` 标记保证换机后仍去重。reason 见 `bin/harness alert --help`。**下例会真实发布，仅在存在触发证据且确需发布时运行：**
+
+```sh
+bin/harness alert audit_anchor_mismatch --pr 42 --bundle build/harness-events.json --json
+```
+
+`--bundle` 只读取触发证据，不导入或执行；无证据不发布。只查语法用 `--help`。发布失败不改变原判定；默认分支可信 job 承载成功或失败的告警，PR 检查令牌保持只读。不新增常驻守护、OTLP 或通知渠道。
+
+派发预警由 `.harness/config/rules.toml` 的可选 `[alerts]` 控制：缺整节则关闭，增加该节则启用最后一轮 CI 预警。`guard_denials_threshold` 默认不启用；正整数启用每轮被拒工具调用数预警，缺省/非法值关闭该预警，非法值另有提示。这些配置不改变预算或守卫判定。
+
+周报保留旧小节与来源：A 主数取本周合并 PR 的账本事件耗时（不重复计运行记录摘要）及当前 checkout 中 `ended_at` 落在 UTC 周窗口的运行记录；B 本机补充单列，`CI=true` 一律不可用。覆盖说明 PR 数与旧人工干预率合并数一致。规则命中数与被拒工具调用数单位不同，不相加、不对账；A 不含设计方拒绝，CI 不实算本机审计发现数。资料缺失/读失败写不可用，不补造 0。
+
+### 账本平台设置（用户执行）
+
+`install` 提供 `.github/rulesets/harness-audit.json`；升级需主动同步模板，见 [升级步骤](docs/upgrading.md)。用户在仓库 **Settings** 打开 **Rulesets**，选择 **New ruleset → Import a ruleset**，打开 JSON、核对后点 **Create**；已有账本 ruleset 则更新，避免重复创建。参见 [GitHub 导入步骤](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/managing-rulesets-for-a-repository#importing-a-ruleset)。核对分支、active、禁删除/改写历史与 bypass actors。
+
+首次成功 writer 创建账本分支。可信 `harness.yml` job 需要 `contents: write`、`pull-requests: write`、完整历史检出、Git 作者/提交者身份及临时克隆的 `gh auth setup-git` 凭据。真实合并后只读核对：
+
+```sh
+gh api repos/OWNER/REPO/rulesets --paginate
+gh api repos/OWNER/REPO/branches/harness-audit
+gh api repos/OWNER/REPO/actions/permissions/workflow
+```
+
+确认 active ruleset 包含 `deletion`、`non_fast_forward` 且无意外 bypass，并核对实际工作流权限及账本文件/锚点评论。权限错误表示该项尚未核验，使用用户已有授权读取，不扩大 Agent 令牌。writer 有 `continue-on-error` 隔离，main 检查绿不能代替账本发布成功证据。
+
+## 当前状态
+
+引擎版本仍为 0.1.0，发版版本/tag 由用户决定。B46 实现（含 T501/T502 与 T601 全链夹具）已合并；阶段升级、消费方等价、真实 R0/R2 链复原与审计已核验。最终文档与用户平台证据是剩余收尾门禁，不据此声称已发布新版本。英文文案、可配置目录、TypeScript 插件与接入探测仍在待办。
 
 ## 开发
 
@@ -79,4 +165,4 @@
 - 引擎仓库的每个改动都属于护栏本身，经 PR 由维护者批准；发布版本号由维护者确定后打 tag。
 - 新增或删除组件时同步更新本文件的「组成」与「原则与落点」。
 
-B46可观测性实施拆分草案：[执行计划](docs/plans/2026-09-29-observability-execution-plan.md)、[共用合同](docs/plans/2026-09-29-observability-task-contracts.md)、[需求追溯表](docs/plans/2026-09-29-observability-traceability.md)。OpenCode第二轮已给可提交结论，当前仍待用户审定设计细化。
+B46 可观测性设计、实现合同与门禁定义：[执行计划](docs/plans/2026-09-29-observability-execution-plan.md)、[共用合同](docs/plans/2026-09-29-observability-task-contracts.md)、[需求追溯表](docs/plans/2026-09-29-observability-traceability.md)。
