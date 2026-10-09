@@ -174,10 +174,10 @@ Confirm the active ledger ruleset contains `deletion` and `non_fast_forward` rul
 
 ## Status
 
-The engine version remains 0.1.0; the maintainer decides the release version and tag. B46 observability implementation is merged, including T501/T502 and the T601 complete-chain fixtures. Phase upgrades, consumer equivalence and real R0/R2 PR reconstruction/audits have been verified; final documentation and owner platform evidence are the remaining closeout gates. This does not claim a new release. English messages/prompts, configurable directories, a TypeScript plugin and project adoption remain planned — see [CHANGELOG](CHANGELOG.md).
+The engine version remains 0.1.0; the maintainer decides the release version and tag. B46 observability implementation is merged, including T501/T502 and the T601 complete-chain fixtures. Phase upgrades, consumer equivalence, real R0/R2 PR reconstruction/audits, final documentation (T602) and the owner's platform check are complete, so B46 is closed; only the release version and tag remain, decided by the maintainer. This does not claim a new release. English messages/prompts, configurable directories, a TypeScript plugin and project adoption remain planned — see [CHANGELOG](CHANGELOG.md).
 
 This repository develops itself with its own engine: `.harness/`, `bin/`, the git and agent hooks and `.github/workflows/` are this project's own instance (with `.harness/engine/` a vendored copy of the previous merged engine), not part of the product. The product is `engine/` and `templates/`.
 
-Security model and limits: [SECURITY.md](SECURITY.md). License: [MIT](LICENSE). Development rules, backlog and roadmap (in Chinese): [AGENTS.md](AGENTS.md), [docs/backlog.md](docs/backlog.md), [docs/plans/2026-09-29-roadmap.md](docs/plans/2026-09-29-roadmap.md).
+Security model and limits: [SECURITY.md](SECURITY.md). License: [MIT](LICENSE). Development rules, maintainer workflow, backlog and roadmap (in Chinese): [AGENTS.md](AGENTS.md), [docs/maintainers.md](docs/maintainers.md), [docs/backlog.md](docs/backlog.md), [docs/plans/2026-09-29-roadmap.md](docs/plans/2026-09-29-roadmap.md).
 
 B46 observability design, implementation contracts and gate definitions (in Chinese): [execution plan](docs/plans/2026-09-29-observability-execution-plan.md), [task contracts](docs/plans/2026-09-29-observability-task-contracts.md), [requirements traceability](docs/plans/2026-09-29-observability-traceability.md).

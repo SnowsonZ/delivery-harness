@@ -1,40 +1,34 @@
 # delivery-harness
 
-AI 编码 Agent 的可验证交付引擎：判定器、护栏、风险判级与合并路由、派发与独立评审。以带锁文件的内置副本装进业务仓库（`.harness/engine/` + `.harness/engine.lock`）。对外说明见 README.md（英文）与 README.zh-CN.md，安全模型见 SECURITY.md。
+AI 编码 Agent 的可验证交付引擎：判定器、护栏、风险判级与合并路由、派发与独立评审、可观测性（事件、trace、audit、告警）。以带锁文件的内置副本装进业务仓库（`.harness/engine/` + `.harness/engine.lock`）。对外说明见 README.md（英文）与 README.zh-CN.md，安全模型见 SECURITY.md。
+
+本文件适用于所有在本仓库工作的人与 Agent。**维护者**（负责派发、合并路由与发版的人）及其 Agent 另读 [docs/maintainers.md](docs/maintainers.md)。
 
 ## 开工先读
 
 - 未关闭事项只记在 `docs/backlog.md`（待办清单）：开工和恢复中断时先读；新增、开始、关闭的规则见该文件「使用规则」。
-- B46拆分入口：`docs/plans/2026-09-29-observability-execution-plan.md`；写任务书/派发前读取其追溯表与共用合同，依赖完成且用户逐次下令才执行。
-- 路线与已定设计：`docs/plans/2026-09-29-roadmap.md`（阶段划分、安装形态、面向开源原则、接入无感化、可观测性设计要点）。
-- 首个使用方是 [Agent-Notification](https://github.com/SnowsonZ/Agent-Notification)（本机 `../session-manager`，主目录只留给用户）；抽离决定见其 `docs/decisions/0001-harness-extraction.md`。
+- 路线与已定设计：`docs/plans/2026-09-29-roadmap.md`（阶段划分、安装形态、面向开源原则、接入无感化）。已完成阶段的设计与合同留在 `docs/plans/` 备查。
+
+## 结构
+
+- 产品是 `engine/`（只依赖 Python 标准库）与 `templates/`（安装时写入业务仓库，不覆盖已有文件）；测试在 `tests/`。
+- 本仓库用自己的引擎开发自己（自举）：`.harness/`、`bin/`、git 与 Agent 钩子、`.github/workflows/` 是本仓库的实例，不是产品。`.harness/engine/` 是上一次合并的引擎副本，不手改（`integrity` 检查会失败）；引擎改动合并后经 `upgrade` PR 才对本仓库生效。
+- 对外声明支持 Python ≥ 3.11，CI 实际用 3.12；3.14 下有已知失败（B125）。
 
 ## 开发与验证
 
-- 引擎在 `engine/`，只依赖 Python 标准库（≥ 3.11）；安装模板在 `templates/`；测试在 `tests/`。
-- 验证：`bin/verify --full`（含下面两条）；或直接 `python3 -m ruff check engine tests`（版本 0.16.8）与 `python3 -W error::ResourceWarning -m unittest discover -s tests -v`，Linux 覆盖由 harness 的完整验证提供，macOS 由 CI 分片覆盖；以对应命令/平台为准。通过与否只认命令与 CI 输出，不手写。
-- 在真实项目上验证（改判定逻辑、守卫、派发、配置读取时必做）：在 Agent-Notification 的独立 worktree 中运行 `python3 <本仓库>/engine/cli.py upgrade --target <worktree> --allow-dirty`，再跑它的 `bin/verify --full`（harness 契约测试 `tests/test_harness*.py` 暂在那边，待办 B42）。不在其主目录试装。
-- 一个设计拆成多个派发任务时按 `docs/task-splitting.md`：先跑通第一个任务，再拆完其余并做追溯表与独立拆分评审，一并提交。
-- 升级已接入的项目（如 Agent-Notification）按 `docs/upgrading.md`；改配置项、命令接口或模板配合方式时，在 CHANGELOG 写 `**Migration:**` 条目，`upgrade` 靠它提示。
-- 引擎与模板里不得出现使用者自己的值（账号、邮箱、模型、App、本机路径、项目名）：`tests/test_install.py` 的 OwnValuesTest 拦截；新增项目相关的值一律走 `.harness/config/` 配置，缺必填项明确报错。
-- 引擎运行时的提示与文案目前为中文，国际化见待办；代码注释、提交说明沿用中文，README.md、SECURITY.md、CHANGELOG.md 用英文。
+- 新环境：`pip install -r requirements-dev.txt`（ruff 0.16.8），`bin/harness guard-git install`。
+- 验证：`bin/verify --full`；或直接 `python3 -m ruff check engine tests` 与 `python3 -W error::ResourceWarning -m unittest discover -s tests -v`。Linux 由 `harness` 工作流覆盖，macOS 由 `ci` 工作流三个分片覆盖。通过与否只认命令与 CI 输出，不手写。
+- 告警、账本等命令会真实写 GitHub：文档验收与试跑只用假平台或 `--help`。
 
-## 可观测性与阶段收尾
+## 硬约束
 
-- 使用与安全边界见 README 双语「可观测性 / Observability」、SECURITY「Observability evidence」与 `docs/upgrading.md`。示例告警会真实发布，文档验收只用假平台或 `--help`；平台设置由用户执行。
-- `events` 导出/导入是整库模式，不能与查询过滤参数混用；`trace --ci` 的合法旧 head 信息不算失败，其余导入发现仍核对。`audit` 仅审已合并 PR，缺失/过期证据明确报告，不能把不可得写成 0 或核验成功。
-- `docs/runs/<任务书名>/<序号>.json` 记录派发尝试（attempt），由 dispatcher 在执行轮结束后生成；不同编号不等于任务书计划步骤。历史 stopped/clarify 保留，正常成功记录、CI/PR/合并资料共同构成完成证据。
-- 阶段门禁按实际输出认定：源码/模板未变的测试或文档收尾，G1 核对内置副本无需再升级，G2 不重复相同消费方等价验证。G4 平台证据不足则保留 B46 未完成状态；G5 版本/tag 只在用户发版决定后执行。
-- 续派前确认没有存活的旧执行方占用槽位，核对实际等待对象与输出；父编排进程退出不代表其 Pi 子进程结束。相关残余问题见待办 B77。
+- 引擎与模板里不得出现使用者自己的值（账号、邮箱、模型、App、本机路径、项目名）：`tests/test_install.py` 的 OwnValuesTest 拦截；项目相关的值一律走 `.harness/config/` 配置，缺必填项明确报错。
+- 不为通过检查而削弱判定、已有测试、质量棘轮、守卫或隐私过滤；检查本身有误时单独修正并说明理由。
+- 改配置项、命令接口或模板配合方式时，在 CHANGELOG 写 `**Migration:**` 条目（`upgrade` 靠它提示，流程见 `docs/upgrading.md`）；其他用户可见的行为变化写进 CHANGELOG「Unreleased」。
+- 语言：引擎运行时文案、代码注释、提交说明、开发文档用中文（国际化见待办 B47）；README.md、SECURITY.md、CHANGELOG.md 用英文。新增、迁移文档时同步 README 与本文件。
 
-## 提交与发布
+## 提交与合并
 
-- 所有改动经 PR，由用户批准合并（main 受 ruleset 保护：非推送者批准最后一次推送、两项 CI 必过、禁止改写与删除）。整个仓库都是护栏本身，按 R3 对待。
-- 推送、开 PR、评论用 Agent 账号 `Snowson`：`GH_TOKEN=$(gh auth token --user Snowson)` 且提交者设为该账号（参考 Agent-Notification 的 `bin/as-agent`）；不合并、不批准 PR。推送后用 `git ls-remote origin refs/heads/<分支>` 核对与 HEAD 一致再告诉用户（本机网络会让推送静默失败）。
-- 版本号与 tag 只由用户决定；发版前同步 `engine/__init__.py` 的 `__version__` 与 CHANGELOG。
-- 用户可见的行为变化写进 CHANGELOG「Unreleased」；新增、迁移文档时同步 README 与本文件。
-
-## 本机注意
-
-- 本仓库已自举（B49）：装有自己的内置引擎副本（`.harness/engine/`，是上一次合并的引擎，引擎改动合并后要再走 `upgrade` PR 才对本仓库自己生效）、`bin/verify`、`bin/dispatch`、git 层与 Agent 层守卫。新环境先 `bin/harness guard-git install`（`pip install -r requirements-dev.txt` 装 ruff），提交前 `bin/verify`。
-- 用户在对话中要的总结、解释直接在对话里答，不落文档（除非明确要求）。
+- 所有改动经 PR，`harness` 与 `test (macos-latest)` 两项 CI 必过；main 禁止改写与删除。
+- 风险等级以 `.harness/config/rules.toml` 为准：`.github/`、`.harness/`、`bin/` 与各 Agent 钩子目录是 R3（护栏），`engine/`、`templates/`、AGENTS.md 是 R2，`docs/specs/`、`docs/templates/` 与 `docs/plans/` 下日期前缀的设计与计划文档是合同（R2），任务书 `docs/plans/task-*.md` 另按其类别判级，README、CHANGELOG、`docs/backlog.md` 等是 R0。护栏改动必须由维护者审。

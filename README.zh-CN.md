@@ -152,17 +152,17 @@ gh api repos/OWNER/REPO/actions/permissions/workflow
 
 ## 当前状态
 
-引擎版本仍为 0.1.0，发版版本/tag 由用户决定。B46 实现（含 T501/T502 与 T601 全链夹具）已合并；阶段升级、消费方等价、真实 R0/R2 链复原与审计已核验。最终文档与用户平台证据是剩余收尾门禁，不据此声称已发布新版本。英文文案、可配置目录、TypeScript 插件与接入探测仍在待办。
+引擎版本仍为 0.1.0，发版版本/tag 由用户决定。B46 实现（含 T501/T502 与 T601 全链夹具）已合并；阶段升级、消费方等价、真实 R0/R2 链复原与审计、最终文档（T602）与维护者平台核对均已完成，B46 已关闭；只剩发版版本与 tag 由维护者决定，不据此声称已发布新版本。英文文案、可配置目录、TypeScript 插件与接入探测仍在待办。
 
 ## 开发
 
-开发入口与规则见 [AGENTS.md](AGENTS.md)；未关闭事项见 [docs/backlog.md](docs/backlog.md)，路线与已定设计见 [docs/plans/2026-09-29-roadmap.md](docs/plans/2026-09-29-roadmap.md)。
+开发入口与规则见 [AGENTS.md](AGENTS.md)，维护者工作流见 [docs/maintainers.md](docs/maintainers.md)；未关闭事项见 [docs/backlog.md](docs/backlog.md)，路线与已定设计见 [docs/plans/2026-09-29-roadmap.md](docs/plans/2026-09-29-roadmap.md)。
 
 本仓库用自己的引擎开发：`.harness/`、`bin/`、git 与 Agent 钩子、`.github/workflows/` 是本项目自己的实例（`.harness/engine/` 是上一次合并的引擎的内置副本），不属于产品；产品是 `engine/` 与 `templates/`。
 
 ## 维护
 
-- 引擎仓库的每个改动都属于护栏本身，经 PR 由维护者批准；发布版本号由维护者确定后打 tag。
+- 引擎仓库的改动都经 PR：按 `.harness/config/rules.toml` 判级、`autonomy.toml` 路由，部分类别由批准 App 自动合并，其余由维护者批准；发布版本号由维护者确定后打 tag。开发与维护规则见 [AGENTS.md](AGENTS.md) 与 [docs/maintainers.md](docs/maintainers.md)。
 - 新增或删除组件时同步更新本文件的「组成」与「原则与落点」。
 
 B46 可观测性设计、实现合同与门禁定义：[执行计划](docs/plans/2026-09-29-observability-execution-plan.md)、[共用合同](docs/plans/2026-09-29-observability-task-contracts.md)、[需求追溯表](docs/plans/2026-09-29-observability-traceability.md)。
