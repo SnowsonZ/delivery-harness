@@ -178,6 +178,6 @@ The engine version remains 0.1.0; the maintainer decides the release version and
 
 This repository develops itself with its own engine: `.harness/`, `bin/`, the git and agent hooks and `.github/workflows/` are this project's own instance (with `.harness/engine/` a vendored copy of the previous merged engine), not part of the product. The product is `engine/` and `templates/`.
 
-Security model and limits: [SECURITY.md](SECURITY.md). License: [MIT](LICENSE). Development rules, backlog and roadmap (in Chinese): [AGENTS.md](AGENTS.md), [docs/backlog.md](docs/backlog.md), [docs/plans/2026-09-29-roadmap.md](docs/plans/2026-09-29-roadmap.md).
+Security model and limits: [SECURITY.md](SECURITY.md). License: [MIT](LICENSE). Development rules, maintainer workflow, backlog and roadmap (in Chinese): [AGENTS.md](AGENTS.md), [docs/maintainers.md](docs/maintainers.md), [docs/backlog.md](docs/backlog.md), [docs/plans/2026-09-29-roadmap.md](docs/plans/2026-09-29-roadmap.md).
 
 B46 observability design, implementation contracts and gate definitions (in Chinese): [execution plan](docs/plans/2026-09-29-observability-execution-plan.md), [task contracts](docs/plans/2026-09-29-observability-task-contracts.md), [requirements traceability](docs/plans/2026-09-29-observability-traceability.md).
