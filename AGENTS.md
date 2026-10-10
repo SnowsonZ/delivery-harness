@@ -8,6 +8,7 @@ AI 编码 Agent 的可验证交付引擎：判定器、护栏、风险判级与�
 
 - 未关闭事项只记在 `docs/backlog.md`（待办清单）：开工和恢复中断时先读；新增、开始、关闭的规则见该文件「使用规则」。
 - 路线与已定设计：`docs/plans/2026-09-29-roadmap.md`（阶段划分、安装形态、面向开源原则、接入无感化）。已完成阶段的设计与合同留在 `docs/plans/` 备查。
+- 系统设计正源：`docs/plans/2026-09-27-target-state-design.md`（目标态设计：八环节 + 安全/人的角色/度量/自治四横切、三阶段路线），理论调研快照在 `docs/research/2026-09-23-agent-delivery-theory.md`，抽取决策在 `docs/decisions/`，建设期评审记录在 `docs/review/`。2026-10-09 起 harness 设计、调研与评审文档归本仓库，Agent-Notification 只留引用。
 
 ## 结构
 
