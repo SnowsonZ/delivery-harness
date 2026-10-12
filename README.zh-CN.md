@@ -12,8 +12,9 @@
 
 ## 理念来源
 
-- 调研报告《低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践》（2026-09-23），快照见 [Agent-Notification 仓库](https://github.com/SnowsonZ/Agent-Notification/blob/main/docs/research/2026-09-23-agent-delivery-theory.md)。先读「核心结论」和「3.2 八条设计原则」。
-- 本引擎在 [Agent-Notification](https://github.com/SnowsonZ/Agent-Notification) 中建成并验证，每条护栏都对应那里记录过的真实失败（[基线评审](https://github.com/SnowsonZ/Agent-Notification/blob/main/docs/review/2026-09-25-harness-baseline.md)）。
+- 调研报告《低人工干预下 AI Agent 持续高质量交付：理论与全链路最佳实践》（2026-09-23），快照见 [docs/research/2026-09-23-agent-delivery-theory.md](docs/research/2026-09-23-agent-delivery-theory.md)。先读「核心结论」和「3.2 八条设计原则」。
+- 系统的目标态设计（八环节 + 四横切、三阶段路线）见 [docs/plans/2026-09-27-target-state-design.md](docs/plans/2026-09-27-target-state-design.md)；抽取决策见 [docs/decisions/0001-harness-extraction.md](docs/decisions/0001-harness-extraction.md)。
+- 本引擎在 [Agent-Notification](https://github.com/SnowsonZ/Agent-Notification) 中建成并验证，每条护栏都对应那里记录过的真实失败（[基线评审](docs/review/2026-09-25-harness-baseline.md)）。
 
 ## 原则与落点
 

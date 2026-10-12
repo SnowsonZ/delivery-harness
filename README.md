@@ -181,3 +181,5 @@ This repository develops itself with its own engine: `.harness/`, `bin/`, the gi
 Security model and limits: [SECURITY.md](SECURITY.md). License: [MIT](LICENSE). Development rules, maintainer workflow, backlog and roadmap (in Chinese): [AGENTS.md](AGENTS.md), [docs/maintainers.md](docs/maintainers.md), [docs/backlog.md](docs/backlog.md), [docs/plans/2026-09-29-roadmap.md](docs/plans/2026-09-29-roadmap.md).
 
 B46 observability design, implementation contracts and gate definitions (in Chinese): [execution plan](docs/plans/2026-09-29-observability-execution-plan.md), [task contracts](docs/plans/2026-09-29-observability-task-contracts.md), [requirements traceability](docs/plans/2026-09-29-observability-traceability.md).
+
+The system's original target-state design (in Chinese) and the underlying research report snapshot moved into this repository on 2026-10-09 from the originating project: [target-state design](docs/plans/2026-09-27-target-state-design.md), [research snapshot](docs/research/2026-09-23-agent-delivery-theory.md), [extraction decision](docs/decisions/0001-harness-extraction.md); build-era reviews under [docs/review/](docs/review/).
