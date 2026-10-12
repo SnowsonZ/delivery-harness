@@ -62,6 +62,7 @@ jobs:
       sync_app_client_id_var: ${{ steps.policy.outputs.sync_app_client_id_var }}
       sync_app_private_key_secret: ${{ steps.policy.outputs.sync_app_private_key_secret }}
       environment: ${{ steps.policy.outputs.environment }}
+      eligible: ${{ steps.target.outputs.eligible }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -77,8 +78,32 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: git fetch --no-tags origin "$HEAD_SHA"
 
+      # 只判定指向默认分支的 PR：policy 固定以默认分支为 base，对指向其他分支（如独立试验分支）的 PR
+      # 判定没有意义，还可能对它打标签、请求评审或开启自动合并。事件里没带 PR 时按头分支查询打开的 PR；
+      # 仍查不到时按原行为继续。
+      - name: Target branch
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE: ${{ github.event.workflow_run.pull_requests[0].base.ref }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          base="$PR_BASE"
+          if [ -z "$base" ] && [ -n "$HEAD_BRANCH" ]; then
+            base=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${HEAD_BRANCH}" \
+              --jq '[.[].base.ref] | unique | join(" ")' 2>/dev/null || true)
+          fi
+          if [ -z "$base" ] || [ "$base" = "$DEFAULT_BRANCH" ]; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            echo "目标分支为 $base，不是默认分支 $DEFAULT_BRANCH：跳过合并判定"
+          fi
+
       - name: Merge policy of the evaluated head (default branch's rules)
         id: policy
+        if: steps.target.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -586,9 +611,14 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR: ${{ github.event.workflow_run.pull_requests[0].number }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          ELIGIBLE: ${{ needs.judge.outputs.eligible }}
         run: |
           if [ -z "$PR" ] || [ -z "$HEAD_BRANCH" ]; then
             echo "no associated PR, skipping"
+            exit 0
+          fi
+          if [ "$ELIGIBLE" = "false" ]; then
+            echo "PR does not target the default branch, skipping"
             exit 0
           fi
           python .harness/engine/cli.py alert budget_exhausted --pr "$PR" --trace "$HEAD_BRANCH" --bundle "$RUNNER_TEMP/judge-events" --json || true
