@@ -2,7 +2,7 @@
 # 不用 workflow_dispatch：它要求工作流文件在默认分支上，而本文件只在 pilot 分支。
 # 设计依据：agent-workflow-bp/designs/pilot-architecture/binding.md §3 与 trust.md §4、§5。
 #
-# 信任：先检出 PR 的 base（pilot）取得验收脚本、测试基线与开发工具版本，复制到工作区之外，
+# 信任：先检出 PR 的 base（pilot）取得验收脚本、测试基线与开发工具版本，复制到 runner 临时目录（工作区之外），
 # 之后才检出候选，候选的代码在此之前不会被执行。候选对 .github/ 的任何改动都会被宿主的 L2 拦截；即使漏过，本工作流也只用 base 上的脚本。
 # 产物 pilot-acceptance-<run>-<attempt> 由宿主按 C2 核对（被测提交、工作流来源、执行核对、修复证据）。
 name: pilot-acceptance
@@ -25,12 +25,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      OUT: ${{ github.workspace }}/../pilot-out
-      TOOLS: ${{ github.workspace }}/../pilot-tools
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       PR: ${{ github.event.pull_request.number }}
     steps:
+      # 产物与验收脚本放在 runner 临时目录（工作区之外的绝对路径）：upload-artifact 不接受含 .. 的路径，
+      # job 级 env 又用不了 runner 上下文，所以在这里写入 GITHUB_ENV
+      - name: Evidence and tool directories
+        run: |
+          echo "OUT=$RUNNER_TEMP/pilot-out" >> "$GITHUB_ENV"
+          echo "TOOLS=$RUNNER_TEMP/pilot-tools" >> "$GITHUB_ENV"
+
       - name: Checkout trusted base (pilot)
         uses: actions/checkout@v7
         with:
