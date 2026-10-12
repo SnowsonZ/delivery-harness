@@ -671,7 +671,7 @@ class ObservabilityTaskTest(unittest.TestCase):
         env["GITHUB_EVENT_NAME"] = "workflow_run"  # 告警 job 的事件条件（T715）：只在 workflow_run 运行
         context = {"github.event.workflow_run.pull_requests[0].number": "9",
                    "github.event.workflow_run.head_branch": TRACE,
-                   "github.event.workflow_run.id": "66",
+                   "github.event.workflow_run.id": "66", "needs.judge.outputs.eligible": "true",
                    "github.event.repository.default_branch": "main",
                    "github.token": "fake-token", "github.repository": "owner/repo"}
         replay = AlertReplay(project, env, context)
@@ -685,12 +685,22 @@ class ObservabilityTaskTest(unittest.TestCase):
         log.write_text("", encoding="utf-8")
         context = {"github.event.workflow_run.pull_requests[0].number": "",
                    "github.event.workflow_run.head_branch": TRACE,
-                   "github.event.workflow_run.id": "66",
+                   "github.event.workflow_run.id": "66", "needs.judge.outputs.eligible": "true",
                    "github.event.repository.default_branch": "main",
                    "github.token": "fake-token", "github.repository": "owner/repo"}
         replay = AlertReplay(project, env, context)
         replay.run(self.template("auto-merge.yml")["jobs"]["alert"]["steps"], stub=self.write_stub(project))
         self.assertEqual(log.read_text(encoding="utf-8"), "")  # 无关联 PR：跳过，不发布
+
+        # PR 指向非默认分支（judge 判定 eligible=false）：同样有可发布的证据，但告警步骤跳过，不发布
+        context = {"github.event.workflow_run.pull_requests[0].number": "9",
+                   "github.event.workflow_run.head_branch": TRACE,
+                   "github.event.workflow_run.id": "66", "needs.judge.outputs.eligible": "false",
+                   "github.event.repository.default_branch": "main",
+                   "github.token": "fake-token", "github.repository": "owner/repo"}
+        replay = AlertReplay(project, env, context)
+        replay.run(self.template("auto-merge.yml")["jobs"]["alert"]["steps"], stub=self.write_stub(project))
+        self.assertEqual(log.read_text(encoding="utf-8"), "")  # 非默认分支：跳过，不发布
 
     # ---------- 验收 4：告警 API 出错时原结论不变，告警失败被报告 ----------
 
