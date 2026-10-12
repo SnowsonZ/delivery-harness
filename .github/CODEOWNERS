@@ -1,0 +1,8 @@
+# pilot 分支（场景 1 试点）：候选可编辑范围之外的路径都由责任人负责。
+# 候选改到这些路径会先被宿主的 L2 检查拦截并升级；这里是服务端的第二道保护
+# （需在 pilot 的 ruleset 中开启 Code Owners 审查）。后面的规则覆盖前面的规则；
+# 只写路径、不写所有者的行表示无人负责，即候选可编辑范围（binding.md §4）。
+*                @SnowsonZ
+/engine/
+/templates/
+/CHANGELOG.md

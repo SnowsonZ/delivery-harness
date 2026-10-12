@@ -1,0 +1,129 @@
+# 场景 1 试点的受保护验收：对指向 pilot 分支的 PR 运行；推送到 pilot（初始化与每次合并）时在 pilot 头上测定测试基线。
+# 不用 workflow_dispatch：它要求工作流文件在默认分支上，而本文件只在 pilot 分支。
+# 设计依据：agent-workflow-bp/designs/pilot-architecture/binding.md §3 与 trust.md §4、§5。
+#
+# 信任：先检出 PR 的 base（pilot）取得验收脚本、测试基线与开发工具版本，复制到工作区之外，
+# 之后才检出候选，候选的代码在此之前不会被执行。候选对 .github/ 的任何改动都会被宿主的 L2 拦截；即使漏过，本工作流也只用 base 上的脚本。
+# 产物 pilot-acceptance-<run>-<attempt> 由宿主按 C2 核对（被测提交、工作流来源、执行核对、修复证据）。
+name: pilot-acceptance
+
+on:
+  pull_request:
+    branches: [pilot]
+  push:
+    branches: [pilot]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pilot-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      OUT: ${{ github.workspace }}/../pilot-out
+      TOOLS: ${{ github.workspace }}/../pilot-tools
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Checkout trusted base (pilot)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.BASE_SHA }}
+          path: trusted
+          persist-credentials: false
+
+      - name: Copy trusted acceptance script, baseline and tool pins
+        run: |
+          mkdir -p "$OUT" "$TOOLS"
+          cp trusted/.github/pilot/acceptance.py trusted/requirements-dev.txt "$TOOLS/"
+          if [ -f trusted/.github/pilot/test-baseline.json ]; then cp trusted/.github/pilot/test-baseline.json "$TOOLS/"; fi
+
+      # 拉取 PR 的测试合并提交（pull_request 事件的默认 ref）及完整历史；会清掉上一步的 trusted/，脚本已复制到工作区外
+      - name: Checkout candidate
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Bind candidate identity
+        if: github.event_name == 'pull_request'
+        run: |
+          [ "$(git rev-parse HEAD^2)" = "$HEAD_SHA" ] || { echo "::error::测试合并提交的第二父提交不是事件中的 head"; exit 1; }
+          [ "$(git rev-parse HEAD^1)" = "$BASE_SHA" ] || { echo "::error::测试合并提交的第一父提交不是事件中的 base"; exit 1; }
+          git branch --force pilot-merge HEAD
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned dev tools (from base)
+        run: python -m pip install --quiet -r "$TOOLS/requirements-dev.txt"
+
+      - name: Task base
+        if: github.event_name == 'pull_request'
+        run: python "$TOOLS/acceptance.py" task-base --base "$BASE_SHA" --head "$HEAD_SHA" --out "$OUT/task-base.json"
+
+      - name: Fix evidence — repro tests fail on the task base
+        if: github.event_name == 'pull_request'
+        run: |
+          task_base=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["task_base"]["sha"])' "$OUT/task-base.json")
+          ids=$(python -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["task_base"]["repro_tests"]))' "$OUT/task-base.json")
+          git checkout --quiet --detach "$task_base"
+          python -W error::ResourceWarning "$TOOLS/acceptance.py" run --expect fail --ids $ids --out "$OUT/fix-base.json"
+
+      - name: Fix evidence — repro tests pass on the head
+        if: github.event_name == 'pull_request'
+        run: |
+          ids=$(python -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1]))["task_base"]["repro_tests"]))' "$OUT/task-base.json")
+          git checkout --quiet --detach "$HEAD_SHA"
+          python -W error::ResourceWarning "$TOOLS/acceptance.py" run --expect pass --ids $ids --out "$OUT/fix-head.json"
+
+      - name: Checkout tested commit
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then git checkout --quiet --detach pilot-merge; fi
+          git rev-parse HEAD > "$OUT/tested-sha.txt"
+          git log -1 --format=%P HEAD > "$OUT/tested-parents.txt"
+          echo "tested $(cat "$OUT/tested-sha.txt") parents $(cat "$OUT/tested-parents.txt")"
+
+      - name: Lint
+        run: python -m ruff check engine tests
+
+      - name: Full test run
+        run: python -W error::ResourceWarning "$TOOLS/acceptance.py" run --out "$OUT/full.json"
+
+      - name: Execution check against baseline
+        if: github.event_name == 'pull_request'
+        run: python "$TOOLS/acceptance.py" check --result "$OUT/full.json" --baseline "$TOOLS/test-baseline.json" --out "$OUT/check.json"
+
+      - name: Measure baseline (push to pilot)
+        if: github.event_name == 'push'
+        run: python "$TOOLS/acceptance.py" baseline --result "$OUT/full.json" --out "$OUT/test-baseline.json"
+
+      - name: Identity of this run
+        if: ${{ always() }}
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          python - <<'PY'
+          import json, os
+          json.dump({k: os.environ.get(v, "") for k, v in {
+              "event": "GITHUB_EVENT_NAME", "pr": "PR", "base_sha": "BASE_SHA", "head_sha": "HEAD_SHA",
+              "run_id": "GITHUB_RUN_ID", "run_attempt": "GITHUB_RUN_ATTEMPT", "job": "GITHUB_JOB",
+              "workflow_ref": "WORKFLOW_REF", "workflow_sha": "WORKFLOW_SHA"}.items()},
+              open(os.path.join(os.environ["OUT"], "identity.json"), "w"), indent=2, sort_keys=True)
+          PY
+
+      - name: Upload evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pilot-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.OUT }}
+          retention-days: 90

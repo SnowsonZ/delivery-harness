@@ -6,7 +6,9 @@ name: harness
 on:
   push:
     branches: [main]
+  # pilot 分支（场景 1 试点）：只对指向 main 的 PR 运行，指向 pilot 的 PR 由 pilot-acceptance 验收
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
