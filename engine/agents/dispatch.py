@@ -57,11 +57,13 @@ from engine.agents.dispatch_slots import (  # noqa: F401  重新导出（T707）
     update_slot,
 )
 from engine.agents.dispatch_text import (  # noqa: F401  重新导出（T707）
+    GITHUB_BODY_LIMIT,
     _manual_section,
     _pr_title,
     _title,
     escalation_body,
     pr_body,
+    truncated_escalation_body,
 )
 from engine.agents.github import GitHub
 from engine.checks import taskbook
@@ -546,16 +548,47 @@ class Dispatcher:
     def escalate(self, task: Task, pr: int | None, attempt: Attempt, reason: str) -> None:
         body = escalation_body(task, attempt, reason, pr=pr)
         target = "pr" if pr is not None else "issue"
-        sent = False
+        sent, full_path = False, None
         try:
+            published = body
+            if len(body) > GITHUB_BODY_LIMIT:  # B91：超 GitHub 上限先截断，完整正文留在本机
+                full_path = _save_escalation_body(self.root, task, body)
+                published = truncated_escalation_body(body, full_path)
             if pr is not None:
-                self.github.comment(pr, body, label="escalation")
+                self.github.comment(pr, published, label="escalation")
             else:
-                self.github.create_issue(f"升级：{task.id} {reason}", body, labels=["escalation"])
+                self.github.create_issue(f"升级：{task.id} {reason}", published, labels=["escalation"])
             sent = True
+        except RuntimeError:
+            if full_path is None:  # 发布失败（B91）：完整正文先落盘再打印位置，原异常照常传播
+                full_path = _save_escalation_body(self.root, task, body)
+            if full_path is not None:
+                print(f"{task.id}：升级正文未能发布，完整正文已保存在本机：{full_path}", file=sys.stderr)
+            else:
+                print(f"{task.id}：升级正文未能发布，且完整正文本机保存失败", file=sys.stderr)
+            raise
         finally:
             observation.escalate(task.branch, pr, reason, target, body, sent)  # 评论失败也留事件
         print(f"{task.id}：{reason}，已升级")
+
+
+def _save_escalation_body(root: Path, task: Task, body: str) -> Path | None:
+    """完整升级正文落盘到本机状态目录（git 公共目录下 `dispatch/escalations/`，不入库），返回路径。
+
+    B91：正文超 GitHub 上限截断时与发布失败时都把完整正文留在这台机器上；落盘失败（含定位
+    状态目录的 git 调用失败）只打印警告并返回 None，不改变升级的发布路径，也不遮掩发布异常。
+    """
+    try:
+        folder = state_dir(root) / "escalations"
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%S%fZ")
+        safe_id = re.sub(r"[^A-Za-z0-9._-]", "_", task.id) or "escalation"
+        path = folder / f"{safe_id}-{stamp}.md"
+        path.write_text(body, encoding="utf-8")
+        return path
+    except (OSError, RuntimeError) as error:
+        print(f"警告：升级正文未能保存到本机状态目录（{error}）", file=sys.stderr)
+        return None
 
 
 EXIT_TEXT = {

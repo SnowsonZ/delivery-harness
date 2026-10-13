@@ -86,3 +86,22 @@ def escalation_body(task: Task, attempt: Attempt, reason: str, pr: int | None = 
     lines += alerts.timeline_lines(task.branch, pr)  # T205：trace、安全阶段摘要与时间线入口
     lines += ["完整事件流在派发机器本地（git 公共目录下 `dispatch/runs/`），不入库。"]
     return "\n".join(lines) + "\n"
+
+
+GITHUB_BODY_LIMIT = 65536  # GitHub 议题与评论正文的字符上限
+
+
+def truncated_escalation_body(body: str, full_path: Path | None) -> str:
+    """超过 GitHub 上限的升级正文（B91）：保留开头截断到上限内，并注明已截断与完整正文的位置。
+
+    full_path 是完整正文本机落盘路径（dispatch.escalate 落盘后传入）；落盘失败时为 None，
+    注明改为提示保存失败，不虚构位置。未超限时的正文不经这里，内容不变。
+    """
+    if full_path is not None:
+        note = (f"> **已截断**：正文超过 GitHub 的 {GITHUB_BODY_LIMIT} 字符上限，这里只保留开头；"
+                f"完整正文（{len(body)} 字符）已保存在本机：`{full_path}`")
+    else:
+        note = (f"> **已截断**：正文超过 GitHub 的 {GITHUB_BODY_LIMIT} 字符上限，这里只保留开头；"
+                "完整正文在本机保存失败，可从派发事件流 `dispatch/runs/` 找回。")
+    suffix = f"\n\n---\n\n{note}\n"
+    return body[:max(GITHUB_BODY_LIMIT - len(suffix), 0)] + suffix
