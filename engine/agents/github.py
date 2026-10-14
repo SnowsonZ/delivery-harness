@@ -12,6 +12,12 @@ from engine.core.common import ROOT, ci_workflows
 
 CI_QUERY_ATTEMPTS = 3  # 等 CI 时对 gh 查询的最多尝试次数
 CI_QUERY_RETRY_SECONDS = 5
+PUSH_ATTEMPTS = 3  # 推送最多尝试次数（B79：TLS 瞬断等网络故障退避重试，与 _ci_runs 的查询重试同族）
+PUSH_RETRY_SECONDS = (10, 30)  # 两次重试前各等的秒数（递增退避，每项对应一次重试，总计 40 秒 ≤ 60 秒）
+PUSH_TRANSIENT_MARKERS = (  # git 网络瞬断的报错特征（小写比对）：命中才重试；钩子拒绝等确定性失败不重试
+    "unable to access", "ssl", "could not resolve host", "connection",
+    "timed out", "timeout", "rpc failed", "unexpected disconnect", "hung up", "early eof",
+)
 
 
 # ---- GitHub（推送与写操作以 Agent 身份经 bin/as-agent） ----
@@ -32,7 +38,34 @@ class GitHub:
         return bool(self._run(["git", "ls-remote", "--heads", "origin", branch]))
 
     def push(self, slot: Path, branch: str) -> None:
-        self._run(["git", "push", "--quiet", "-u", "origin", branch], cwd=slot, agent=True)
+        """推送分支，一次成功即返回，不再推送、不等待（B79）：网络瞬断退避重试，最多尝试 PUSH_ATTEMPTS 次。
+
+        只重试报错命中 PUSH_TRANSIENT_MARKERS 的网络类失败；钩子拒绝等确定性失败不重试、不等待。
+        重试耗尽或确定性失败都抛 RuntimeError（调用方按 RuntimeError 处理，类型不变），写明分支与
+        该分支未推送的本地 head、保留最后一次失败的原因；升级通道报告与工作树回收不在本方法（B127）。
+        """
+        last: RuntimeError | None = None
+        for attempt in range(1, PUSH_ATTEMPTS + 1):
+            try:
+                self._run(["git", "push", "--quiet", "-u", "origin", branch], cwd=slot, agent=True)
+                return
+            except RuntimeError as error:
+                last = error
+                if attempt == PUSH_ATTEMPTS or not self._transient_push_error(error):
+                    break  # 最后一次失败后不再等待
+                time.sleep(PUSH_RETRY_SECONDS[attempt - 1])
+        raise RuntimeError(f"分支 {branch}（本地 head {self._branch_head(slot, branch)}）推送失败：{last}") from last
+
+    @staticmethod
+    def _transient_push_error(error: RuntimeError) -> bool:
+        return any(marker in str(error).lower() for marker in PUSH_TRANSIENT_MARKERS)
+
+    def _branch_head(self, slot: Path, branch: str) -> str:
+        """该分支的本地 head（完整 SHA，最终失败时写进错误）；取不到时如实注明，不盖住推送失败本身。"""
+        try:
+            return self._run(["git", "rev-parse", "--verify", f"refs/heads/{branch}"], cwd=slot)
+        except RuntimeError as error:
+            return f"<取不到：{error}>"
 
     # 正文一律经 stdin（--body-file -），不进命令行（规范 §2：不在引号里写 Markdown）。
     def open_pr(self, slot: Path, branch: str, title: str, body: str) -> int:
