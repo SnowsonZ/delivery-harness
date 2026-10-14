@@ -289,17 +289,26 @@ class _ProjectEventsSink:
 
     重定向变量只放进项目检查子进程的环境，由 events_db._harness_dir 按公共目录匹配生效；
     引擎检查与 verify 自身照常写真实事件库，夹具仓库等公共目录不同的子进程自行忽略。
+    建目录失败（B97）按「观察旁路失败不改变执行」降级：向 stderr 提示一行（写明原因）后
+    不做重定向，项目检查照常运行；同一个 sink 不重试，后续 env() 与 close() 不再提示。
     """
 
     def __init__(self) -> None:
         self._dir: str | None = None
+        self._failed = False  # mkdtemp 抛过 OSError：不再重试建目录，也不再有提示（B97）
 
     def env(self) -> dict[str, str]:
         common = events_db.common_dir()
-        if common is None:
+        if common is None or self._failed:
             return {}
         if self._dir is None:
-            self._dir = tempfile.mkdtemp(prefix="dh-verify-events-")
+            try:
+                self._dir = tempfile.mkdtemp(prefix="dh-verify-events-")
+            except OSError as error:
+                self._failed = True
+                print(f"verify：事件临时目录创建失败（{error}），项目检查不做事件重定向，照常运行",
+                      file=sys.stderr)
+                return {}
         return {"HARNESS_EVENTS_REDIRECT": json.dumps({"dir": self._dir, "for_common_dir": str(common)})}
 
     def close(self) -> None:
