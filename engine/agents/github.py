@@ -84,10 +84,19 @@ class GitHub:
             return None
 
     def comment(self, pr: int, body: str, label: str | None = None) -> str:
-        """评论 PR 并返回评论 URL（供观察事件记录；标签逻辑不变）。"""
+        """评论 PR 并返回评论 URL（供观察事件记录）。
+
+        B126①：评论已发出后加标签失败不再上抛——评论本身已送达，把失败抛回会让调用方
+        （Dispatcher.escalate）把它当成未送达：正文重复落盘、事件记为未发送；只向 stderr
+        打印警告（写明 PR 号、标签名与失败原因），URL 照常返回。评论命令本身失败仍抛
+        RuntimeError，且不尝试加标签；直接调 add_label 的失败照旧上抛，行为不变。
+        """
         url = self._run(["gh", "pr", "comment", str(pr), "--body-file", "-"], agent=True, stdin=body)
         if label:
-            self.add_label(pr, label)
+            try:
+                self.add_label(pr, label)
+            except RuntimeError as error:
+                print(f"警告：PR #{pr} 评论已发出，但加标签 {label} 失败：{error}", file=sys.stderr)
         return url
 
     def _ensure_label(self, label: str) -> None:
