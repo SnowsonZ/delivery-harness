@@ -1,13 +1,23 @@
-"""派发的槽位管理（T707 自 dispatch.py 逐字移出，行为不变）。
+"""派发的槽位管理（T707 自 dispatch.py 逐字移出；B93 起槽位互斥改用内核文件锁）。
 
 调用原模块的名字（state_dir、_alive、slot_path、_now、Stop、preserved_paths，以及原本同在
 一模块的 _registered_worktrees、_salvage_and_remove）时按需在函数体内导入 dispatch 并以
 属性访问：保留测试在原模块上的 patch 语义，也避免循环导入。
+
+槽位锁（B93）：`<state>/slots/<n>.json` 的互斥以 fcntl.flock 为准，做法与 review_lock 相同——
+O_CREAT|O_RDWR 打开、LOCK_EX|LOCK_NB，拿到后核对 fstat(fd) 与 stat(路径) 的 inode，不一致或
+路径已消失就关掉重来（上一持有者按「先删文件再关描述符」释放时，先开好文件的等待方拿到的正是那个
+已删除的旧 inode）。描述符由取得者登记并持有到 release_slot（先删锁文件、再关描述符），持有进程
+退出时内核自动放锁；锁内容（pid、task、branch、started_at 及 update_slot 追加的字段）只作展示，
+不参与判活——两个派发同时回收同一过期槽位时后到者拿不到 flock、各占各的槽位，不再删对方的新锁。
+兼容升级前的旧式锁：无人持 flock 但内容 pid 仍存活的锁视为占用，acquire_slot、return_slot 与
+reclaim_stale_slots 都不动它；pid 已退出、或内容为空或坏 JSON（持有者在写完之前退出）的锁照常回收。
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import fcntl
 import json
 import os
 import subprocess
@@ -22,6 +32,68 @@ from engine.core.common import git
 if TYPE_CHECKING:
     from engine.agents.dispatch import Config, Task
 
+_held: dict[str, int] = {}  # 本进程持有的槽位锁：锁文件路径 → 描述符（flock 保持到 release_slot）
+
+
+def _claim(lock: Path, *, create: bool) -> int | None:
+    """打开锁文件并取内核文件锁，核对 inode 后返回描述符；锁已被别人持有返回 None。
+
+    拿到的可能是上一持有者刚删除（先删文件再关描述符）的旧 inode：stat 与 fstat 不一致或路径已
+    消失就关掉重来，不得动别人按同一路径新建的锁。create=False 时不以 O_CREAT 重建（回收路径：
+    持有者已正常释放的锁直接跳过）。flock、打开的其他异常向上传播，已打开的描述符不残留。
+    """
+    while True:
+        try:
+            fd = os.open(lock, os.O_RDWR | (os.O_CREAT if create else 0), 0o644)
+        except FileNotFoundError:
+            return None
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                os.close(fd)
+                return None
+            try:
+                stale = os.stat(lock).st_ino != os.fstat(fd).st_ino
+            except FileNotFoundError:
+                stale = True
+        except BaseException:
+            os.close(fd)
+            raise
+        if stale:
+            os.close(fd)
+            continue
+        return fd
+
+
+def _content(lock: Path) -> dict:
+    """读锁文件里的持有信息（只作展示与旧式判活兼容）：读不到或不是 JSON 对象就当空。"""
+    try:
+        held = json.loads(lock.read_text(encoding="utf-8") or "{}")
+    except (OSError, ValueError):
+        return {}
+    return held if isinstance(held, dict) else {}
+
+
+def _holder_alive(data: dict) -> bool:
+    """旧式锁兼容：内容 pid 仍存活视为占用（升级前启动的派发，或只写文件的持有者）。
+
+    新机制不依赖它——持有者退出时内核已放锁；pid 缺失、非正整数或已退出都算无人。
+    """
+    from engine.agents import dispatch  # _alive 留在原模块，按需导入（T707 patch 语义）
+
+    pid = data.get("pid")
+    return isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 and dispatch._alive(pid)
+
+
+def _write_holder(fd: int, fields: dict) -> None:
+    """截断并重写持有信息（调用方已持 flock）：写到一半进程退出留下坏内容的锁，由下次派发照常回收。"""
+    os.ftruncate(fd, 0)
+    os.lseek(fd, 0, os.SEEK_SET)
+    payload = memoryview(json.dumps(fields, ensure_ascii=False).encode("utf-8"))
+    while payload:
+        payload = payload[os.write(fd, payload):]
+
 
 def acquire_slot(root: Path, config: Config, task: Task) -> tuple[int, Path]:
     from engine.agents import dispatch  # state_dir 等留在原模块，按需导入（T707）
@@ -30,18 +102,19 @@ def acquire_slot(root: Path, config: Config, task: Task) -> tuple[int, Path]:
     locks.mkdir(parents=True, exist_ok=True)
     for index in range(1, config.slots + 1):
         lock = locks / f"{index}.json"
-        if lock.exists():
-            held = json.loads(lock.read_text() or "{}")
-            if dispatch._alive(held.get("pid", 0)):
-                continue
-            lock.unlink()  # 持有者已退出：回收
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
+        fd = _claim(lock, create=True)
+        if fd is None:  # 别的派发正持着这把锁（含正在回收、尚未写完的）：跳过
             continue
-        with os.fdopen(fd, "w") as handle:
-            json.dump({"pid": os.getpid(), "task": task.id, "branch": task.branch,
-                       "started_at": dispatch._now()}, handle)
+        try:
+            if _holder_alive(_content(lock)):
+                os.close(fd)  # 旧式存活锁（升级前的派发，或只写文件的持有者）：视为占用
+                continue
+            _write_holder(fd, {"pid": os.getpid(), "task": task.id, "branch": task.branch,
+                               "started_at": dispatch._now()})
+        except BaseException:
+            os.close(fd)  # 持有信息尚未登记：不残留内核锁，槽位留给下次派发
+            raise
+        _held[str(lock)] = fd
         return index, dispatch.slot_path(root, config, index)
     observation.slot(task.branch, None, problem=f"{config.slots} 个槽位都在使用中")
     raise dispatch.Stop(f"{config.slots} 个槽位都在使用中：稍后再派发，或用 bin/dispatch status 查看")
@@ -59,7 +132,13 @@ def update_slot(root: Path, index: int, **fields) -> None:
 def release_slot(root: Path, index: int) -> None:
     from engine.agents import dispatch  # state_dir 留在原模块，按需导入（T707）
 
-    (dispatch.state_dir(root) / "slots" / f"{index}.json").unlink(missing_ok=True)
+    lock = dispatch.state_dir(root) / "slots" / f"{index}.json"
+    fd = _held.pop(str(lock), None)  # 先撤销登记：unlink 失败也不给已关闭的描述符留登记
+    try:
+        lock.unlink(missing_ok=True)  # 仍持锁时先删文件（等待方靠 inode 核对重来）；失败原异常上抛
+    finally:
+        if fd is not None:
+            os.close(fd)  # 描述符总要关闭：内核随之放锁，因 unlink 失败而保留的文件不再被占用
 
 
 def backup_uncommitted(slot: Path, branch: str) -> str | None:
@@ -138,10 +217,12 @@ def _salvage_and_remove(root: Path, slot: Path, push) -> None:
 
 
 def reclaim_stale_slots(root: Path, config: Config, push) -> list[str]:
-    """崩溃路径无法归还时的槽位回收（B77）：锁文件 pid 不存活的槽在下次派发前强制回收。
+    """崩溃路径无法归还时的槽位回收（B77）：无人持 flock 且旧 pid 不存活的槽在下次派发前强制回收。
 
-    槽内分支有未推提交先推送保全再删工作树；推送失败停止派发（保数据优先，不静默丢提交），
-    现场保留待人工处理。返回被回收槽位曾认领的分支名（链路自愈提示用）。
+    互斥同样以 flock 为准：列举后打开即被持有（flock 拿不到，含正在重建的锁）或已消失（持有者正常
+    释放）的槽位直接跳过——不重建锁文件、不调用其工作树保全或删除；旧式存活 pid 的锁（升级前的
+    派发）也不动。槽内分支有未推提交先推送保全再删工作树；推送失败停止派发（保数据优先，不静默
+    丢提交），现场保留待人工处理。返回被回收槽位曾认领的分支名（链路自愈提示用）。
     """
     from engine.agents import dispatch  # state_dir 等留在原模块，按需导入（T707）
 
@@ -152,37 +233,48 @@ def reclaim_stale_slots(root: Path, config: Config, push) -> list[str]:
     for lock in sorted(locks.glob("*.json"), key=lambda path: int(path.stem) if path.stem.isdigit() else 0):
         if not lock.stem.isdigit():
             continue
-        try:
-            data = json.loads(lock.read_text() or "{}")
-        except ValueError:
-            data = {}
-        if dispatch._alive(data.get("pid", 0)):
+        fd = _claim(lock, create=False)
+        if fd is None:  # 已被持有或持有者已正常释放：不归本进程回收
             continue
         try:
-            dispatch._salvage_and_remove(root, dispatch.slot_path(root, config, int(lock.stem)), push)
-        except (RuntimeError, subprocess.CalledProcessError) as error:
-            raise dispatch.Stop(f"槽位 {lock.stem} 回收失败（分支提交保全未完成，工作树保留待人工处理）：{error}") from error
-        reclaimed.append(str(data.get("branch") or ""))
-        lock.unlink(missing_ok=True)
+            data = _content(lock)
+            if _holder_alive(data):
+                continue  # 旧式存活锁：不动
+            try:
+                dispatch._salvage_and_remove(root, dispatch.slot_path(root, config, int(lock.stem)), push)
+            except (RuntimeError, subprocess.CalledProcessError) as error:
+                raise dispatch.Stop(
+                    f"槽位 {lock.stem} 回收失败（分支提交保全未完成，工作树保留待人工处理）：{error}") from error
+            reclaimed.append(str(data.get("branch") or ""))
+            lock.unlink(missing_ok=True)  # 仍持锁时删除；描述符由 finally 关闭
+        finally:
+            os.close(fd)
     return reclaimed
 
 
 def return_slot(root: Path, config: Config, index: int, push) -> None:
     """派发结束路径统一归还槽位（B77）：worktree remove + 锁清理。
 
-    run 结束时锁已先释放；归还前先重新独占槽位锁——拿不到说明已有下一次派发认领该槽，
-    不删它正准备使用的工作树。删除失败只提示，残留交给下次派发的回收路径。
+    run 结束时锁已先释放；归还前先按同一套 flock 机制重新独占槽位锁——拿不到（已有下一次派发
+    认领）或旧式存活锁仍占用时，不动它正准备使用的工作树。删除失败只提示，残留交给下次派发的
+    回收路径。
     """
     from engine.agents import dispatch  # state_dir 等留在原模块，按需导入（T707）
 
     lock = dispatch.state_dir(root) / "slots" / f"{index}.json"
     lock.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
+    fd = _claim(lock, create=True)
+    if fd is None:
         return
-    with os.fdopen(fd, "w") as handle:
-        json.dump({"pid": os.getpid(), "task": "return", "started_at": dispatch._now()}, handle)
+    try:
+        if _holder_alive(_content(lock)):
+            os.close(fd)  # 旧式存活锁：下一次派发还占着，不动它的现场
+            return
+        _write_holder(fd, {"pid": os.getpid(), "task": "return", "started_at": dispatch._now()})
+    except BaseException:
+        os.close(fd)  # 登记前失败：不残留内核锁，异常原样上抛
+        raise
+    _held[str(lock)] = fd
     try:
         dispatch._salvage_and_remove(root, dispatch.slot_path(root, config, index), push)
     except (RuntimeError, subprocess.CalledProcessError) as error:
