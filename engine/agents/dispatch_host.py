@@ -66,12 +66,38 @@ def executor_env(base: dict[str, str], identity: dict[str, str], gh_config_dir: 
     return env
 
 
-def _activity(cwd: Path, events: Path) -> tuple[int, str]:
-    size = events.stat().st_size if events.exists() else 0
+def _activity(cwd: Path, events: Path) -> tuple:
+    """活动采样（B128）：事件流大小 + git 状态 + 状态所列每个工作区文件的大小与高精度 mtime。
+
+    执行方没有输出却持续改写同一个非忽略文件时，事件流大小与 git 状态文字都可能不变，只比较
+    这两样会把仍在工作的进程误判成卡死。这里用 `git status --porcelain -uall -z` 枚举改动
+    （非忽略未跟踪子目录逐文件展开，路径不经引号转义，空格文件名原样），对每个路径做
+    os.lstat——不读文件正文、不跟随符号链接：链接只采自身元数据，位于忽略目录、.git 内部或
+    仓库外的目标变化不能刷新活动时间。文件在采样间隙消失（FileNotFoundError 等 OSError）就
+    跳过该项，采样不崩溃也不伪造活动。
+    """
+    try:
+        size = events.stat().st_size
+    except OSError:
+        size = 0
     status = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=cwd, capture_output=True, text=True, check=False
+        ["git", "status", "--porcelain", "-uall", "-z"], cwd=cwd, capture_output=True, check=False
     ).stdout
-    return size, status
+    sampled, fields, index = [], status.split(b"\0"), 0
+    while index < len(fields):
+        token = fields[index]
+        index += 1
+        if len(token) <= 3:
+            continue
+        if b"R" in token[0:2] or b"C" in token[0:2]:
+            index += 1  # -z 的重命名记录第二段是原路径（多半已不在工作区），第一段才是现路径
+        path = os.fsdecode(token[3:])
+        try:
+            info = os.lstat(cwd / path)
+        except OSError:
+            continue
+        sampled.append((path, info.st_size, info.st_mtime_ns))
+    return size, status, tuple(sampled)
 
 
 def _terminate(process: subprocess.Popen, grace: float = 10.0) -> None:
@@ -97,7 +123,8 @@ def run_monitored(
     stop_flag: Path | None = None,
     on_start=None,
 ) -> tuple[str, int | None, float]:
-    """运行执行方直到结束、超时、卡死（stall_seconds 内既无输出也无文件变化）或收到停机标记。"""
+    """运行执行方直到结束、超时、卡死（stall_seconds 内既无输出、git 状态无变化、状态所列
+    工作区文件的大小与高精度 mtime 也无变化，见 _activity）或收到停机标记。"""
     events.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     with open(events, "wb") as out:
