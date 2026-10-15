@@ -16,6 +16,7 @@ import json
 import os
 import re
 import signal
+import stat
 import subprocess
 import time
 from collections import Counter
@@ -66,12 +67,76 @@ def executor_env(base: dict[str, str], identity: dict[str, str], gh_config_dir: 
     return env
 
 
-def _activity(cwd: Path, events: Path) -> tuple[int, str]:
-    size = events.stat().st_size if events.exists() else 0
-    status = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=cwd, capture_output=True, text=True, check=False
-    ).stdout
-    return size, status
+def _activity(cwd: Path, events: Path) -> tuple[int, str, tuple]:
+    """活动采样（B128）：事件流字节数、git 状态原文、状态涉及文件的元数据指纹。
+
+    状态文字在「持续改写同一已改文件」时不变（同大小重写、`AM` 一直如此），单靠它会
+    误判 stall，所以补采每个状态路径的 (ino, size, mtime_ns)：只 lstat 不读正文、不跟随
+    链接——链接条目只采自身元数据，目标（哪怕在忽略目录、.git 内或仓库外）变化不算
+    活动；采样子路径前先核对全部中间目录分量都是真实目录，任一分量是符号链接就整条
+    跳过。路径来自 `git status --porcelain -z -uall`（-z 不转义路径，含空格原样；-uall
+    展开未跟踪目录），天然不含 .git 与忽略目录。单个条目消失或不可读按缺失记，不崩。
+    """
+    try:
+        size = events.stat().st_size
+    except OSError:
+        size = 0
+    probe = subprocess.run(
+        ["git", "status", "--porcelain", "-z", "-uall"], cwd=cwd, capture_output=True, check=False
+    )
+    status = probe.stdout.decode("utf-8", "replace")
+    return size, status, _fingerprints(cwd, status)
+
+
+def _fingerprints(cwd: Path, status: str) -> tuple:
+    """每个状态路径一条 (路径, 指纹)；porcelain 路径相对仓库根，先定位根再采样。"""
+    paths = _status_paths(status)
+    if not paths:
+        return ()
+    top = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True, check=False
+    )
+    if top.returncode != 0:  # 不在 git 仓库里：没有可采样的工作区，退回只看输出与状态文字
+        return ()
+    root = Path(top.stdout.strip())
+    return tuple((path, _fingerprint(root, path)) for path in paths)
+
+
+def _status_paths(status: str) -> list[str]:
+    """porcelain v1 -z 的路径段：`XY 路径`；重命名/复制条目在 -z 下再跟一段来源路径，跳过。"""
+    paths: list[str] = []
+    skip_origin = False
+    for entry in status.split("\0"):
+        if not entry:
+            continue
+        if skip_origin:
+            skip_origin = False
+            continue
+        if len(entry) < 4 or entry[2] != " ":
+            continue
+        paths.append(entry[3:])
+        skip_origin = "R" in entry[:2] or "C" in entry[:2]
+    return paths
+
+
+def _fingerprint(root: Path, rel: str) -> tuple[int, int, int] | None:
+    """单条路径的 lstat 指纹 (ino, size, mtime_ns)；缺失或被跳过统一 None，采样不抛错。"""
+    parts = rel.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        return None
+    branch = root
+    for part in parts[:-1]:
+        try:
+            if not stat.S_ISDIR(branch.joinpath(part).lstat().st_mode):
+                return None  # 中间分量是符号链接等占位：它指向的树不是本仓库的工作区
+        except OSError:
+            return None
+        branch = branch / part
+    try:
+        info = branch.joinpath(parts[-1]).lstat()
+    except OSError:
+        return None
+    return (info.st_ino, info.st_size, info.st_mtime_ns)
 
 
 def _terminate(process: subprocess.Popen, grace: float = 10.0) -> None:
@@ -97,7 +162,11 @@ def run_monitored(
     stop_flag: Path | None = None,
     on_start=None,
 ) -> tuple[str, int | None, float]:
-    """运行执行方直到结束、超时、卡死（stall_seconds 内既无输出也无文件变化）或收到停机标记。"""
+    """运行执行方直到结束、超时、卡死（stall_seconds 内输出、git 状态与状态涉及文件的
+    元数据皆无变化，见 _activity 的采样边界：链接目标与链接经过的目录树不算）或收到停机标记。
+
+    绝对 deadline_seconds 与 stop_flag 优先于活动判定，持续活动不能绕过；自然退出仍按
+    退出码给 ok/error。"""
     events.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     with open(events, "wb") as out:
