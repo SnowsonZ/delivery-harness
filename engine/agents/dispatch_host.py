@@ -94,11 +94,18 @@ def _fingerprints(cwd: Path, status: str) -> tuple:
     if not paths:
         return ()
     top = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True, check=False
+        ["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, check=False
     )
     if top.returncode != 0:  # 不在 git 仓库里：没有可采样的工作区，退回只看输出与状态文字
         return ()
-    root = Path(top.stdout.strip())
+    # B129：按字节取输出，只去掉 Git 协议在末尾追加的那一个记录分隔符 \n。目录名里
+    # 真实的末尾空白（空格、制表符、换行、回车）属于路径本身，必须原样保留——text=True
+    # 的通用换行转换会改写名字里的 \r，strip() 会把末尾空白截掉，采样随之落到被截短
+    # 的同名路径上（存在就采到别的仓库，不存在就全按缺失记，安静执行方都会被误判 stall）。
+    raw = top.stdout
+    if raw.endswith(b"\n"):
+        raw = raw[:-1]
+    root = Path(raw.decode("utf-8", "replace"))
     return tuple((path, _fingerprint(root, path)) for path in paths)
 
 
