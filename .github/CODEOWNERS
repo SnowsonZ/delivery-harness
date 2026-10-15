@@ -6,3 +6,7 @@
 /engine/
 /templates/
 /CHANGELOG.md
+
+# 试点合同要求的R0记录及责任人复现；执行方仍不得修改tests，C3核对当前任务测试。
+/docs/backlog.md
+/tests/test_pilot_*.py
