@@ -66,12 +66,34 @@ def executor_env(base: dict[str, str], identity: dict[str, str], gh_config_dir: 
     return env
 
 
-def _activity(cwd: Path, events: Path) -> tuple[int, str]:
+def _activity(cwd: Path, events: Path) -> tuple[int, str, tuple[tuple, ...]]:
+    """活动采样（B128）：事件流大小 + git 状态文字 + 状态清单里每个文件的大小与高精度 mtime。
+
+    安静执行方反复改写同一文件时，porcelain 文字可能始终相同（同大小的已修改索引文件、
+    一直存在的非忽略未跟踪文件），只比文字会漏判活动；故对状态清单里的每个路径再 stat
+    （st_size/st_mtime_ns），同大小改写与持续增长都能刷新 last_change。约束：只 stat 不读
+    文件正文；git 自身不列出 .git 与忽略路径，-uall 只是把未跟踪目录展开成文件，不做递归
+    扫描；-z 原样字节解析（含空格的文件名安全，无引号转义），--no-renames 保证一条记录
+    恰一个路径。cwd 是槽位 worktree 根，porcelain 路径相对仓库根，二者一致。文件在采样
+    间隙被删记为 None（与存在状态区分，恢复才算变化），不因 FileNotFoundError 中断。
+    """
     size = events.stat().st_size if events.exists() else 0
-    status = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=cwd, capture_output=True, text=True, check=False
-    ).stdout
-    return size, status
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "-z", "--no-renames", "-uall"],
+        cwd=cwd, capture_output=True, check=False,
+    )
+    files = []
+    for record in result.stdout.split(b"\0"):
+        if len(record) <= 3:  # 空（结尾 NUL 之后）或畸形记录；正常记录前缀是「XY 」3 字节
+            continue
+        path = os.fsdecode(record[3:])
+        try:
+            info = (cwd / path).stat()
+        except OSError:  # 采样间隙被删（含 FileNotFoundError）：记 None，不等它、不崩
+            files.append((path, None))
+        else:
+            files.append((path, info.st_size, info.st_mtime_ns))
+    return size, result.stdout.decode("utf-8", "replace"), tuple(files)
 
 
 def _terminate(process: subprocess.Popen, grace: float = 10.0) -> None:
@@ -97,7 +119,7 @@ def run_monitored(
     stop_flag: Path | None = None,
     on_start=None,
 ) -> tuple[str, int | None, float]:
-    """运行执行方直到结束、超时、卡死（stall_seconds 内既无输出也无文件变化）或收到停机标记。"""
+    """运行执行方直到结束、超时、卡死（stall_seconds 内输出、工作区文件与 git 状态都无变化，B128）或收到停机标记。"""
     events.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     with open(events, "wb") as out:
