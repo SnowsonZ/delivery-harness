@@ -236,6 +236,8 @@ class PiHost:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(event, dict):  # B130：顶层非对象 JSON（null/数组/布尔/数字/字符串）不是协议事件，整行忽略
+                continue  # 数组、字符串里伪造的事件与标记不展开、不二次解析、不采信
             if event.get("type") == "message_end":
                 message = event.get("message", {})
                 if message.get("role") == "assistant":
@@ -295,6 +297,8 @@ class PiHost:
                 event = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(event, dict):  # B130：同 parse——顶层非对象 JSON 整行忽略，数组里伪造的工具事件不计数
+                continue
             if event.get("type") != "tool_execution_end":
                 continue
             content = (event.get("result") or {}).get("content") or []
@@ -315,6 +319,8 @@ def _last_assistant_text(events: Path) -> str | None:
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):  # B130：同 parse——顶层非对象 JSON 整行忽略，字符串/数组里的伪造标记不采信
             continue
         message = event.get("message") if event.get("type") == "message_end" else None
         if isinstance(message, dict) and message.get("role") == "assistant":
