@@ -34,6 +34,7 @@ _PR_RE = re.compile(r"#?(\d+)\Z")
 _DURATION_RE = re.compile(r"(\d+)([dhms])\Z")
 _UNITS = {"d": 86400, "h": 3600, "m": 60, "s": 1}
 _FAILURES = ("fail", "deny", "error")
+_TIME_FLOOR = datetime.min.replace(tzinfo=UTC)
 
 
 def _parse_since(text: str) -> datetime:
@@ -57,6 +58,19 @@ def _parse_ts(value) -> datetime | None:
     except ValueError:
         return None
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _chrono_key(ts: str) -> tuple[int, datetime]:
+    """时间排序前缀：按解析出的实际 UTC 时刻（naive 沿用既有 UTC 解释）排序，合法 ISO 的时区与
+    精度差异不再倒序；不可解析的历史时间串排在可解析时刻之后（仍参与 source/seq 定序），原文照常
+    展示、不抛异常。"""
+    moment = _parse_ts(ts)
+    return (0, moment) if moment is not None else (1, _TIME_FLOOR)
+
+
+def _order_key(row: dict) -> tuple:
+    """事件展示次序：实际 UTC 时刻优先，同一时刻按 source、seq 保持确定性次序（B131）。"""
+    return (*_chrono_key(row["ts"]), row["source"], row["seq"])
 
 
 # ---- events：过滤、计数与 C5 导出/导入 ----
@@ -122,8 +136,7 @@ def events_main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     filtered = args.since is not None or args.stage is not None or args.status is not None
-    rows = sorted(events_io.query(since=since, stage=args.stage, status=args.status),
-                  key=lambda row: (row["ts"], row["source"], row["seq"]))
+    rows = sorted(events_io.query(since=since, stage=args.stage, status=args.status), key=_order_key)
     total = len(events_io.query()) if filtered else len(rows)
     if args.json:
         print(json.dumps({"count": len(rows), "total": total, "counts": _counts(rows),
@@ -277,7 +290,9 @@ def _segment_events(rows: list[dict], records: list[Candidate]) -> tuple[list[di
         bucket = buckets.setdefault(key, {"segment": key, "attempt": attempt, "head": head,
                                           "start": row["ts"], "end": row["ts"], "count": 0})
         bucket["end"], bucket["count"] = row["ts"], bucket["count"] + 1
-    return sorted(buckets.values(), key=lambda item: item["start"]), labels
+    # 段列表按实际起始时刻排序（ts 原文可能有时区/精度差异）；start/end 已在时间序遍历中
+    # 保持为该段实际首尾事件的原文
+    return sorted(buckets.values(), key=lambda item: _chrono_key(item["start"])), labels
 
 
 def _longest_stage(rows: list[dict]) -> dict | None:
@@ -302,7 +317,7 @@ def _first_failure(rows: list[dict]) -> dict | None:
 
 
 def _timeline(trace_id: str, records: list[Candidate]) -> dict:
-    rows = sorted(events_io.query(trace_id=trace_id), key=lambda row: (row["ts"], row["source"], row["seq"]))
+    rows = sorted(events_io.query(trace_id=trace_id), key=_order_key)
     segments, labels = _segment_events(rows, records)
     return {"trace_id": trace_id, "chains": sorted({row["source"] for row in rows}),
             "segments": segments, "counts": _counts(rows),
