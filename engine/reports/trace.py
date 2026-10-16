@@ -2,16 +2,18 @@
 
     python3 cli.py events [--since 1d] [--stage verify] [--status deny] [--json]
                           [--export 路径 | --import 路径]
-        过滤展示与计数；--export/--import 走 C5 的整库导出与幂等导入（展示过滤不进导出包，筛选后
-        的断链子集不是可导入 bundle）。非法枚举/时间/组合返回 2；导入有发现返回 1。
+        过滤展示与计数（列表按实际 UTC 时刻排序，同一时刻沿用来源与写入次序）；--export/--import 走
+        C5 的整库导出与幂等导入（展示过滤不进导出包，筛选后的断链子集不是可导入 bundle）。非法枚举/
+        时间/组合返回 2；导入有发现返回 1。
 
     python3 cli.py trace <任务编号 | PR 号 | 分支> [--ci] [--json]
         任务号经运行记录（docs/runs，task 字段须相符）与任务书文件名映射到分支；PR 号经 API
         headRefName 换分支（不读检出分支，也不读 PR 正文）；完整分支名即 trace。多分支同任务、或
-        分支关联多个 PR 时列出候选（attempt/链头/时间），不随意选第一条。时间线标注输入/输出引用、
-        决定、角色、时长、来源与尝试分段（运行记录窗口优先，CI 链按来源各成一段），汇总最长阶段与
-        首个失败（deny/fail/error 区分）。--ci 经 C5 load_ci 下载 PR 关联的 CI 事件包幂等导入后再
-        展示；缺本机库或下载有发现时如实报告，不当成功。
+        分支关联多个 PR 时列出候选（attempt/链头/时间），不随意选第一条。时间线按实际 UTC 时刻
+        排序，标注输入/输出引用、决定、角色、时长、来源与尝试分段（运行记录窗口优先，CI 链按来源
+        各成一段，分段按实际起始时刻排序、起止保留时间戳原文），汇总最长阶段与首个失败
+        （deny/fail/error 区分）。--ci 经 C5 load_ci 下载 PR 关联的 CI 事件包幂等导入后再展示；
+        缺本机库或下载有发现时如实报告，不当成功。
 
 退出码：0 正常（含歧义候选）；1 运行受阻（gh 失败、--ci 未完成或导入有发现）；2 参数与解析错误。
 """
@@ -49,14 +51,47 @@ def _parse_since(text: str) -> datetime:
 
 
 def _parse_ts(value) -> datetime | None:
-    """记录/事件里的时间戳 → aware UTC；缺失或损坏返回 None（按无法分段处理）。"""
+    """记录/事件里的时间戳 → aware UTC；缺失或损坏返回 None（按无法分段处理）。
+
+    规范化到 UTC 会越过 datetime 原生范围（如 0001-01-01T00:00:00+01:00 换算是 0000-12-31T23:00Z）
+    同样返回 None：不能表示到 UTC 的时刻不可能命中可表示的有效窗口，按窗口外处理即可。
+    """
     if not isinstance(value, str):
         return None
     try:
         parsed = datetime.fromisoformat(value.strip())
     except ValueError:
         return None
-    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    try:
+        return parsed.astimezone(UTC)
+    except OverflowError:
+        return None
+
+
+def _moment(value) -> datetime | None:
+    """时间戳原文 → 实际时刻（naive 沿用既有解释按 UTC 对待）；缺失或损坏返回 None。
+
+    只用于排序，不做 astimezone 规范化：aware 时刻直接按实际时刻比较，合法 ISO 的极端年份
+    （0001/9999 边界带偏移）换算到 UTC 会越界，比较本身不受影响。
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
+def _row_order(row: dict) -> tuple:
+    """展示排序键：(实际时刻, source, seq)，同一时刻沿用来源与写入次序；无法解析的旧时间串
+    排在可解析之后、按 source/seq 定序（原文保留、不抛异常）。"""
+    moment = _moment(row["ts"])
+    if moment is None:
+        return (1, row["source"], row["seq"])
+    return (0, moment, row["source"], row["seq"])
 
 
 # ---- events：过滤、计数与 C5 导出/导入 ----
@@ -122,8 +157,7 @@ def events_main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     filtered = args.since is not None or args.stage is not None or args.status is not None
-    rows = sorted(events_io.query(since=since, stage=args.stage, status=args.status),
-                  key=lambda row: (row["ts"], row["source"], row["seq"]))
+    rows = sorted(events_io.query(since=since, stage=args.stage, status=args.status), key=_row_order)
     total = len(events_io.query()) if filtered else len(rows)
     if args.json:
         print(json.dumps({"count": len(rows), "total": total, "counts": _counts(rows),
@@ -257,7 +291,11 @@ def _ci_attempt(source: str) -> int | None:
 
 
 def _segment_events(rows: list[dict], records: list[Candidate]) -> tuple[list[dict], dict[int, dict]]:
-    """时间线分段：本机运行记录窗口（attempt/链头/起止）优先，CI 来源链各成一段，其余未分段。"""
+    """时间线分段：本机运行记录窗口（attempt/链头/起止）优先，CI 来源链各成一段，其余未分段。
+
+    rows 已按实际时刻排序，段内 start/end（保留 ts 原文）即该段实际首尾；分段列表按实际起始
+    时刻排序（无法解析排后，按段名定序），attempt/head/count 归属不变。
+    """
     windows = [(item, _parse_ts(item.ts), _parse_ts(item.end)) for item in records
                if item.origin == "run_record"]
     windows = [(item, start, end) for item, start, end in windows if start and end]
@@ -277,7 +315,10 @@ def _segment_events(rows: list[dict], records: list[Candidate]) -> tuple[list[di
         bucket = buckets.setdefault(key, {"segment": key, "attempt": attempt, "head": head,
                                           "start": row["ts"], "end": row["ts"], "count": 0})
         bucket["end"], bucket["count"] = row["ts"], bucket["count"] + 1
-    return sorted(buckets.values(), key=lambda item: item["start"]), labels
+    starts = {key: _moment(bucket["start"]) for key, bucket in buckets.items()}
+    order = sorted(buckets, key=lambda key: ((0, starts[key], key) if starts[key] is not None
+                                             else (1, key)))
+    return [buckets[key] for key in order], labels
 
 
 def _longest_stage(rows: list[dict]) -> dict | None:
@@ -302,7 +343,7 @@ def _first_failure(rows: list[dict]) -> dict | None:
 
 
 def _timeline(trace_id: str, records: list[Candidate]) -> dict:
-    rows = sorted(events_io.query(trace_id=trace_id), key=lambda row: (row["ts"], row["source"], row["seq"]))
+    rows = sorted(events_io.query(trace_id=trace_id), key=_row_order)
     segments, labels = _segment_events(rows, records)
     return {"trace_id": trace_id, "chains": sorted({row["source"] for row in rows}),
             "segments": segments, "counts": _counts(rows),
