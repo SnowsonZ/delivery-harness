@@ -227,7 +227,11 @@ class PiHost:
         return command + [prompt]
 
     def parse(self, events: Path) -> tuple[str, dict, dict[str, int]]:
-        """从 json 事件流取模型、token 与费用、守卫拒绝次数（按理由计，不含命令）。"""
+        """从 json 事件流取模型、token 与费用、守卫拒绝次数（按理由计，不含命令）。
+
+        B130：顶层非对象 JSON 值（null/数组/布尔/数字/字符串）不是协议事件，整行忽略，
+        不展开、不二次解析、不采信其中伪造的事件或上下文标记；其余对象事件照常处理。
+        """
         model, usage, denials = "", Counter(), Counter()
         if not events.exists():
             return model, {}, {}
@@ -235,6 +239,8 @@ class PiHost:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):  # B130：整行忽略，继续后面的对象事件
                 continue
             if event.get("type") == "message_end":
                 message = event.get("message", {})
@@ -260,6 +266,7 @@ class PiHost:
         无标记保留 unknown、标记后坏 JSON/非数组/条目不合规保留 invalid，都不冒充无缺失。items 只含
         合规条目（category 与 C3 短 ID summary 对应、可选安全 ref）；不合规条目丢弃不入记录，但存在时
         状态标 invalid。长文、会话正文、本机路径不进条目；诊断只留本地可见的短 ID。
+        顶层非对象 JSON 行不是事件，不参与、不覆盖最后一条合法 assistant 消息（B130）。
         """
         text = _last_assistant_text(events)
         if not text or CONTEXT_MARKER not in text:
@@ -285,7 +292,7 @@ class PiHost:
         """观察计数（B46 T105）：按每个 tool_execution_end 计一次完成——结果带守卫拒绝标记的计
         guard_denied（一次调用一次，拒绝理由条数不冒充调用数），其余（成功或普通失败）计
         guard_allowed（守卫放行，不代表工具成功）。missing_context 取 parse_context 的安全条目
-        （B46 T202）；返回恰此 3 键。"""
+        （B46 T202）；返回恰此 3 键。顶层非对象 JSON 行不是事件，不计入工具完成（B130）。"""
         counts = {"guard_allowed": 0, "guard_denied": 0,
                   "missing_context": self.parse_context(events)["items"]}
         if not events.exists():
@@ -294,6 +301,8 @@ class PiHost:
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):  # B130：整行忽略，不计入工具完成
                 continue
             if event.get("type") != "tool_execution_end":
                 continue
@@ -306,7 +315,8 @@ class PiHost:
 def _last_assistant_text(events: Path) -> str | None:
     """流中最后一条 assistant 完成消息的正文（text 部分拼接）；流缺失或无 assistant 消息返回 None。
 
-    只认 message_end 携带的最终权威消息，工具输出（tool_execution_end）不参与，伪造标记不采信。
+    只认 message_end 携带的最终权威消息，工具输出（tool_execution_end）不参与，伪造标记不采信；
+    顶层非对象 JSON 行不是事件，整行忽略，最后的合法消息不被后续噪声覆盖（B130）。
     """
     if not events.exists():
         return None
@@ -315,6 +325,8 @@ def _last_assistant_text(events: Path) -> str | None:
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):  # B130：整行忽略，权威消息保持不变
             continue
         message = event.get("message") if event.get("type") == "message_end" else None
         if isinstance(message, dict) and message.get("role") == "assistant":
