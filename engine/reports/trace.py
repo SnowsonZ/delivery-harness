@@ -39,15 +39,26 @@ _FAILURES = ("fail", "deny", "error")
 
 
 def _parse_since(text: str) -> datetime:
-    """--since 的取值：<n><d|h|m|s> 相对时长或 ISO 时间戳；不合法抛 ValueError（命令转退出码 2）。"""
+    """--since 的取值：<n><d|h|m|s> 相对时长或 ISO 时间戳；不合法或超出 UTC 可表示范围抛
+    ValueError（命令转退出码 2），不钳制、不回退。
+
+    datetime 原生可读但换算到 UTC 越界的值（0001/9999 极端年份带偏移）与过大的相对时长
+    （timedelta 构造溢出、与当前时刻相减下溢）同样按参数错误拒绝。
+    """
     match = _DURATION_RE.fullmatch(text.strip())
     if match:
-        return datetime.now(UTC) - timedelta(seconds=int(match[1]) * _UNITS[match[2]])
+        try:
+            return datetime.now(UTC) - timedelta(seconds=int(match[1]) * _UNITS[match[2]])
+        except OverflowError:
+            raise ValueError(f"--since 时长超出可表示的 UTC 范围：{text}") from None
     try:
         parsed = datetime.fromisoformat(text.strip())
     except ValueError:
         raise ValueError(f"--since 无法解析为时长或 UTC 时间：{text}") from None
-    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+    try:
+        return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+    except OverflowError:
+        raise ValueError(f"--since 时间换算到 UTC 超出可表示范围：{text}") from None
 
 
 def _parse_ts(value) -> datetime | None:
